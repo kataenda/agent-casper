@@ -15,9 +15,8 @@ import { Rocket, CheckCircle, Loader, AlertCircle } from "lucide-react";
 import { useWalletStore } from "@/lib/walletStore";
 
 const BACKEND = "http://localhost:8000";
-const NODE_URL = "https://node.testnet.cspr.cloud";
-const CHAIN    = "casper-test";
-const PAYMENT  = "150000000000"; // 150 CSPR
+const CHAIN   = "casper-test";
+const PAYMENT = "150000000000"; // 150 CSPR
 
 type Step = "idle" | "fetching-wasm" | "building" | "signing" | "submitting" | "waiting" | "done" | "error";
 
@@ -84,7 +83,7 @@ export function DeployPanel() {
       // ── 4. Submit ─────────────────────────────────────────────────────
       setStep("submitting");
       const signedJson = Deploy.toJSON(signed);
-      const rpcRes  = await fetch(NODE_URL, {
+      const rpcRes  = await fetch(`${BACKEND}/rpc`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -156,7 +155,7 @@ export function DeployPanel() {
 // ── Poll until deploy finalized + return contract hash ─────────────────────────
 
 async function pollForContractHash(deployHash: string, publicKey: string): Promise<string> {
-  const base     = "https://api.testnet.cspr.cloud";
+  const base     = "http://localhost:8000";
   const deadline = Date.now() + 180_000;
 
   while (Date.now() < deadline) {
