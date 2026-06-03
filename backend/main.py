@@ -187,6 +187,79 @@ async def get_decisions(limit: int = 10):
     ]
 
 
+class SetupContractRequest(BaseModel):
+    vault_contract_hash: str
+    agent_account_hash: str
+
+
+@app.post("/admin/setup")
+async def setup_contract(req: SetupContractRequest):
+    """
+    Called by the frontend after deploying the contract via connected wallet.
+    Updates agent config without requiring a server restart.
+    """
+    global agent
+    if not req.vault_contract_hash.startswith("hash-"):
+        raise HTTPException(400, "vault_contract_hash must start with 'hash-'")
+    if not req.agent_account_hash.startswith("account-hash-"):
+        raise HTTPException(400, "agent_account_hash must start with 'account-hash-'")
+
+    # Persist to .env
+    env_path = ".env"
+    try:
+        lines = open(env_path).readlines() if __import__("os").path.exists(env_path) else []
+        updated = {
+            "VAULT_CONTRACT_HASH": req.vault_contract_hash,
+            "AGENT_ACCOUNT_HASH":  req.agent_account_hash,
+        }
+        new_lines, seen = [], set()
+        for line in lines:
+            key = line.split("=")[0].strip()
+            if key in updated:
+                new_lines.append(f"{key}={updated[key]}\n")
+                seen.add(key)
+            else:
+                new_lines.append(line)
+        for k, v in updated.items():
+            if k not in seen:
+                new_lines.append(f"{k}={v}\n")
+        open(env_path, "w").writelines(new_lines)
+    except Exception as e:
+        logger.warning("Could not write .env: %s", e)
+
+    # Hot-reload agent config
+    if agent:
+        agent.vault_contract_hash = req.vault_contract_hash
+        agent.agent_account_hash  = req.agent_account_hash
+        logger.info("Contract config updated live: %s", req.vault_contract_hash[:24])
+
+    return {
+        "status": "ok",
+        "vault_contract_hash": req.vault_contract_hash,
+        "agent_account_hash":  req.agent_account_hash,
+        "message": "Agent config updated — no restart needed",
+    }
+
+
+@app.get("/admin/setup/wasm")
+async def get_wasm():
+    """Serve the compiled WASM for browser-side deploy signing."""
+    import os
+    from fastapi.responses import Response
+    wasm_paths = [
+        "../contracts/wasm/yield_vault.wasm",
+        "contracts/wasm/yield_vault.wasm",
+    ]
+    for path in wasm_paths:
+        if os.path.isfile(path):
+            return Response(
+                content=open(path, "rb").read(),
+                media_type="application/wasm",
+                headers={"Content-Disposition": "attachment; filename=yield_vault.wasm"},
+            )
+    raise HTTPException(404, "WASM not built yet — run GitHub Actions workflow first")
+
+
 class ManualRebalanceRequest(BaseModel):
     conservative_pct: int
     balanced_pct: int
