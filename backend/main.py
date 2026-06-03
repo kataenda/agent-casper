@@ -6,8 +6,13 @@ Provides REST API + WebSocket for real-time agent monitoring.
 import asyncio
 import json
 import logging
+import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Optional
+
+# Ensure we always load .env from the backend/ directory regardless of cwd
+os.chdir(Path(__file__).parent)
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
