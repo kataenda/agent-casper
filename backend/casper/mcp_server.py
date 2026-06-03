@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Casper MCP Server — exposes Casper blockchain tools for AI agents via
+Casper MCP Server - exposes Casper blockchain tools for AI agents via
 the Model Context Protocol (MCP).
 
 Run standalone:
@@ -23,7 +23,7 @@ from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp import types
 
-# RWA oracle (same process — import directly)
+# RWA oracle (same process - import directly)
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 from casper.rwa_oracle import RWAOracle
 
@@ -32,7 +32,7 @@ _rwa_oracle = RWAOracle()
 # Quiet logging so stdio transport is not polluted
 logging.basicConfig(level=logging.WARNING, stream=sys.stderr)
 
-# Official CSPR.cloud endpoints — https://www.casper.network/ai
+# Official CSPR.cloud endpoints - https://www.casper.network/ai
 CASPER_NODE_URL = os.getenv("CASPER_NODE_URL", "https://node.testnet.cspr.cloud")
 CSPR_CLOUD_BASE = os.getenv("CSPR_CLOUD_BASE_URL", "https://api.testnet.cspr.cloud")
 CSPR_CLOUD_KEY  = os.getenv("CSPR_CLOUD_API_KEY", "")
@@ -42,7 +42,7 @@ _mock_block = 3_000_000
 app = Server("casper-blockchain")
 
 
-# ── Tool definitions ───────────────────────────────────────────────────────────
+# -- Tool definitions ----------------------------------------------------------
 
 @app.list_tools()
 async def list_tools() -> list[types.Tool]:
@@ -68,8 +68,7 @@ async def list_tools() -> list[types.Tool]:
             name="casper_get_vault_portfolio",
             description=(
                 "Query the YieldVault smart contract state: total deposited CSPR, "
-                "current strategy allocation percentages (conservative/balanced/aggressive), "
-                "and last rebalance timestamp. Use this to understand current position."
+                "current strategy allocation percentages, and last rebalance timestamp."
             ),
             inputSchema={
                 "type": "object",
@@ -85,20 +84,16 @@ async def list_tools() -> list[types.Tool]:
         types.Tool(
             name="casper_get_rwa_prices",
             description=(
-                "Fetch current Real-World Asset (RWA) prices relevant to DeFi yield optimization: "
-                "PAXG (PAX Gold — tokenized gold RWA, 1 token = 1 troy oz of physical gold), "
-                "US Treasury 10Y yield as the risk-free rate baseline, and WTI crude oil as an "
-                "inflation proxy. Use these to calibrate risk-adjusted thresholds: "
-                "e.g., if Treasury yield > 5%, require higher DeFi APY premium before rebalancing to aggressive. "
-                "Rising gold signals flight-to-safety; prefer conservative in that scenario."
+                "Fetch current Real-World Asset (RWA) prices: "
+                "PAXG (tokenized gold), US Treasury 10Y yield, and WTI crude oil. "
+                "Use to calibrate risk-adjusted yield decisions on Casper."
             ),
             inputSchema={"type": "object", "properties": {}, "required": []},
         ),
         types.Tool(
             name="casper_get_account_balance",
             description=(
-                "Get the CSPR token balance (in motes and CSPR) for a Casper account. "
-                "Use to check agent wallet balance before deciding on large rebalances."
+                "Get the CSPR token balance (in motes and CSPR) for a Casper account."
             ),
             inputSchema={
                 "type": "object",
@@ -114,7 +109,7 @@ async def list_tools() -> list[types.Tool]:
     ]
 
 
-# ── Tool implementations ───────────────────────────────────────────────────────
+# -- Tool implementations ------------------------------------------------------
 
 @app.call_tool()
 async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextContent]:
@@ -153,7 +148,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
     return [types.TextContent(type="text", text=json.dumps({"error": f"Unknown tool: {name}"}))]
 
 
-# ── Casper data fetchers ───────────────────────────────────────────────────────
+# -- Casper data fetchers -------------------------------------------------------
 
 async def _rpc_block_height() -> int:
     global _mock_block
@@ -172,14 +167,10 @@ async def _rpc_block_height() -> int:
 
 
 def _simulated_yield_rates() -> dict:
-    """
-    Returns yield rates for all three strategies.
-    In production: fetch from CSPR.cloud DeFi protocol APIs.
-    """
     strategies = [
         {
             "strategy": "conservative",
-            "description": "Staking in vetted Casper validators — minimal slashing risk",
+            "description": "Staking in vetted Casper validators - minimal slashing risk",
             "apy_bps":   300 + random.randint(-25, 25),
             "tvl_cspr":  500_000 + random.randint(-10_000, 10_000),
             "risk_score": 0.15,
@@ -195,7 +186,7 @@ def _simulated_yield_rates() -> dict:
         },
         {
             "strategy": "aggressive",
-            "description": "High-yield CSPR.trade DEX pools — impermanent loss risk",
+            "description": "High-yield CSPR.trade DEX pools - impermanent loss risk",
             "apy_bps":   1500 + random.randint(-150, 300),
             "tvl_cspr":  300_000 + random.randint(-30_000, 30_000),
             "risk_score": 0.75,
@@ -208,10 +199,10 @@ def _simulated_yield_rates() -> dict:
 
 
 async def _query_vault_portfolio(contract_hash: str) -> dict:
-    if CSPR_CLOUD_KEY and not contract_hash.endswith("demo"):
+    if CSPR_CLOUD_KEY and not contract_hash.endswith("demo") and "xxx" not in contract_hash:
         try:
             headers = {
-                "Authorization": f"Bearer {CSPR_CLOUD_KEY}",
+                "Authorization": CSPR_CLOUD_KEY,
                 "Content-Type": "application/json",
             }
             url = f"{CSPR_CLOUD_BASE}/global-state/named-key"
@@ -232,29 +223,28 @@ async def _query_vault_portfolio(contract_hash: str) -> dict:
         "conservative_pct": 0,
         "balanced_pct": 0,
         "aggressive_pct": 0,
-        "current_strategy": "—",
+        "current_strategy": "N/A",
         "last_rebalance_timestamp": 0,
-        "_note": "Contract not deployed — click Deploy Contract in dashboard",
+        "_note": "Contract not deployed - click Deploy Contract in dashboard",
     }
 
 
 async def _query_account_balance(account_hash: str) -> int:
-    if CSPR_CLOUD_KEY and not account_hash.endswith("demo"):
+    if CSPR_CLOUD_KEY and not account_hash.endswith("demo") and "xxx" not in account_hash:
         try:
             headers = {"Authorization": CSPR_CLOUD_KEY, "Accept": "application/json"}
             url = f"{CSPR_CLOUD_BASE}/accounts/{account_hash}"
             async with httpx.AsyncClient(headers=headers) as c:
                 resp = await c.get(url, timeout=10)
                 if resp.status_code == 200:
-                    obj = resp.json()
-                    data = obj.get("data", obj)
-                    return int(data.get("balance", "0"))
+                    obj = resp.json().get("data", resp.json())
+                    return int(obj.get("balance", "0"))
         except Exception:
             pass
-    return 100_000_000_000_000  # 100,000 CSPR demo
+    return 0
 
 
-# ── Entry point ────────────────────────────────────────────────────────────────
+# -- Entry point ---------------------------------------------------------------
 
 async def main():
     async with stdio_server() as (read_stream, write_stream):
