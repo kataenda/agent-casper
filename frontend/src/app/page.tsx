@@ -74,14 +74,15 @@ export default function DashboardPage() {
 
   const { connected, latestCycle, cycles } = useAgentStore();
 
-  const portfolio  = latestCycle?.portfolio;
-  const decision   = latestCycle?.decision;
-  const totalCspr  = portfolio
+  const portfolio   = latestCycle?.portfolio;
+  const decision    = latestCycle?.decision;
+  const hasContract = portfolio && portfolio.total_value_motes > 0;
+  const totalCspr   = hasContract
     ? (portfolio.total_value_motes / 1e9).toLocaleString(undefined, { maximumFractionDigits: 0 })
     : "—";
   const rebalances  = cycles.filter(c => c.decision.action === "REBALANCE").length;
   const lastAction  = decision?.action ?? "—";
-  const confidence  = decision ? `${(decision.confidence * 100).toFixed(0)}%` : "—";
+  const confidence  = decision && decision.confidence > 0 ? `${(decision.confidence * 100).toFixed(0)}%` : "—";
   const blockHeight = latestCycle?.block_height ? `#${latestCycle.block_height.toLocaleString()}` : "—";
   const actionAccent =
     lastAction === "REBALANCE" ? "#00F5FF" : lastAction === "ALERT" ? "#FF2D55" : "#4B5563";
@@ -124,8 +125,8 @@ export default function DashboardPage() {
       {/* ── Stat cards ─────────────────────────────────────────── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 shrink-0 mb-2">
         <StatCard icon={TrendingUp} label="Portfolio Value"
-          value={`${totalCspr} CSPR`}
-          sub={portfolio?.current_strategy ? `Strategy: ${portfolio.current_strategy}` : "Awaiting data"}
+          value={hasContract ? `${totalCspr} CSPR` : "—"}
+          sub={hasContract ? `Strategy: ${portfolio.current_strategy}` : "Deploy contract first"}
           accent="#00F5FF" />
         <StatCard icon={RefreshCw} label="Rebalances"
           value={String(rebalances)} sub={`of ${cycles.length} cycles`} accent="#BF5AF2" />
@@ -175,9 +176,9 @@ export default function DashboardPage() {
         <Panel className="flex flex-col min-h-0" style={{ gridColumn: "3", gridRow: "1" }}>
           <PanelLabel text="Allocation Matrix" accent="#BF5AF2" />
           <div className="flex-1 min-h-0 flex items-center justify-center">
-            {portfolio
+            {hasContract
               ? <AllocationDonut portfolio={portfolio} />
-              : <span className="text-[9px] font-mono text-cyber-muted uppercase tracking-widest">Awaiting data...</span>
+              : <span className="text-[9px] font-mono text-cyber-muted uppercase tracking-widest">Deploy contract first</span>
             }
           </div>
         </Panel>

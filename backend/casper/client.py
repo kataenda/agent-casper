@@ -99,34 +99,33 @@ class CasperClient:
         except Exception:
             return None
 
-    async def fetch_simulated_yield_rates(self) -> list[YieldRate]:
-        """
-        Simulated yield rates — production: fetch from DeFi protocols via CSPR.cloud.
-        CSPR.trade DEX data available via https://mcp.cspr.trade (CSPR.trade MCP).
-        """
-        return [
-            YieldRate(strategy="conservative", apy_bps=300 + random.randint(-20, 20),
-                      tvl_cspr=500_000, risk_score=0.15),
-            YieldRate(strategy="balanced",     apy_bps=700 + random.randint(-50, 50),
-                      tvl_cspr=1_200_000, risk_score=0.40),
-            YieldRate(strategy="aggressive",   apy_bps=1500 + random.randint(-100, 200),
-                      tvl_cspr=300_000, risk_score=0.75),
-        ]
+
+    def _is_placeholder(self, value: str) -> bool:
+        """True when the hash/account is still the default placeholder."""
+        return "xxx" in value or value.endswith("-demo")
 
     async def get_vault_portfolio(self, contract_hash: str) -> PortfolioState:
-        """Reads portfolio state from YieldVault contract. Falls back to mock data."""
+        """Reads portfolio state from YieldVault contract. Returns zeros until deployed."""
+        if self._is_placeholder(contract_hash):
+            return PortfolioState(
+                total_value_motes=0, conservative_pct=0, balanced_pct=0,
+                aggressive_pct=0, current_strategy="—", last_rebalance_timestamp=0,
+            )
         try:
             portfolio_data = await self.get_contract_state(contract_hash, "portfolio")
             if portfolio_data:
                 return PortfolioState(**portfolio_data)
         except Exception:
             pass
-
         return PortfolioState(
-            total_value_motes=50_000_000_000_000,
-            conservative_pct=30,
-            balanced_pct=50,
-            aggressive_pct=20,
-            current_strategy="balanced",
-            last_rebalance_timestamp=0,
+            total_value_motes=0, conservative_pct=0, balanced_pct=0,
+            aggressive_pct=0, current_strategy="—", last_rebalance_timestamp=0,
         )
+
+    async def fetch_simulated_yield_rates(self) -> list[YieldRate]:
+        """Simulated yield rates — placeholder until real DeFi protocol integration."""
+        return [
+            YieldRate(strategy="conservative", apy_bps=0, tvl_cspr=0, risk_score=0.0),
+            YieldRate(strategy="balanced",     apy_bps=0, tvl_cspr=0, risk_score=0.0),
+            YieldRate(strategy="aggressive",   apy_bps=0, tvl_cspr=0, risk_score=0.0),
+        ]
