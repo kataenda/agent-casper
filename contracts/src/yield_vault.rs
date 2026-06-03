@@ -77,6 +77,7 @@ pub struct RwaPriceUpdated {
 
 /// YieldVault — main smart contract
 /// Manages deposits, AI-agent-driven yield rebalancing, and on-chain RWA price oracle
+/// Casper Agentic Buildathon 2026
 #[odra::module(events = [Deposited, Withdrawn, Rebalanced, AgentRegistered, EmergencyPaused, RwaPriceUpdated])]
 pub struct YieldVault {
     owner: Var<Address>,

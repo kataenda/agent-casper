@@ -2,8 +2,7 @@ name: Build YieldVault WASM
 
 on:
   push:
-    paths:
-      - "contracts/**"
+    branches: [master, main]
   workflow_dispatch:
 
 permissions:
