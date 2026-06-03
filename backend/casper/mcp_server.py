@@ -227,14 +227,14 @@ async def _query_vault_portfolio(contract_hash: str) -> dict:
             pass
 
     return {
-        "total_value_motes": 50_000_000_000_000,
-        "total_value_cspr": 50_000_000,
-        "conservative_pct": 30,
-        "balanced_pct": 50,
-        "aggressive_pct": 20,
-        "current_strategy": "balanced",
+        "total_value_motes": 0,
+        "total_value_cspr": 0,
+        "conservative_pct": 0,
+        "balanced_pct": 0,
+        "aggressive_pct": 0,
+        "current_strategy": "—",
         "last_rebalance_timestamp": 0,
-        "_note": "Demo portfolio — deploy contract to testnet for live data",
+        "_note": "Contract not deployed — click Deploy Contract in dashboard",
     }
 
 
