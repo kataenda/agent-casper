@@ -21,7 +21,6 @@ frontend/.next/
 
 # Rust build
 contracts/target/
-contracts/wasm/
 
 # IDE
 .vscode/
