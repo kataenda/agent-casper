@@ -1,0 +1,125 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Deep space base ───────────────────────────────────────────── */
+html, body {
+  background-color: #02040F;
+  color: #E2E8F0;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* ── Nebula layer (slow animated colour clouds) ────────────────── */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 70% 55% at 15%  35%, rgba(100,  0, 220, 0.18) 0%, transparent 65%),
+    radial-gradient(ellipse 60% 70% at 85%  20%, rgba(  0, 80, 255, 0.14) 0%, transparent 65%),
+    radial-gradient(ellipse 80% 45% at 50% 100%, rgba(  0,180, 200, 0.10) 0%, transparent 60%),
+    radial-gradient(ellipse 40% 60% at 90%  80%, rgba(180,  0, 255, 0.10) 0%, transparent 55%),
+    radial-gradient(ellipse 55% 35% at 10%  85%, rgba(  0,100, 255, 0.08) 0%, transparent 60%);
+  animation: nebula-drift 25s ease-in-out infinite alternate;
+  pointer-events: none;
+  z-index: 0;
+}
+
+@keyframes nebula-drift {
+  0%   { transform: translate(0px,   0px)  scale(1);    opacity: 0.85; }
+  25%  { transform: translate(12px, -18px) scale(1.02); opacity: 1;    }
+  50%  { transform: translate(-8px,  15px) scale(0.99); opacity: 0.9;  }
+  75%  { transform: translate(-15px, -8px) scale(1.01); opacity: 1;    }
+  100% { transform: translate(6px,   20px) scale(1.02); opacity: 0.88; }
+}
+
+/* ── Scan line (sweeps top → bottom every 10s) ─────────────────── */
+body::after {
+  content: '';
+  position: fixed;
+  left: 0;
+  right: 0;
+  height: 1.5px;
+  background: linear-gradient(
+    90deg,
+    transparent    0%,
+    rgba(0,245,255,0.0) 10%,
+    rgba(0,245,255,0.5) 35%,
+    rgba(0,245,255,0.9) 50%,
+    rgba(0,245,255,0.5) 65%,
+    rgba(0,245,255,0.0) 90%,
+    transparent   100%
+  );
+  box-shadow: 0 0 12px rgba(0,245,255,0.6), 0 0 24px rgba(0,245,255,0.2);
+  animation: scan-sweep 10s linear infinite;
+  pointer-events: none;
+  z-index: 1;
+}
+
+@keyframes scan-sweep {
+  0%   { top: -2px;    opacity: 0;   }
+  3%   { opacity: 1;               }
+  97%  { opacity: 0.4;             }
+  100% { top: 100vh;   opacity: 0;  }
+}
+
+/* ── Scrollbar ─────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 3px; height: 3px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(0,245,255,0.3);
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(0,245,255,0.6); }
+
+/* ── Selection ─────────────────────────────────────────────────── */
+::selection {
+  background: rgba(0,245,255,0.2);
+  color: #00F5FF;
+}
+
+/* ── Glass panel ───────────────────────────────────────────────── */
+.glass-panel {
+  background: rgba(2, 6, 20, 0.78);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+  border: 1px solid rgba(0,245,255,0.1);
+  box-shadow:
+    0 8px 40px rgba(0,0,0,0.75),
+    inset 0 1px 0 rgba(255,255,255,0.04),
+    inset 0 -1px 0 rgba(0,0,0,0.3);
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.glass-panel:hover {
+  border-color: rgba(0,245,255,0.2);
+  box-shadow:
+    0 8px 40px rgba(0,0,0,0.75),
+    0 0 28px rgba(0,245,255,0.06),
+    inset 0 1px 0 rgba(255,255,255,0.06);
+}
+
+/* ── Cyber number ──────────────────────────────────────────────── */
+.cyber-num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+  letter-spacing: -0.02em;
+}
+
+/* ── Glow text ─────────────────────────────────────────────────── */
+.glow-cyan   { text-shadow: 0 0 14px rgba(0,245,255,0.9); }
+.glow-purple { text-shadow: 0 0 14px rgba(191,90,242,0.9); }
+.glow-green  { text-shadow: 0 0 14px rgba(0,255,148,0.9); }
+.glow-red    { text-shadow: 0 0 14px rgba(255,45,85,0.9); }
+.glow-fire   { text-shadow: 0 0 14px rgba(255,159,10,0.9); }
+
+/* ── Terminal slide-in ─────────────────────────────────────────── */
+.terminal-entry {
+  animation: slide-up 0.35s ease-out;
+}
+
+@keyframes slide-up {
+  from { transform: translateY(6px); opacity: 0; }
+  to   { transform: translateY(0);   opacity: 1; }
+}

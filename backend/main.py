@@ -1,0 +1,257 @@
+"""
+CasperYield AI — FastAPI server
+Provides REST API + WebSocket for real-time agent monitoring.
+"""
+
+import asyncio
+import json
+import logging
+from contextlib import asynccontextmanager
+from typing import Optional
+
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from casper.client import CasperClient
+from casper.deployer import CasperDeployer
+from casper.rwa_oracle import RWAOracle
+from casper.x402 import X402Handler
+from agent.decision_engine import DecisionEngine
+from agent.yield_agent import YieldAgent, AgentCycleResult
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s — %(message)s")
+logger = logging.getLogger(__name__)
+
+
+# ── Settings ──────────────────────────────────────────────────────────────────
+
+class Settings(BaseSettings):
+    anthropic_api_key: str = "demo-key"
+    casper_node_url: str = "https://rpc.testnet.casperlabs.io/rpc"
+    cspr_cloud_api_key: str = ""
+    cspr_cloud_base_url: str = "https://event-store-api-clarity-testnet.make.services"
+    vault_contract_hash: str = "hash-demo"
+    agent_account_hash: str = "account-hash-demo"
+    agent_secret_key_path: str = "./agent_secret_key.pem"
+    agent_poll_interval_seconds: int = 60
+    max_rebalances_per_day: int = 5
+    x402_enabled: bool = False
+    x402_payment_amount: int = 1_000_000
+    x402_facilitator_url: str = "https://x402-facilitator.cspr.cloud"
+    app_host: str = "0.0.0.0"
+    app_port: int = 8000
+    debug: bool = True
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+
+settings = Settings()
+
+# ── Global state ──────────────────────────────────────────────────────────────
+
+agent: Optional[YieldAgent] = None
+ws_connections: list[WebSocket] = []
+
+
+async def broadcast(message: dict):
+    dead = []
+    for ws in ws_connections:
+        try:
+            await ws.send_text(json.dumps(message))
+        except Exception:
+            dead.append(ws)
+    for ws in dead:
+        ws_connections.remove(ws)
+
+
+# ── App lifecycle ─────────────────────────────────────────────────────────────
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global agent
+
+    casper_client = CasperClient(
+        node_url=settings.casper_node_url,
+        cloud_api_key=settings.cspr_cloud_api_key,
+        cloud_base_url=settings.cspr_cloud_base_url,
+    )
+    deployer    = CasperDeployer(node_url=settings.casper_node_url, chain_name="casper-test")
+    rwa_oracle  = RWAOracle()
+    decision_engine = DecisionEngine(api_key=settings.anthropic_api_key)
+    x402 = X402Handler(
+        agent_account=settings.agent_account_hash,
+        payment_amount_motes=settings.x402_payment_amount,
+        enabled=settings.x402_enabled,
+        facilitator_url=settings.x402_facilitator_url,
+    )
+
+    async def on_cycle(result: AgentCycleResult):
+        await broadcast({"event": "cycle", "data": result.model_dump()})
+
+    agent = YieldAgent(
+        casper_client=casper_client,
+        decision_engine=decision_engine,
+        x402_handler=x402,
+        deployer=deployer,
+        rwa_oracle=rwa_oracle,
+        vault_contract_hash=settings.vault_contract_hash,
+        agent_account_hash=settings.agent_account_hash,
+        agent_secret_key_path=settings.agent_secret_key_path,
+        poll_interval_seconds=settings.agent_poll_interval_seconds,
+        max_rebalances_per_day=settings.max_rebalances_per_day,
+        on_cycle_complete=on_cycle,
+    )
+
+    task = asyncio.create_task(agent.start())
+    logger.info("CasperYield AI agent started")
+
+    yield
+
+    agent.stop()
+    task.cancel()
+    logger.info("CasperYield AI agent stopped")
+
+
+app = FastAPI(
+    title="CasperYield AI",
+    description="Autonomous DeFi Yield Optimization Agent on Casper Network",
+    version="1.0.0",
+    lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# ── REST Endpoints ────────────────────────────────────────────────────────────
+
+@app.get("/")
+async def root():
+    return {"name": "CasperYield AI", "version": "1.0.0", "status": "running"}
+
+
+@app.get("/agent/status")
+async def agent_status():
+    if not agent:
+        raise HTTPException(503, "Agent not initialized")
+    return agent.get_stats()
+
+
+@app.get("/agent/history")
+async def agent_history(limit: int = 20):
+    if not agent:
+        raise HTTPException(503, "Agent not initialized")
+    return [c.model_dump() for c in agent.get_history(limit)]
+
+
+@app.get("/portfolio")
+async def get_portfolio():
+    if not agent:
+        raise HTTPException(503, "Agent not initialized")
+    history = agent.get_history(1)
+    if history:
+        return history[0].portfolio
+    return {"error": "No data yet — agent is warming up"}
+
+
+@app.get("/yields")
+async def get_yields():
+    if not agent:
+        raise HTTPException(503, "Agent not initialized")
+    history = agent.get_history(1)
+    if history:
+        return history[0].yield_rates
+    return []
+
+
+@app.get("/decisions")
+async def get_decisions(limit: int = 10):
+    if not agent:
+        raise HTTPException(503, "Agent not initialized")
+    history = agent.get_history(limit)
+    return [
+        {
+            "timestamp": c.timestamp,
+            "block_height": c.block_height,
+            "decision": c.decision,
+            "tx_hash": c.tx_hash,
+        }
+        for c in history
+    ]
+
+
+class ManualRebalanceRequest(BaseModel):
+    conservative_pct: int
+    balanced_pct: int
+    aggressive_pct: int
+    reasoning: str = "Manual override by operator"
+
+
+@app.post("/rebalance/manual")
+async def manual_rebalance(req: ManualRebalanceRequest):
+    """Operator-triggered manual rebalance (bypasses AI decision)."""
+    if req.conservative_pct + req.balanced_pct + req.aggressive_pct != 100:
+        raise HTTPException(400, "Percentages must sum to 100")
+
+    # In production: submit tx directly
+    return {
+        "status": "submitted",
+        "message": "Manual rebalance queued",
+        "allocation": {
+            "conservative_pct": req.conservative_pct,
+            "balanced_pct": req.balanced_pct,
+            "aggressive_pct": req.aggressive_pct,
+        },
+    }
+
+
+@app.post("/agent/pause")
+async def pause_agent():
+    if not agent:
+        raise HTTPException(503, "Agent not initialized")
+    agent.stop()
+    return {"status": "paused"}
+
+
+# ── WebSocket ─────────────────────────────────────────────────────────────────
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    ws_connections.append(websocket)
+    logger.info("WebSocket client connected — total: %d", len(ws_connections))
+
+    # Send current state immediately on connect
+    if agent:
+        history = agent.get_history(1)
+        if history:
+            await websocket.send_text(json.dumps({
+                "event": "init",
+                "data": history[0].model_dump(),
+            }))
+
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        ws_connections.remove(websocket)
+        logger.info("WebSocket client disconnected — total: %d", len(ws_connections))
+
+
+# ── Entry point ───────────────────────────────────────────────────────────────
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        "main:app",
+        host=settings.app_host,
+        port=settings.app_port,
+        reload=settings.debug,
+    )
