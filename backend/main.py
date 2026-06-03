@@ -290,6 +290,43 @@ async def manual_rebalance(req: ManualRebalanceRequest):
     }
 
 
+@app.post("/rpc")
+async def rpc_proxy(request: Request):
+    """Proxy Casper node RPC calls to avoid browser CORS restrictions."""
+    body = await request.json()
+    async with __import__("httpx").AsyncClient(timeout=30) as client:
+        resp = await client.post(
+            settings.casper_node_url,
+            json=body,
+            headers={"Content-Type": "application/json"},
+        )
+    return resp.json()
+
+
+@app.get("/deploys/{deploy_hash}")
+async def get_deploy(deploy_hash: str):
+    """Proxy deploy status from CSPR.cloud to avoid browser CORS."""
+    url = f"{settings.cspr_cloud_base_url}/deploys/{deploy_hash}"
+    async with __import__("httpx").AsyncClient(
+        headers={"Authorization": settings.cspr_cloud_api_key},
+        timeout=10,
+    ) as client:
+        resp = await client.get(url)
+    return resp.json()
+
+
+@app.get("/accounts/{account_id}")
+async def get_account(account_id: str):
+    """Proxy account info from CSPR.cloud to avoid browser CORS."""
+    url = f"{settings.cspr_cloud_base_url}/accounts/{account_id}"
+    async with __import__("httpx").AsyncClient(
+        headers={"Authorization": settings.cspr_cloud_api_key},
+        timeout=10,
+    ) as client:
+        resp = await client.get(url)
+    return resp.json()
+
+
 @app.post("/agent/pause")
 async def pause_agent():
     if not agent:
