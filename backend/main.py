@@ -298,6 +298,53 @@ async def pause_agent():
     return {"status": "paused"}
 
 
+@app.post("/agent/resume")
+async def resume_agent():
+    if not agent:
+        raise HTTPException(503, "Agent not initialized")
+    if not agent.running:
+        asyncio.create_task(agent.start())
+    return {"status": "running"}
+
+
+class ChatRequest(BaseModel):
+    message: str
+
+
+@app.post("/chat")
+async def chat(req: ChatRequest):
+    """Direct chat with the Claude AI agent about the portfolio."""
+    import anthropic as _anthropic
+    client = _anthropic.Anthropic(api_key=settings.anthropic_api_key)
+
+    history = agent.get_history(3) if agent else []
+    context = ""
+    if history:
+        latest = history[0]
+        context = (
+            f"Portfolio: {latest.portfolio.get('total_value_motes', 0) / 1e9:.0f} CSPR, "
+            f"strategy: {latest.portfolio.get('current_strategy', 'N/A')}. "
+            f"Last decision: {latest.decision.get('action')} "
+            f"(confidence {latest.decision.get('confidence', 0)*100:.0f}%). "
+            f"Block: #{latest.block_height:,}."
+        )
+
+    system = (
+        "You are CasperYield AI, an autonomous DeFi agent on Casper Network. "
+        "Answer questions about the portfolio, yield strategies, and market conditions. "
+        "Be concise (2-3 sentences max). "
+        + (f"Current state: {context}" if context else "No portfolio data yet.")
+    )
+
+    resp = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=256,
+        system=system,
+        messages=[{"role": "user", "content": req.message}],
+    )
+    return {"reply": resp.content[0].text}
+
+
 # ── WebSocket ─────────────────────────────────────────────────────────────────
 
 @app.websocket("/ws")
