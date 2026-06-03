@@ -7,13 +7,10 @@ edition = "2021"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-odra                 = "=1.4.0"
-odra-core            = "=1.4.0"
-odra-macros          = "=1.4.0"
-odra-casper-wasm-env = "=1.4.0"
+odra = "=1.5.1"
 
 [dev-dependencies]
-odra-test = "=1.4.0"
+odra-test = "=1.5.1"
 
 [profile.release]
 codegen-units = 1
