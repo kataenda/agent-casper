@@ -1,16 +1,17 @@
-name: Build & Deploy YieldVault to Casper Testnet
+name: Build YieldVault WASM
 
 on:
+  push:
+    paths:
+      - "contracts/**"
   workflow_dispatch:
-    inputs:
-      agent_account_hash:
-        description: "Agent account hash (account-hash-<64hex>)"
-        required: true
+
+permissions:
+  contents: write
 
 jobs:
-  # ── Job 1: Compile Rust → WASM ───────────────────────────────────────────────
-  build-contract:
-    name: Build WASM
+  build:
+    name: Compile Rust → WASM
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -27,60 +28,20 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             contracts/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('contracts/Cargo.toml', 'contracts/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('contracts/Cargo.toml') }}
           restore-keys: ${{ runner.os }}-cargo-
 
       - name: Install cargo-odra
         run: cargo install cargo-odra --locked
 
-      - name: Build YieldVault contract
+      - name: Build YieldVault
         working-directory: contracts
         run: cargo odra build -b casper
 
-      - name: Upload WASM artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: yield-vault-wasm
-          path: contracts/wasm/yield_vault.wasm
-          retention-days: 7
-
-  # ── Job 2: Deploy WASM → Casper Testnet ─────────────────────────────────────
-  deploy:
-    name: Deploy to Testnet
-    runs-on: ubuntu-latest
-    needs: build-contract
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download WASM
-        uses: actions/download-artifact@v4
-        with:
-          name: yield-vault-wasm
-          path: contracts/wasm/
-
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install dependencies
-        run: pip install pycspr==0.12.4 httpx python-dotenv
-
-      - name: Write secret key PEM
+      - name: Commit WASM to repo
         run: |
-          echo "${{ secrets.AGENT_SECRET_KEY_PEM }}" > agent_secret_key.pem
-          chmod 600 agent_secret_key.pem
-
-      - name: Deploy YieldVault contract
-        env:
-          CASPER_NODE_URL: https://node.testnet.cspr.cloud
-          CSPR_CLOUD_BASE_URL: https://api.testnet.cspr.cloud
-          CSPR_CLOUD_API_KEY: ${{ secrets.CSPR_CLOUD_API_KEY }}
-        run: |
-          python deploy/deploy_vault.py \
-            --key-path agent_secret_key.pem \
-            --agent-account "${{ github.event.inputs.agent_account_hash }}"
-
-      - name: Clean up secret key
-        if: always()
-        run: rm -f agent_secret_key.pem
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add contracts/wasm/yield_vault.wasm
+          git diff --staged --quiet || git commit -m "build: YieldVault WASM [skip ci]"
+          git push

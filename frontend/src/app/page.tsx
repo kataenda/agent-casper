@@ -4,9 +4,12 @@ import dynamic from "next/dynamic";
 import { TrendingUp, RefreshCw, Activity, Zap, AlertTriangle } from "lucide-react";
 import Image from "next/image";
 
-// Loaded client-only: styled-components (CSPR.click) breaks Next.js SSR
 const WalletWidget = dynamic(
   () => import("@/components/WalletWidget").then((m) => ({ default: m.WalletWidget })),
+  { ssr: false }
+);
+const DeployPanel = dynamic(
+  () => import("@/components/DeployPanel").then((m) => ({ default: m.DeployPanel })),
   { ssr: false }
 );
 
@@ -112,6 +115,7 @@ export default function DashboardPage() {
           </div>
         </div>
         <div className="flex items-center gap-3">
+          <DeployPanel />
           <WalletWidget />
           <StatusBadge connected={connected} />
         </div>
