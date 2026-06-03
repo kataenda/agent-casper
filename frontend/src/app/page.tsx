@@ -12,6 +12,14 @@ const DeployPanel = dynamic(
   () => import("@/components/DeployPanel").then((m) => ({ default: m.DeployPanel })),
   { ssr: false }
 );
+const AgentControls = dynamic(
+  () => import("@/components/AgentControls").then((m) => ({ default: m.AgentControls })),
+  { ssr: false }
+);
+const ChatBox = dynamic(
+  () => import("@/components/ChatBox").then((m) => ({ default: m.ChatBox })),
+  { ssr: false }
+);
 
 import { useAgentStore } from "@/lib/store";
 import { useAgentWebSocket } from "@/lib/useWebSocket";
@@ -115,7 +123,8 @@ export default function DashboardPage() {
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          <AgentControls />
           <DeployPanel />
           <WalletWidget />
           <StatusBadge connected={connected} />
@@ -207,11 +216,19 @@ export default function DashboardPage() {
           </div>
         </Panel>
 
-        {/* Yield Intelligence — col 4, rows 1–2 */}
-        <Panel className="flex flex-col min-h-0" style={{ gridColumn: "4", gridRow: "1 / 3" }}>
+        {/* Yield Intelligence — col 4, row 1 */}
+        <Panel className="flex flex-col min-h-0" style={{ gridColumn: "4", gridRow: "1" }}>
           <PanelLabel text="Yield Intelligence" accent="#00FF94" />
           <div className="flex-1 min-h-0 overflow-y-auto">
             <YieldRatesPanel />
+          </div>
+        </Panel>
+
+        {/* AI Chat — col 4, row 2 */}
+        <Panel className="flex flex-col min-h-0" style={{ gridColumn: "4", gridRow: "2" }}>
+          <PanelLabel text="Ask AI Agent" accent="#BF5AF2" />
+          <div className="flex-1 min-h-0">
+            <ChatBox />
           </div>
         </Panel>
 

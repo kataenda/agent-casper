@@ -1,5 +1,5 @@
-"""
-CSPR.cloud REST client — Official Casper AI Toolkit middleware.
+﻿"""
+CSPR.cloud REST client â€" Official Casper AI Toolkit middleware.
 Docs: https://docs.cspr.cloud  |  Skill: https://cspr.cloud/skill.md
 """
 
@@ -109,7 +109,7 @@ class CasperClient:
         if self._is_placeholder(contract_hash):
             return PortfolioState(
                 total_value_motes=0, conservative_pct=0, balanced_pct=0,
-                aggressive_pct=0, current_strategy="—", last_rebalance_timestamp=0,
+                aggressive_pct=0, current_strategy="N/A", last_rebalance_timestamp=0,
             )
         try:
             portfolio_data = await self.get_contract_state(contract_hash, "portfolio")
@@ -119,13 +119,14 @@ class CasperClient:
             pass
         return PortfolioState(
             total_value_motes=0, conservative_pct=0, balanced_pct=0,
-            aggressive_pct=0, current_strategy="—", last_rebalance_timestamp=0,
+            aggressive_pct=0, current_strategy="N/A", last_rebalance_timestamp=0,
         )
 
     async def fetch_simulated_yield_rates(self) -> list[YieldRate]:
-        """Simulated yield rates — placeholder until real DeFi protocol integration."""
+        """Simulated yield rates â€" placeholder until real DeFi protocol integration."""
         return [
             YieldRate(strategy="conservative", apy_bps=0, tvl_cspr=0, risk_score=0.0),
             YieldRate(strategy="balanced",     apy_bps=0, tvl_cspr=0, risk_score=0.0),
             YieldRate(strategy="aggressive",   apy_bps=0, tvl_cspr=0, risk_score=0.0),
         ]
+
