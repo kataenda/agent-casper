@@ -302,7 +302,7 @@ async def pause_agent():
 async def resume_agent():
     if not agent:
         raise HTTPException(503, "Agent not initialized")
-    if not agent.running:
+    if not agent._running:
         asyncio.create_task(agent.start())
     return {"status": "running"}
 

@@ -1,24 +1,40 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Play, Square, Loader } from "lucide-react";
-import { useAgentStore } from "@/lib/store";
 
 const BACKEND = "http://localhost:8000";
 
 export function AgentControls() {
-  const { stats } = useAgentStore();
+  const [running, setRunning] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const running = stats?.running ?? true;
+  // Poll status every 5 seconds
+  useEffect(() => {
+    const fetchStatus = async () => {
+      try {
+        const r = await fetch(`${BACKEND}/agent/status`);
+        const d = await r.json();
+        setRunning(d.running);
+      } catch {}
+    };
+    fetchStatus();
+    const id = setInterval(fetchStatus, 5000);
+    return () => clearInterval(id);
+  }, []);
 
   const toggle = async () => {
+    if (running === null) return;
     setLoading(true);
     try {
-      await fetch(`${BACKEND}/agent/${running ? "pause" : "resume"}`, { method: "POST" });
+      const action = running ? "pause" : "resume";
+      await fetch(`${BACKEND}/agent/${action}`, { method: "POST" });
+      setRunning(!running);
     } catch {}
     setLoading(false);
   };
+
+  if (running === null) return null;
 
   return (
     <button
@@ -38,9 +54,7 @@ export function AgentControls() {
     >
       {loading
         ? <Loader size={10} className="animate-spin" />
-        : running
-          ? <Square size={10} />
-          : <Play size={10} />
+        : running ? <Square size={10} /> : <Play size={10} />
       }
       {loading ? "..." : running ? "Stop Agent" : "Start Agent"}
     </button>
