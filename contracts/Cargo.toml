@@ -1,0 +1,27 @@
+[package]
+name = "yield-vault"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+odra = { version = "1.4.0", default-features = false }
+
+[dev-dependencies]
+odra-test = "1.4.0"
+
+[[bin]]
+name = "yield_vault_build"
+path = "bin/build.rs"
+required-features = ["odra/export-schema"]
+
+[features]
+default = []
+casper = ["odra/casper"]
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "z"
