@@ -7,10 +7,10 @@ edition = "2021"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-odra = { version = "1.4.0" }
+odra = { version = "=1.4.0" }
 
 [dev-dependencies]
-odra-test = "1.4.0"
+odra-test = "=1.4.0"
 
 [profile.release]
 codegen-units = 1
