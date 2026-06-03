@@ -1,5 +1,15 @@
-use odra::prelude::*;
+﻿use odra::prelude::*;
 use odra::casper_types::U512;
+
+#[odra::odra_error]
+pub enum VaultError {
+    ZeroDeposit         = 1,
+    InsufficientBalance = 2,
+    InvalidAllocation   = 3,
+    NotOwner            = 10,
+    NotAgent            = 11,
+    Paused              = 12,
+}
 
 #[odra::odra_type]
 pub enum Strategy {
@@ -98,7 +108,7 @@ impl YieldVault {
         self.not_paused();
         let caller = self.env().caller();
         let amount = self.env().attached_value();
-        if amount == U512::zero() { self.env().revert(ExecutionError::custom(1)); }
+        if amount == U512::zero() { self.env().revert(VaultError::ZeroDeposit); }
         let current = self.balances.get_or_default(&caller);
         self.balances.set(&caller, current + amount);
         let total = self.total_deposited.get_or_default();
@@ -110,7 +120,7 @@ impl YieldVault {
         self.not_paused();
         let caller  = self.env().caller();
         let balance = self.balances.get_or_default(&caller);
-        if balance < amount { self.env().revert(ExecutionError::custom(2)); }
+        if balance < amount { self.env().revert(VaultError::InsufficientBalance); }
         self.balances.set(&caller, balance - amount);
         let total = self.total_deposited.get_or_default();
         self.total_deposited.set(total - amount);
@@ -129,7 +139,7 @@ impl YieldVault {
         self.only_agent();
         self.not_paused();
         if conservative_pct + balanced_pct + aggressive_pct != 100 {
-            self.env().revert(ExecutionError::custom(3));
+            self.env().revert(VaultError::InvalidAllocation);
         }
         let old_strategy = self.current_strategy.get_or_default();
         let agent_addr   = self.agent.get().unwrap_or_revert(&self.env());
@@ -196,15 +206,16 @@ impl YieldVault {
 
     fn only_owner(&self) {
         let owner = self.owner.get().unwrap_or_revert(&self.env());
-        if self.env().caller() != owner { self.env().revert(ExecutionError::custom(10)); }
+        if self.env().caller() != owner { self.env().revert(VaultError::NotOwner); }
     }
 
     fn only_agent(&self) {
         let agent = self.agent.get().unwrap_or_revert(&self.env());
-        if self.env().caller() != agent { self.env().revert(ExecutionError::custom(11)); }
+        if self.env().caller() != agent { self.env().revert(VaultError::NotAgent); }
     }
 
     fn not_paused(&self) {
-        if self.paused.get_or_default() { self.env().revert(ExecutionError::custom(12)); }
+        if self.paused.get_or_default() { self.env().revert(VaultError::Paused); }
     }
 }
+
