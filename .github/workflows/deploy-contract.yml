@@ -12,13 +12,15 @@ jobs:
   build:
     name: Compile Rust to WASM
     runs-on: ubuntu-latest
-    container: rust:1.81
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Add wasm32 target
-        run: rustup target add wasm32-unknown-unknown
+      - name: Install Rust (from rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2023-12-15
+          targets: wasm32-unknown-unknown
 
       - name: Cache Cargo
         uses: actions/cache@v4
@@ -27,23 +29,22 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             contracts/target
-          key: rust181-${{ hashFiles('contracts/Cargo.toml') }}
+          key: nightly-20231215-${{ hashFiles('contracts/Cargo.toml') }}
 
       - name: Build WASM
         working-directory: contracts
-        run: cargo build --target wasm32-unknown-unknown --release
+        run: cargo +nightly-2023-12-15 build --target wasm32-unknown-unknown --release
 
-      - name: Copy WASM to output
+      - name: Copy WASM
         run: |
           mkdir -p contracts/wasm
           cp contracts/target/wasm32-unknown-unknown/release/yield_vault.wasm contracts/wasm/yield_vault.wasm
           ls -lh contracts/wasm/
 
-      - name: Commit WASM to repo
+      - name: Commit WASM
         run: |
-          git config --global user.name  "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
           git add contracts/wasm/yield_vault.wasm
           git diff --staged --quiet || git commit -m "build: YieldVault WASM [skip ci]"
           git push
