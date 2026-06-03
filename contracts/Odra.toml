@@ -1,0 +1,2 @@
+[contracts]
+YieldVault = { path = "src/yield_vault.rs" }

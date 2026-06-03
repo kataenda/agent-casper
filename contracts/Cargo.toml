@@ -7,19 +7,10 @@ edition = "2021"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-odra = { version = "1.4.0", default-features = false }
+odra = { version = "1.4.0" }
 
 [dev-dependencies]
 odra-test = "1.4.0"
-
-[[bin]]
-name = "yield_vault_build"
-path = "bin/build.rs"
-required-features = ["odra/export-schema"]
-
-[features]
-default = []
-casper = ["odra/casper"]
 
 [profile.release]
 codegen-units = 1
