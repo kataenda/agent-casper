@@ -16,10 +16,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust (from rust-toolchain.toml)
+      - name: Install Rust nightly
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: nightly-2023-12-15
+          toolchain: nightly-2024-09-01
           targets: wasm32-unknown-unknown
 
       - name: Cache Cargo
@@ -29,11 +29,11 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             contracts/target
-          key: nightly-20231215-${{ hashFiles('contracts/Cargo.toml') }}
+          key: nightly-20240901-${{ hashFiles('contracts/Cargo.toml') }}
 
       - name: Build WASM
         working-directory: contracts
-        run: cargo +nightly-2023-12-15 build --target wasm32-unknown-unknown --release
+        run: cargo +nightly-2024-09-01 build --target wasm32-unknown-unknown --release
 
       - name: Copy WASM
         run: |
