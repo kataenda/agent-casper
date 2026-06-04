@@ -41,7 +41,7 @@ jobs:
 
       - name: Build WASM via cargo-odra
         working-directory: contracts
-        run: cargo +nightly-2025-02-25 odra build -b casper
+        run: cargo odra build
 
       - name: Locate and copy WASM
         working-directory: contracts

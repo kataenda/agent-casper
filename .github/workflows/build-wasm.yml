@@ -48,9 +48,9 @@ jobs:
       - name: Install cargo-odra (via stable toolchain)
         run: cargo +stable install cargo-odra
 
-      - name: Build WASM (cargo-odra uses rust-toolchain.toml = nightly-2023-12-15)
+      - name: Build WASM via cargo-odra
         working-directory: contracts
-        run: cargo odra build -b casper
+        run: cargo odra build
 
       - name: Locate and copy WASM
         working-directory: contracts
