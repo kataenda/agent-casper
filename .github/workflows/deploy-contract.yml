@@ -22,46 +22,47 @@ jobs:
           toolchain: nightly-2025-02-25
           targets: wasm32-unknown-unknown
 
-      - name: Cache Cargo registry & build
+      - name: Install wasm-strip and wasm-opt
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y wabt binaryen
+
+      - name: Cache Cargo registry
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            contracts/target
-          key: nightly-20250225-${{ hashFiles('contracts/Cargo.toml', 'contracts/Cargo.lock') }}
-          restore-keys: |
-            nightly-20250225-
+          key: cargo-${{ hashFiles('contracts/Cargo.lock') }}
+          restore-keys: cargo-
 
-      - name: Build WASM (Odra Casper backend)
-        # ODRA_MODULE and ODRA_BACKEND are read by Odra's proc-macros at compile time
-        # to emit the `call` WASM export required by Casper runtime.
+      - name: Install cargo-odra
+        run: cargo install cargo-odra --version 0.1.7 --locked
+
+      - name: Build WASM via cargo odra build
+        # cargo odra build (no flags) reads Odra.toml, builds each contract,
+        # runs wasm-strip + wasm-opt, and writes output to contracts/wasm/
         working-directory: contracts
-        env:
-          ODRA_MODULE: YieldVault
-          ODRA_BACKEND: casper
-        run: |
-          cargo +nightly-2025-02-25 build \
-            --target wasm32-unknown-unknown \
-            --bin yield_vault_build_contract \
-            --release
+        run: cargo odra build
 
-      - name: Copy & rename WASM
-        run: |
-          mkdir -p contracts/wasm
-          cp contracts/target/wasm32-unknown-unknown/release/yield_vault_build_contract.wasm \
-             contracts/wasm/yield_vault.wasm
+      - name: Show build output
+        run: ls -lh contracts/wasm/
 
       - name: Verify WASM size (must be > 50 KB)
         run: |
           WASM=contracts/wasm/yield_vault.wasm
+          if [ ! -f "$WASM" ]; then
+            echo "ERROR: $WASM not found"
+            echo "Files in wasm dir:"
+            ls -la contracts/wasm/ || echo "(empty)"
+            exit 1
+          fi
           SIZE=$(stat -c%s "$WASM")
           echo "WASM size: ${SIZE} bytes ($(echo "scale=1; $SIZE/1024" | bc) KB)"
           if [ "$SIZE" -lt 51200 ]; then
-            echo "ERROR: WASM is too small (${SIZE} bytes). Build probably failed silently."
+            echo "ERROR: WASM too small (${SIZE} bytes). Odra did not generate call export."
             exit 1
           fi
-          ls -lh "$WASM"
 
       - name: Commit WASM artifact
         run: |
