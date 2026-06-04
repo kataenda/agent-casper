@@ -16,40 +16,45 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust nightly-2025-02-25 + wasm target
+      - name: Install Rust toolchain (from rust-toolchain.toml)
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly-2025-02-25
           targets: wasm32-unknown-unknown
 
-      - name: Cache Cargo
+      - name: Cache Cargo registry & build
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             contracts/target
-          key: nightly-20250225-${{ hashFiles('contracts/Cargo.toml') }}
+          key: nightly-20250225-${{ hashFiles('contracts/Cargo.toml', 'contracts/Cargo.lock') }}
+          restore-keys: |
+            nightly-20250225-
 
-      - name: Build WASM
+      - name: Install cargo-odra
+        run: cargo install cargo-odra --locked
+
+      - name: Build WASM via Odra
+        # cargo-odra compiles the contract with the correct Casper ABI entry-points
+        # (including the required `call` export) and writes the final WASM to
+        # contracts/wasm/yield_vault.wasm automatically.
         working-directory: contracts
-        env:
-          ODRA_MODULE: YieldVault
-          ODRA_BACKEND: casper
-        run: |
-          cargo +nightly-2025-02-25 build \
-            --target wasm32-unknown-unknown \
-            --bin yield_vault_build_contract \
-            --release
+        run: cargo odra build -b casper
 
-      - name: Copy WASM
+      - name: Verify WASM size (must be > 50 KB)
         run: |
-          mkdir -p contracts/wasm
-          cp contracts/target/wasm32-unknown-unknown/release/yield_vault_build_contract.wasm \
-             contracts/wasm/yield_vault.wasm
-          ls -lh contracts/wasm/yield_vault.wasm
+          WASM=contracts/wasm/yield_vault.wasm
+          SIZE=$(stat -c%s "$WASM")
+          echo "WASM size: ${SIZE} bytes"
+          if [ "$SIZE" -lt 51200 ]; then
+            echo "ERROR: WASM is too small (${SIZE} bytes). Build probably failed silently."
+            exit 1
+          fi
+          ls -lh "$WASM"
 
-      - name: Commit WASM
+      - name: Commit WASM artifact
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"

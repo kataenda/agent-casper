@@ -11,20 +11,29 @@ param(
     [string]$SecretKey    = "$PSScriptRoot\agent_secret_key.pem",
     [string]$NodeUrl      = "https://rpc.testnet.casperlabs.io",
     [string]$ChainName    = "casper-test",
-    [string]$PaymentAmount = "100000000000"
+    [string]$PaymentAmount = "150000000000"
 )
 
 $ErrorActionPreference = "Stop"
 
 $ContractDir = Resolve-Path "$PSScriptRoot\..\contracts"
-$WasmPath    = Join-Path $ContractDir "target\wasm32-unknown-unknown\release\yield_vault.wasm"
+# Odra build outputs to contracts\wasm\
+$WasmPath    = Join-Path $ContractDir "wasm\yield_vault.wasm"
 
 # ── Step 1: Build WASM ────────────────────────────────────────────────────────
 Write-Host ""
-Write-Host "==> [1/4] Building YieldVault WASM (features=casper)..."
+Write-Host "==> [1/4] Building YieldVault WASM via Odra..."
 Push-Location $ContractDir
-rustup target add wasm32-unknown-unknown 2>$null
-cargo build --release --features casper --target wasm32-unknown-unknown
+
+# Ensure cargo-odra is installed
+try { cargo odra --version | Out-Null }
+catch {
+    Write-Host "    Installing cargo-odra..."
+    cargo install cargo-odra --locked
+}
+
+# Build using Odra framework (generates proper Casper WASM with 'call' export)
+cargo odra build -b casper
 Pop-Location
 
 if (-not (Test-Path $WasmPath)) {
