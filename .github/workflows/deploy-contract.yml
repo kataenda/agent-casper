@@ -16,14 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # cargo-odra requires edition2024 — needs a modern toolchain to compile
-      - name: Install Rust nightly-2025-02-25 (for cargo-odra install)
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: nightly-2025-02-25
-
-      # odra 1.5.1 requires nightly-2023-12-15 + wasm target for contract build
-      - name: Install Rust nightly-2023-12-15 + wasm target (for contract build)
+      - name: Install Rust nightly-2023-12-15 + wasm target
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly-2023-12-15
@@ -36,34 +29,25 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             contracts/target
-          key: nightly-20231215-odra-${{ hashFiles('contracts/Cargo.toml') }}
+          key: nightly-20231215-${{ hashFiles('contracts/Cargo.toml') }}
 
-      - name: Install wasm-opt
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y binaryen
-
-      # Install cargo-odra using the modern toolchain (supports edition2024)
-      - name: Install cargo-odra
-        run: cargo +nightly-2025-02-25 install cargo-odra --locked
-
-      # cargo odra build will use rust-toolchain.toml = nightly-2023-12-15
-      - name: Build WASM via cargo-odra
+      - name: Build WASM
         working-directory: contracts
-        run: cargo odra build
-
-      - name: Locate and copy WASM
-        working-directory: contracts
+        env:
+          ODRA_MODULE: YieldVault
+          ODRA_BACKEND: casper
         run: |
-          echo "=== WASM files found ==="
-          find . -name "*.wasm" | sort
-          WASM=$(find . -name "yield_vault.wasm" | grep -v "^./wasm/" | head -1)
-          if [ -z "$WASM" ]; then
-            WASM=$(find . -name "*.wasm" | grep -v "^./wasm/" | head -1)
-          fi
-          echo "Using: $WASM ($(wc -c < $WASM) bytes)"
-          mkdir -p wasm
-          cp "$WASM" wasm/yield_vault.wasm
+          cargo +nightly-2023-12-15 build \
+            --target wasm32-unknown-unknown \
+            --bin yield_vault_build_contract \
+            --release
+
+      - name: Copy WASM
+        run: |
+          mkdir -p contracts/wasm
+          cp contracts/target/wasm32-unknown-unknown/release/yield_vault_build_contract.wasm \
+             contracts/wasm/yield_vault.wasm
+          ls -lh contracts/wasm/yield_vault.wasm
 
       - name: Commit WASM
         run: |
