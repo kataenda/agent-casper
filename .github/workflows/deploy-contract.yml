@@ -36,30 +36,15 @@ jobs:
           key: cargo-${{ hashFiles('contracts/Cargo.lock') }}
           restore-keys: cargo-
 
-      - name: Build WASM via direct Cargo build
-        # We invoke cargo build targeting wasm32-unknown-unknown directly,
-        # specifying the ODRA_BACKEND=casper environment variable which triggers
-        # the Odra proc-macros to generate the required Casper entry points.
+      - name: Build WASM via Docker
+        # Docker container handles the rust environment and cargo-odra installation
+        # securely and builds the production-ready Casper contract WASM.
         working-directory: contracts
-        env:
-          ODRA_BACKEND: casper
-          RUST_BACKTRACE: 1
         run: |
-          cargo build --target wasm32-unknown-unknown --release --bin yield_vault_build_contract --verbose
+          docker build -t yield-vault-builder -f Dockerfile.build .
           mkdir -p wasm
-          # Find the generated WASM file anywhere under the current contracts directory target folder
-          WASM_PATH=$(find target/ -name "yield_vault_build_contract.wasm" | head -n 1)
-          if [ -z "$WASM_PATH" ]; then
-            WASM_PATH=$(find ../target/ -name "yield_vault_build_contract.wasm" | head -n 1)
-          fi
-          if [ -z "$WASM_PATH" ]; then
-            echo "ERROR: yield_vault_build_contract.wasm not found in target directories"
-            find . -name "*.wasm"
-            exit 1
-          fi
-          echo "Found WASM at: $WASM_PATH"
-          wasm-strip "$WASM_PATH"
-          wasm-opt -O3 "$WASM_PATH" -o wasm/yield_vault.wasm
+          # Run the container and copy the generated WASM to local wasm directory
+          docker run --rm -v "$(pwd)"/wasm:/output yield-vault-builder
 
       - name: Show build output
         run: ls -lh contracts/wasm/
