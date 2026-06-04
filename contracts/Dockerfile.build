@@ -12,7 +12,7 @@ COPY . .
 RUN RUSTFLAGS="-C target-feature=-bulk-memory" \
     ODRA_MODULE=YieldVault \
     ODRA_BACKEND=casper \
-    cargo build --target wasm32-unknown-unknown --bin yield_vault_build_contract --release
+    cargo build --target wasm32-unknown-unknown --bin yield_vault_build_contract --release --features odra/casper
 
 # Strip debug info
 RUN wasm-strip target/wasm32-unknown-unknown/release/yield_vault_build_contract.wasm
