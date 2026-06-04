@@ -36,16 +36,19 @@ jobs:
           key: cargo-${{ hashFiles('contracts/Cargo.lock') }}
           restore-keys: cargo-
 
-      - name: Install cargo-odra
-        run: cargo install cargo-odra --version 0.1.7 --locked --verbose
-
-      - name: Build WASM via cargo odra build
-        # cargo odra build (no flags) reads Odra.toml, builds each contract,
-        # runs wasm-strip + wasm-opt, and writes output to contracts/wasm/
+      - name: Build WASM via direct Cargo build
+        # We invoke cargo build targeting wasm32-unknown-unknown directly,
+        # specifying the ODRA_BACKEND=casper environment variable which triggers
+        # the Odra proc-macros to generate the required Casper entry points.
         working-directory: contracts
         env:
+          ODRA_BACKEND: casper
           RUST_BACKTRACE: 1
-        run: cargo odra build --verbose
+        run: |
+          cargo build --target wasm32-unknown-unknown --release --lib --verbose
+          mkdir -p wasm
+          wasm-strip ../target/wasm32-unknown-unknown/release/yield_vault.wasm
+          wasm-opt -O3 ../target/wasm32-unknown-unknown/release/yield_vault.wasm -o wasm/yield_vault.wasm
 
       - name: Show build output
         run: ls -lh contracts/wasm/
