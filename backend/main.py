@@ -14,7 +14,7 @@ from typing import Optional
 # Ensure we always load .env from the backend/ directory regardless of cwd
 os.chdir(Path(__file__).parent)
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -133,6 +133,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
+
+class CORSErrorMiddleware(BaseHTTPMiddleware):
+    """Ensure CORS headers are present even on unhandled 500 errors."""
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        origin = request.headers.get("origin", "*")
+        response.headers.setdefault("Access-Control-Allow-Origin", origin)
+        response.headers.setdefault("Access-Control-Allow-Credentials", "true")
+        return response
+
+app.add_middleware(CORSErrorMiddleware)
 
 
 # ── REST Endpoints ────────────────────────────────────────────────────────────
@@ -294,13 +308,19 @@ async def manual_rebalance(req: ManualRebalanceRequest):
 async def rpc_proxy(request: Request):
     """Proxy Casper node RPC calls to avoid browser CORS restrictions."""
     body = await request.json()
+    headers = {"Content-Type": "application/json"}
+    if settings.cspr_cloud_api_key:
+        headers["Authorization"] = settings.cspr_cloud_api_key
+    logger.info("RPC proxy → %s (api_key set: %s)", settings.casper_node_url, bool(settings.cspr_cloud_api_key))
     async with __import__("httpx").AsyncClient(timeout=30) as client:
-        resp = await client.post(
-            settings.casper_node_url,
-            json=body,
-            headers={"Content-Type": "application/json"},
-        )
-    return resp.json()
+        resp = await client.post(settings.casper_node_url, json=body, headers=headers)
+    logger.info("RPC proxy ← %s %s", resp.status_code, resp.text[:200])
+    if resp.status_code != 200:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text[:500])
+    try:
+        return resp.json()
+    except Exception:
+        raise HTTPException(status_code=502, detail="Upstream returned non-JSON response")
 
 
 @app.get("/deploys/{deploy_hash}")
