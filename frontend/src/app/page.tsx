@@ -162,27 +162,27 @@ export default function DashboardPage() {
       <div className="flex-1 min-h-0 gap-2" style={{
         display: "grid",
         gridTemplateColumns: "1fr 2fr 1.5fr 1fr",
-        gridTemplateRows: "minmax(0,1fr) minmax(0,2fr)",
+        gridTemplateRows: "minmax(0,1fr) minmax(0,1fr) minmax(0,1.35fr)",
       }}>
 
-        {/* RWA Oracle — col 1, rows 1–2 */}
-        <Panel className="flex flex-col overflow-hidden" style={{ gridColumn: "1", gridRow: "1 / 3" }}>
+        {/* RWA Oracle — col 1, rows 1–3 */}
+        <Panel className="flex flex-col overflow-hidden" style={{ gridColumn: "1", gridRow: "1 / 4" }}>
           <PanelLabel text="RWA Oracle — Real-World Assets" accent="#FF9F0A" />
           <div className="flex-1 min-h-0 overflow-y-auto">
             <RWAPanel />
           </div>
         </Panel>
 
-        {/* Portfolio Trajectory — col 2, row 1 */}
-        <Panel className="flex flex-col min-h-0" style={{ gridColumn: "2", gridRow: "1" }}>
+        {/* Portfolio Trajectory — col 2, rows 1–2 */}
+        <Panel className="flex flex-col min-h-0" style={{ gridColumn: "2", gridRow: "1 / 3" }}>
           <PanelLabel text="Portfolio Trajectory" accent="#00F5FF" />
           <div className="flex-1 min-h-0">
             <PortfolioChart />
           </div>
         </Panel>
 
-        {/* Allocation Matrix — col 3, row 1 */}
-        <Panel className="flex flex-col min-h-0" style={{ gridColumn: "3", gridRow: "1" }}>
+        {/* Allocation Matrix — col 3, rows 1–2 */}
+        <Panel className="flex flex-col min-h-0" style={{ gridColumn: "3", gridRow: "1 / 3" }}>
           <PanelLabel text="Allocation Matrix" accent="#BF5AF2" />
           <div className="flex-1 min-h-0 flex items-center justify-center">
             {hasContract
@@ -192,8 +192,8 @@ export default function DashboardPage() {
           </div>
         </Panel>
 
-        {/* Neural Decision Log — col 2–3, row 2 */}
-        <Panel className="flex flex-col min-h-0" style={{ gridColumn: "2 / 4", gridRow: "2" }}>
+        {/* Neural Decision Log — col 2–3, row 3 */}
+        <Panel className="flex flex-col min-h-0" style={{ gridColumn: "2 / 4", gridRow: "3" }}>
           <div className="flex items-center gap-2 mb-2 shrink-0">
             <div className="w-0.5 h-3 rounded-full bg-cyber-plasma"
                  style={{ boxShadow: "0 0 5px #BF5AF2" }} />
@@ -216,16 +216,16 @@ export default function DashboardPage() {
           </div>
         </Panel>
 
-        {/* Yield Intelligence — col 4, row 1 */}
-        <Panel className="flex flex-col min-h-0" style={{ gridColumn: "4", gridRow: "1" }}>
+        {/* Yield Intelligence — col 4, rows 1–2 */}
+        <Panel className="flex flex-col min-h-0" style={{ gridColumn: "4", gridRow: "1 / 3" }}>
           <PanelLabel text="Yield Intelligence" accent="#00FF94" />
           <div className="flex-1 min-h-0 overflow-y-auto">
             <YieldRatesPanel />
           </div>
         </Panel>
 
-        {/* AI Chat — col 4, row 2 */}
-        <Panel className="flex flex-col min-h-0" style={{ gridColumn: "4", gridRow: "2" }}>
+        {/* AI Chat — col 4, rows 3 (half height) */}
+        <Panel className="flex flex-col min-h-0" style={{ gridColumn: "4", gridRow: "3" }}>
           <PanelLabel text="Ask AI Agent" accent="#BF5AF2" />
           <div className="flex-1 min-h-0">
             <ChatBox />
