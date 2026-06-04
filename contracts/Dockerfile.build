@@ -8,6 +8,6 @@ RUN apt-get update && \
 WORKDIR /contracts
 COPY . .
 
-RUN cargo odra build -b casper
+RUN cargo odra build
 
 CMD ["sh", "-c", "cp wasm/*.wasm /output/"]
