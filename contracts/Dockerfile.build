@@ -3,21 +3,31 @@ FROM rust:1.81-slim
 RUN apt-get update && \
     apt-get install -y pkg-config libssl-dev ca-certificates wabt curl && \
     curl -L https://github.com/WebAssembly/binaryen/releases/download/version_129/binaryen-version_129-x86_64-linux.tar.gz | tar -xz -C /usr/local --strip-components=1 && \
-    rustup target add wasm32-unknown-unknown && \
-    cargo install cargo-odra --locked
+    rustup target add wasm32-unknown-unknown
 
 WORKDIR /contracts
 COPY . .
 
-# cargo-odra build -b casper generates the WASM entry point `call` that Casper requires.
-# Direct `cargo build` does NOT generate this export — always use cargo-odra for Casper.
-RUN cargo odra build -b casper > /contracts/build.log 2>&1 || (cat /contracts/build.log && exit 1)
+# Build the library as a cdylib WASM.
+# Odra's #[odra::module] macro with `features = ["casper"]` generates the `call`
+# entry point inside the library itself — no cargo-odra wrapper binary required.
+# cargo-odra 0.x is incompatible with Odra 1.5.x and cannot be used here.
+RUN cargo build --target wasm32-unknown-unknown --lib --release 2>&1
 
-# Strip debug info (cargo-odra outputs to wasm/)
-RUN wasm-strip wasm/yield_vault.wasm
+# Show exports so CI log reveals what's in the WASM
+RUN echo "=== WASM exports ===" && \
+    wasm-objdump -x target/wasm32-unknown-unknown/release/yield_vault.wasm | grep -i "export" || true
 
-# Optimize size and lower sign-extension opcodes (required by Casper runtime)
-RUN wasm-opt -Oz --signext-lowering wasm/yield_vault.wasm -o wasm/yield_vault.wasm
+# Fail fast if the required `call` export is missing
+RUN wasm-objdump -x target/wasm32-unknown-unknown/release/yield_vault.wasm | grep '"call"' || \
+    (echo "ERROR: WASM does not export 'call' — Odra casper feature did not generate the entry point" && exit 1)
 
-# Output the final optimized WASM file
-CMD ["sh", "-c", "cp wasm/yield_vault.wasm /output/yield_vault.wasm"]
+# Strip debug symbols
+RUN wasm-strip target/wasm32-unknown-unknown/release/yield_vault.wasm
+
+# Optimize size; --signext-lowering is required by the Casper runtime
+RUN wasm-opt -Oz --signext-lowering \
+    target/wasm32-unknown-unknown/release/yield_vault.wasm \
+    -o target/wasm32-unknown-unknown/release/yield_vault.wasm
+
+CMD ["sh", "-c", "cp target/wasm32-unknown-unknown/release/yield_vault.wasm /output/yield_vault.wasm"]
