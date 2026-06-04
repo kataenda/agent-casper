@@ -8,19 +8,19 @@ RUN apt-get update && \
 WORKDIR /contracts
 COPY . .
 
-# Build the library as a cdylib WASM.
-# Odra's #[odra::module] macro with `features = ["casper"]` generates the `call`
-# entry point inside the library itself — no cargo-odra wrapper binary required.
-# cargo-odra 0.x is incompatible with Odra 1.5.x and cannot be used here.
-RUN cargo build --target wasm32-unknown-unknown --lib --release 2>&1
+# --cfg odra_module="YieldVault" activates the #[cfg(odra_module="YieldVault")] block
+# that Odra's #[odra::module] macro generates — this block contains the #[no_mangle] call()
+# WASM entry point required by the Casper runtime.
+# Without this cfg flag, the call() function is compiled out and the deploy fails with
+# "Module doesn't have export call".
+RUN RUSTFLAGS='--cfg odra_module="YieldVault" -C target-feature=-bulk-memory' \
+    cargo build --target wasm32-unknown-unknown --lib --release 2>&1
 
-# Show exports so CI log reveals what's in the WASM
+# Verify the call export is present before proceeding
 RUN echo "=== WASM exports ===" && \
     wasm-objdump -x target/wasm32-unknown-unknown/release/yield_vault.wasm | grep -i "export" || true
-
-# Fail fast if the required `call` export is missing
 RUN wasm-objdump -x target/wasm32-unknown-unknown/release/yield_vault.wasm | grep '"call"' || \
-    (echo "ERROR: WASM does not export 'call' — Odra casper feature did not generate the entry point" && exit 1)
+    (echo "ERROR: 'call' export still missing — check odra_module cfg value" && exit 1)
 
 # Strip debug symbols
 RUN wasm-strip target/wasm32-unknown-unknown/release/yield_vault.wasm
