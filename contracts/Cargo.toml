@@ -12,6 +12,11 @@ odra = "=1.5.1"
 [dev-dependencies]
 odra-test = "=1.5.1"
 
+[[bin]]
+name = "yield_vault_build_contract"
+path = "bin/yield_vault_build_contract.rs"
+test = false
+
 [profile.release]
 codegen-units = 1
 lto = true
