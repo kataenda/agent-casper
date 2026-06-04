@@ -29,17 +29,32 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             contracts/target
-          key: nightly-20250225-${{ hashFiles('contracts/Cargo.toml') }}
+          key: nightly-20250225-odra-${{ hashFiles('contracts/Cargo.toml') }}
 
-      - name: Build WASM
-        working-directory: contracts
-        run: cargo +nightly-2025-02-25 build --target wasm32-unknown-unknown --release
-
-      - name: Copy WASM
+      - name: Install wasm-opt
         run: |
-          mkdir -p contracts/wasm
-          cp contracts/target/wasm32-unknown-unknown/release/yield_vault.wasm contracts/wasm/yield_vault.wasm
-          ls -lh contracts/wasm/
+          sudo apt-get update -qq
+          sudo apt-get install -y binaryen
+
+      - name: Install cargo-odra
+        run: cargo +nightly-2025-02-25 install cargo-odra
+
+      - name: Build WASM via cargo-odra
+        working-directory: contracts
+        run: cargo +nightly-2025-02-25 odra build -b casper
+
+      - name: Locate and copy WASM
+        working-directory: contracts
+        run: |
+          echo "=== WASM files found ==="
+          find . -name "*.wasm" | sort
+          WASM=$(find . -name "yield_vault.wasm" | grep -v "^./wasm/" | head -1)
+          if [ -z "$WASM" ]; then
+            WASM=$(find . -name "*.wasm" | grep -v "^./wasm/" | head -1)
+          fi
+          echo "Using: $WASM ($(ls -lh $WASM | awk '{print $5}'))"
+          mkdir -p wasm
+          cp "$WASM" wasm/yield_vault.wasm
 
       - name: Commit WASM
         run: |
