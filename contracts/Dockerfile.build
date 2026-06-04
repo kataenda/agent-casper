@@ -9,25 +9,21 @@ WORKDIR /contracts
 COPY . .
 
 # --cfg odra_module="YieldVault" activates the #[cfg(odra_module="YieldVault")] block
-# that Odra's #[odra::module] macro generates — this block contains the #[no_mangle] call()
-# WASM entry point required by the Casper runtime.
-# Without this cfg flag, the call() function is compiled out and the deploy fails with
-# "Module doesn't have export call".
+# that Odra's #[odra::module] macro generates — this is where #[no_mangle] fn call() lives.
+# Output is NOT redirected so compilation errors are fully visible in CI logs.
 RUN RUSTFLAGS='--cfg odra_module="YieldVault" -C target-feature=-bulk-memory' \
-    cargo build --target wasm32-unknown-unknown --lib --release 2>&1
+    cargo build --target wasm32-unknown-unknown --bin yield_vault_build_contract --release
 
-# Verify the call export is present before proceeding
+# Show exports and fail fast if call is missing
 RUN echo "=== WASM exports ===" && \
-    wasm-objdump -x target/wasm32-unknown-unknown/release/yield_vault.wasm | grep -i "export" || true
-RUN wasm-objdump -x target/wasm32-unknown-unknown/release/yield_vault.wasm | grep '"call"' || \
-    (echo "ERROR: 'call' export still missing — check odra_module cfg value" && exit 1)
+    wasm-objdump -x target/wasm32-unknown-unknown/release/yield_vault_build_contract.wasm | grep -i "export" || true
+RUN wasm-objdump -x target/wasm32-unknown-unknown/release/yield_vault_build_contract.wasm | grep '"call"' || \
+    (echo "ERROR: 'call' export missing after build" && exit 1)
 
-# Strip debug symbols
-RUN wasm-strip target/wasm32-unknown-unknown/release/yield_vault.wasm
+RUN wasm-strip target/wasm32-unknown-unknown/release/yield_vault_build_contract.wasm
 
-# Optimize size; --signext-lowering is required by the Casper runtime
 RUN wasm-opt -Oz --signext-lowering \
-    target/wasm32-unknown-unknown/release/yield_vault.wasm \
-    -o target/wasm32-unknown-unknown/release/yield_vault.wasm
+    target/wasm32-unknown-unknown/release/yield_vault_build_contract.wasm \
+    -o target/wasm32-unknown-unknown/release/yield_vault_build_contract.wasm
 
-CMD ["sh", "-c", "cp target/wasm32-unknown-unknown/release/yield_vault.wasm /output/yield_vault.wasm"]
+CMD ["sh", "-c", "cp target/wasm32-unknown-unknown/release/yield_vault_build_contract.wasm /output/yield_vault.wasm"]
