@@ -47,11 +47,19 @@ jobs:
         run: |
           cargo build --target wasm32-unknown-unknown --release --lib --verbose
           mkdir -p wasm
-          # Package name is yield-vault, so Cargo creates yield_vault.wasm (under-score)
-          # Let's list files to verify if needed, and run strip + opt:
-          ls -la ../target/wasm32-unknown-unknown/release/
-          wasm-strip ../target/wasm32-unknown-unknown/release/yield_vault.wasm
-          wasm-opt -O3 ../target/wasm32-unknown-unknown/release/yield_vault.wasm -o wasm/yield_vault.wasm
+          # Find the generated WASM file anywhere under the root target directory
+          WASM_PATH=$(find ../target -name "yield_vault.wasm" | head -n 1)
+          if [ -z "$WASM_PATH" ]; then
+            WASM_PATH=$(find ../../target -name "yield_vault.wasm" | head -n 1)
+          fi
+          if [ -z "$WASM_PATH" ]; then
+            echo "ERROR: yield_vault.wasm not found in target directories"
+            find ../ -name "*.wasm"
+            exit 1
+          fi
+          echo "Found WASM at: $WASM_PATH"
+          wasm-strip "$WASM_PATH"
+          wasm-opt -O3 "$WASM_PATH" -o wasm/yield_vault.wasm
 
       - name: Show build output
         run: ls -lh contracts/wasm/
