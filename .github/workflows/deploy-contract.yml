@@ -47,14 +47,14 @@ jobs:
         run: |
           cargo build --target wasm32-unknown-unknown --release --lib --verbose
           mkdir -p wasm
-          # Find the generated WASM file anywhere under the root target directory
-          WASM_PATH=$(find ../target -name "yield_vault.wasm" | head -n 1)
+          # Find the generated WASM file anywhere under the current contracts directory target folder
+          WASM_PATH=$(find target/ -name "yield_vault.wasm" | head -n 1)
           if [ -z "$WASM_PATH" ]; then
-            WASM_PATH=$(find ../../target -name "yield_vault.wasm" | head -n 1)
+            WASM_PATH=$(find ../target/ -name "yield_vault.wasm" | head -n 1)
           fi
           if [ -z "$WASM_PATH" ]; then
             echo "ERROR: yield_vault.wasm not found in target directories"
-            find ../ -name "*.wasm"
+            find . -name "*.wasm"
             exit 1
           fi
           echo "Found WASM at: $WASM_PATH"
