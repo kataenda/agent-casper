@@ -37,13 +37,15 @@ jobs:
           restore-keys: cargo-
 
       - name: Install cargo-odra
-        run: cargo install cargo-odra --version 0.1.7 --locked
+        run: cargo install cargo-odra --version 0.1.7 --locked --verbose
 
       - name: Build WASM via cargo odra build
         # cargo odra build (no flags) reads Odra.toml, builds each contract,
         # runs wasm-strip + wasm-opt, and writes output to contracts/wasm/
         working-directory: contracts
-        run: cargo odra build
+        env:
+          RUST_BACKTRACE: 1
+        run: cargo odra build --verbose
 
       - name: Show build output
         run: ls -lh contracts/wasm/
