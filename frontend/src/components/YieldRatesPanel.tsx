@@ -12,8 +12,8 @@ function RiskMeter({ score }: { score: number }) {
   const pct  = score * 100;
   const color = score < 0.35 ? "#00FF94" : score < 0.65 ? "#FF9F0A" : "#FF2D55";
   return (
-    <div className="mt-2">
-      <div className="flex justify-between mb-1">
+    <div className="mt-1">
+      <div className="flex justify-between mb-0.5">
         <span className="text-[9px] font-mono text-cyber-muted uppercase tracking-widest">RISK</span>
         <span className="text-[9px] font-mono" style={{ color }}>{pct.toFixed(0)}%</span>
       </div>
@@ -35,28 +35,28 @@ function NodeCard({ rate }: { rate: YieldRate }) {
 
   return (
     <div
-      className="glass-panel rounded-xl p-4 flex flex-col gap-1 relative overflow-hidden transition-all duration-300 hover:scale-[1.02]"
+      className="glass-panel rounded-xl py-2 px-3 flex flex-col gap-0.5 relative overflow-hidden transition-all duration-300 hover:scale-[1.02]"
       style={{ borderColor: `${cfg.color}22` }}
     >
       {/* Top accent line */}
       <div className="absolute top-0 left-0 right-0 h-px"
            style={{ background: `linear-gradient(90deg, transparent, ${cfg.color}, transparent)` }} />
 
-      <div className="text-[9px] font-mono tracking-widest mb-1"
+      <div className="text-[9px] font-mono tracking-widest"
            style={{ color: cfg.color, opacity: 0.7 }}>
         {cfg.label}
       </div>
 
       {/* APY */}
       <div className="font-mono font-bold cyber-num leading-none"
-           style={{ fontSize: 28, color: cfg.color, textShadow: `0 0 16px ${cfg.glow}` }}>
+           style={{ fontSize: 20, color: cfg.color, textShadow: `0 0 16px ${cfg.glow}` }}>
         {apy}
-        <span className="text-xs ml-1 font-normal opacity-60">% APY</span>
+        <span className="text-[10px] ml-1 font-normal opacity-60">% APY</span>
       </div>
 
       {/* TVL bar */}
-      <div className="mt-2">
-        <div className="flex justify-between mb-1">
+      <div className="mt-1">
+        <div className="flex justify-between mb-0.5">
           <span className="text-[9px] font-mono text-cyber-muted uppercase tracking-widest">TVL</span>
           <span className="text-[9px] font-mono text-cyber-bright">{tvlK}K CSPR</span>
         </div>
