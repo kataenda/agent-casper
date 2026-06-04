@@ -47,6 +47,9 @@ jobs:
         run: |
           cargo build --target wasm32-unknown-unknown --release --lib --verbose
           mkdir -p wasm
+          # Package name is yield-vault, so Cargo creates yield_vault.wasm (under-score)
+          # Let's list files to verify if needed, and run strip + opt:
+          ls -la ../target/wasm32-unknown-unknown/release/
           wasm-strip ../target/wasm32-unknown-unknown/release/yield_vault.wasm
           wasm-opt -O3 ../target/wasm32-unknown-unknown/release/yield_vault.wasm -o wasm/yield_vault.wasm
 
