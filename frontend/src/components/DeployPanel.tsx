@@ -65,7 +65,7 @@ export function DeployPanel() {
       const session = ExecutableDeployItem.newModuleBytes(wasmBytes, Args.fromMap({}));
       const deploy  = Deploy.makeDeploy(header, payment, session);
 
-      // ── 3. Sign with Casper Wallet ────────────────────────────────────
+      // ── 3. Sign with Casper Wallet extension ─────────────────────────
       setStep("signing");
       const provider = window.CasperWalletProvider?.();
       if (!provider) throw new Error("Casper Wallet extension tidak ditemukan");
@@ -75,14 +75,25 @@ export function DeployPanel() {
       const signResult    = await (provider as any).sign(deployJsonStr, account.publicKey);
       if (signResult?.cancelled) throw new Error("Tanda tangan dibatalkan");
 
-      // Attach signature using Deploy.setSignature
-      const sigHex   = (signResult.signatureHex ?? signResult.signature ?? "") as string;
-      const sigBytes = Uint8Array.from(Buffer.from(sigHex, "hex"));
-      const signed   = Deploy.setSignature(deploy, sigBytes, pubKey);
+      // Build signed deploy — newer wallet returns full deploy, older returns signatureHex
+      let signedJson: object;
+      if (signResult?.deploy) {
+        signedJson = typeof signResult.deploy === "string"
+          ? JSON.parse(signResult.deploy) : signResult.deploy;
+      } else {
+        let sigHex = (signResult?.signatureHex ?? signResult?.signature ?? "") as string;
+        if (!sigHex) throw new Error("Wallet tidak mengembalikan signature");
+        // Ensure 65-byte signature with algorithm prefix (01=ED25519, 02=SECP256K1)
+        if (sigHex.length === 128) {
+          sigHex = (account.publicKey.startsWith("02") ? "02" : "01") + sigHex;
+        }
+        const sigBytes = Uint8Array.from(Buffer.from(sigHex, "hex"));
+        const signed   = Deploy.setSignature(deploy, sigBytes, pubKey);
+        signedJson     = Deploy.toJSON(signed);
+      }
 
       // ── 4. Submit ─────────────────────────────────────────────────────
       setStep("submitting");
-      const signedJson = Deploy.toJSON(signed);
       const rpcRes  = await fetch(`${BACKEND}/rpc`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -93,7 +104,9 @@ export function DeployPanel() {
         }),
       });
       const rpcData = await rpcRes.json();
-      if (rpcData.error) throw new Error(`Node error: ${rpcData.error.message}`);
+      if (rpcData.error) throw new Error(
+        `Node error: ${rpcData.error.message}${rpcData.error.data ? ` — ${rpcData.error.data}` : ""}`
+      );
       const dHash = rpcData.result.deploy_hash as string;
 
       // ── 5. Poll + notify backend ──────────────────────────────────────
@@ -154,30 +167,35 @@ export function DeployPanel() {
 
 // ── Poll until deploy finalized + return contract hash ─────────────────────────
 
-async function pollForContractHash(deployHash: string, publicKey: string): Promise<string> {
+async function pollForContractHash(deployHash: string, _publicKey: string): Promise<string> {
   const base     = "http://localhost:8000";
-  const deadline = Date.now() + 180_000;
+  const deadline = Date.now() + 300_000; // 5 min
 
   while (Date.now() < deadline) {
     await new Promise(r => setTimeout(r, 8000));
     try {
-      const res = await fetch(`${base}/deploys/${deployHash}`);
-      const obj = (await res.json()).data ?? await res.json();
-      if (obj.execution_results?.length) {
-        const result = obj.execution_results[0].result;
-        if (result?.Failure) throw new Error(`On-chain failure: ${JSON.stringify(result.Failure)}`);
-        if (result?.Success) {
-          const acc    = await fetch(`${base}/accounts/${publicKey}`);
-          const accObj = (await acc.json()).data ?? await acc.json();
-          for (const nk of accObj.named_keys ?? []) {
-            if (nk.name?.toLowerCase().includes("yield_vault")) return nk.key as string;
-          }
-          throw new Error("Deploy OK tapi contract hash tidak ditemukan di named keys");
-        }
+      const res     = await fetch(`${base}/deploys/${deployHash}`);
+      const resJson = await res.json();
+      // CSPR.cloud v2 wraps in { data: {...} }, flat object has status/error_message/contract_hash
+      const obj = resJson.data ?? resJson;
+
+      // Skip if still pending or no status yet
+      if (!obj.status || obj.status === "pending") continue;
+
+      // On-chain failure
+      if (obj.error_message) throw new Error(`On-chain failure: ${obj.error_message}`);
+
+      // Success — CSPR.cloud returns contract_hash directly
+      if (obj.contract_hash) return obj.contract_hash as string;
+      if (obj.contract_package_hash) return obj.contract_package_hash as string;
+
+      // Processed but no contract hash (shouldn't happen for WASM deploy)
+      if (obj.status === "processed") {
+        throw new Error("Deploy processed tapi tidak ada contract_hash. Periksa WASM build.");
       }
     } catch (e) {
-      if (e instanceof Error && (e.message.startsWith("On-chain") || e.message.startsWith("Deploy OK"))) throw e;
+      if (e instanceof Error && (e.message.startsWith("On-chain") || e.message.startsWith("Deploy"))) throw e;
     }
   }
-  throw new Error("Timeout: deploy tidak finalized dalam 3 menit");
+  throw new Error("Timeout: deploy tidak finalized dalam 5 menit");
 }
