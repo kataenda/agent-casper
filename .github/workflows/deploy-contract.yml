@@ -16,10 +16,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust nightly
+      # cargo-odra requires edition2024 — needs a modern toolchain to compile
+      - name: Install Rust nightly-2025-02-25 (for cargo-odra install)
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly-2025-02-25
+
+      # odra 1.5.1 requires nightly-2023-12-15 + wasm target for contract build
+      - name: Install Rust nightly-2023-12-15 + wasm target (for contract build)
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2023-12-15
           targets: wasm32-unknown-unknown
 
       - name: Cache Cargo
@@ -29,16 +36,18 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             contracts/target
-          key: nightly-20250225-odra-${{ hashFiles('contracts/Cargo.toml') }}
+          key: nightly-20231215-odra-${{ hashFiles('contracts/Cargo.toml') }}
 
       - name: Install wasm-opt
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y binaryen
 
+      # Install cargo-odra using the modern toolchain (supports edition2024)
       - name: Install cargo-odra
         run: cargo +nightly-2025-02-25 install cargo-odra --locked
 
+      # cargo odra build will use rust-toolchain.toml = nightly-2023-12-15
       - name: Build WASM via cargo-odra
         working-directory: contracts
         run: cargo odra build
@@ -52,7 +61,7 @@ jobs:
           if [ -z "$WASM" ]; then
             WASM=$(find . -name "*.wasm" | grep -v "^./wasm/" | head -1)
           fi
-          echo "Using: $WASM ($(ls -lh $WASM | awk '{print $5}'))"
+          echo "Using: $WASM ($(wc -c < $WASM) bytes)"
           mkdir -p wasm
           cp "$WASM" wasm/yield_vault.wasm
 
