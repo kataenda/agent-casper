@@ -1,2 +1,3 @@
-[contracts]
-YieldVault = { path = "src/yield_vault.rs" }
+[[contracts]]
+name = "YieldVault"
+path = "src/yield_vault.rs"
