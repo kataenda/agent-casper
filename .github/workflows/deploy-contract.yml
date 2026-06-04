@@ -16,10 +16,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust nightly-2023-12-15 + wasm target
+      - name: Install Rust nightly-2025-02-25 + wasm target
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: nightly-2023-12-15
+          toolchain: nightly-2025-02-25
           targets: wasm32-unknown-unknown
 
       - name: Cache Cargo
@@ -29,7 +29,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             contracts/target
-          key: nightly-20231215-${{ hashFiles('contracts/Cargo.toml') }}
+          key: nightly-20250225-${{ hashFiles('contracts/Cargo.toml') }}
 
       - name: Build WASM
         working-directory: contracts
@@ -37,7 +37,7 @@ jobs:
           ODRA_MODULE: YieldVault
           ODRA_BACKEND: casper
         run: |
-          cargo +nightly-2023-12-15 build \
+          cargo +nightly-2025-02-25 build \
             --target wasm32-unknown-unknown \
             --bin yield_vault_build_contract \
             --release
