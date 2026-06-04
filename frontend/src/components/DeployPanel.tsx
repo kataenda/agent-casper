@@ -76,7 +76,8 @@ export function DeployPanel() {
       if (signResult?.cancelled) throw new Error("Tanda tangan dibatalkan");
 
       // Build signed deploy — newer wallet returns full deploy, older returns signatureHex
-      let signedJson: object;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let signedJson: any;
       if (signResult?.deploy) {
         signedJson = typeof signResult.deploy === "string"
           ? JSON.parse(signResult.deploy) : signResult.deploy;

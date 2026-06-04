@@ -12,19 +12,27 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONTRACT_DIR="$SCRIPT_DIR/../contracts"
-WASM_PATH="$CONTRACT_DIR/target/wasm32-unknown-unknown/release/yield_vault.wasm"
+# Odra build outputs to contracts/wasm/
+WASM_PATH="$CONTRACT_DIR/wasm/yield_vault.wasm"
 SECRET_KEY="${SECRET_KEY:-$SCRIPT_DIR/agent_secret_key.pem}"
 AGENT_ACCOUNT_HASH="${AGENT_ACCOUNT_HASH:-}"
 NODE_URL="https://rpc.testnet.casperlabs.io"
 CHAIN_NAME="casper-test"
-PAYMENT_AMOUNT="100000000000"   # 100 CSPR
+PAYMENT_AMOUNT="150000000000"   # 150 CSPR — WASM deploy is expensive
 
 # ── Step 1: Build WASM ────────────────────────────────────────────────────────
 echo ""
-echo "==> [1/4] Building YieldVault WASM (features=casper)..."
+echo "==> [1/4] Building YieldVault WASM via Odra..."
 cd "$CONTRACT_DIR"
-rustup target add wasm32-unknown-unknown 2>/dev/null || true
-cargo build --release --features casper --target wasm32-unknown-unknown
+
+# Ensure cargo-odra is installed
+if ! cargo odra --version &>/dev/null; then
+    echo "    Installing cargo-odra..."
+    cargo install cargo-odra --locked
+fi
+
+# Build using Odra framework (generates proper Casper WASM with 'call' export)
+cargo odra build -b casper
 
 if [ ! -f "$WASM_PATH" ]; then
     echo "ERROR: WASM not found at $WASM_PATH" >&2
