@@ -122,11 +122,14 @@ export function DeployPanel() {
       const hash = await pollForContractHash(dHash, callerHash);
       setContractHash(hash);
 
-      const accountHash = pubKey.accountHash().toPrefixedString();
+      // Use agent address from backend (PEM key), not deployer address
+      const agentRes  = await fetch(`${BACKEND}/admin/agent-address`);
+      const agentData = await agentRes.json();
+      const agentHash = agentData.agent_account_hash ?? pubKey.accountHash().toPrefixedString();
       await fetch(`${BACKEND}/admin/setup`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ vault_contract_hash: hash, agent_account_hash: accountHash }),
+        body: JSON.stringify({ vault_contract_hash: hash, agent_account_hash: agentHash }),
       });
 
       setStep("done");

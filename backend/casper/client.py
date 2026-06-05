@@ -47,16 +47,23 @@ class CasperClient:
         return resp_json.get("data", resp_json)
 
     async def get_block_height(self) -> int:
-        """Uses CSPR.cloud node proxy (https://node.testnet.cspr.cloud)."""
+        """Uses CSPR.cloud node proxy. Handles both Casper 1.x and 2.x block formats."""
         try:
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(headers={"Authorization": self.headers["Authorization"]}) as client:
                 resp = await client.post(
                     self.node_url,
                     json={"id": 1, "jsonrpc": "2.0", "method": "chain_get_block", "params": []},
                     timeout=10,
                 )
                 resp.raise_for_status()
-                return resp.json()["result"]["block"]["header"]["height"]
+                block = resp.json()["result"]["block"]
+                # Casper 2.x wraps block in {"Version2": {...}} or {"Version1": {...}}
+                if "Version2" in block:
+                    return block["Version2"]["header"]["height"]
+                if "Version1" in block:
+                    return block["Version1"]["header"]["height"]
+                # Casper 1.x flat format
+                return block["header"]["height"]
         except Exception:
             self._mock_block += 1
             return self._mock_block
@@ -105,18 +112,49 @@ class CasperClient:
         return "xxx" in value or value.endswith("-demo")
 
     async def get_vault_portfolio(self, contract_hash: str) -> PortfolioState:
-        """Reads portfolio state from YieldVault contract. Returns zeros until deployed."""
+        """
+        Reads portfolio state from YieldVault contract via Casper RPC.
+        In Casper 2.x, contract named keys are queried via query_global_state
+        using the package hash.
+        """
         if self._is_placeholder(contract_hash):
             return PortfolioState(
                 total_value_motes=0, conservative_pct=0, balanced_pct=0,
                 aggressive_pct=0, current_strategy="N/A", last_rebalance_timestamp=0,
             )
         try:
-            portfolio_data = await self.get_contract_state(contract_hash, "portfolio")
-            if portfolio_data:
-                return PortfolioState(**portfolio_data)
-        except Exception:
-            pass
+            # query_global_state: key = "hash-<hex>", path = ["portfolio"]
+            async with httpx.AsyncClient(
+                headers={"Authorization": self.headers["Authorization"]},
+                timeout=15,
+            ) as client:
+                resp = await client.post(
+                    self.node_url,
+                    json={
+                        "id": 1, "jsonrpc": "2.0",
+                        "method": "query_global_state",
+                        "params": {"key": contract_hash, "path": ["portfolio"]},
+                    },
+                )
+                resp.raise_for_status()
+                data = resp.json()
+
+            sv = data.get("result", {}).get("stored_value", {})
+            # Could be CLValue with parsed Portfolio or raw struct
+            parsed = sv.get("CLValue", {}).get("parsed") or sv.get("Account") or sv
+            if isinstance(parsed, dict):
+                return PortfolioState(
+                    total_value_motes   = int(parsed.get("total_value", 0)),
+                    conservative_pct    = int(parsed.get("conservative_pct", 0)),
+                    balanced_pct        = int(parsed.get("balanced_pct", 0)),
+                    aggressive_pct      = int(parsed.get("aggressive_pct", 0)),
+                    current_strategy    = str(parsed.get("current_strategy", "N/A")),
+                    last_rebalance_timestamp = int(parsed.get("last_rebalance", 0)),
+                )
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).debug("get_vault_portfolio error: %s", exc)
+
         return PortfolioState(
             total_value_motes=0, conservative_pct=0, balanced_pct=0,
             aggressive_pct=0, current_strategy="N/A", last_rebalance_timestamp=0,
