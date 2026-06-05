@@ -8,16 +8,19 @@ RUN apt-get update && \
 WORKDIR /contracts
 COPY . .
 
-# --cfg odra_module="YieldVault" activates the #[cfg(odra_module="YieldVault")] block
-# that Odra's #[odra::module] macro generates — this is where #[no_mangle] fn call() lives.
-# Output is NOT redirected so compilation errors are fully visible in CI logs.
-RUN RUSTFLAGS='--cfg odra_module="YieldVault" -C target-feature=-bulk-memory' \
+# ODRA_MODULE is read by contracts/build.rs which emits cargo:rustc-cfg=odra_module="YieldVault".
+# This activates the #[cfg(odra_module="YieldVault")] block that Odra's proc-macro generates,
+# where the #[no_mangle] fn call() entry point lives.
+# -C target-feature=-bulk-memory ensures LLVM 20+ doesn't emit bulk-memory instructions
+# that are not supported by the Casper VM.
+RUN ODRA_MODULE=YieldVault RUSTFLAGS='-C target-feature=-bulk-memory' \
     cargo build --target wasm32-unknown-unknown --bin yield_vault_build_contract --release
 
-# Show exports and fail fast if call is missing
+# Show exports and fail fast if call is missing.
+# wasm-objdump shows exports as:  - func[N] <call>
 RUN echo "=== WASM exports ===" && \
     wasm-objdump -x target/wasm32-unknown-unknown/release/yield_vault_build_contract.wasm | grep -i "export" || true
-RUN wasm-objdump -x target/wasm32-unknown-unknown/release/yield_vault_build_contract.wasm | grep '"call"' || \
+RUN wasm-objdump -x target/wasm32-unknown-unknown/release/yield_vault_build_contract.wasm | grep '<call>' || \
     (echo "ERROR: 'call' export missing after build" && exit 1)
 
 RUN wasm-strip target/wasm32-unknown-unknown/release/yield_vault_build_contract.wasm
