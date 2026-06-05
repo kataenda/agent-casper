@@ -1,241 +1,270 @@
-# AGENT-CASPER
+# AGENT-CASPER — Autonomous DeFi Yield Agent on Casper Network
 
-> Autonomous DeFi Yield Optimization Agent on Casper Network  
-> Built for the **Casper Agentic Buildathon 2026**
+> **Casper Agentic AI Buildathon 2026** · Build Direction #1: Autonomous Yield-Routing Agent
+
+[![Casper Testnet](https://img.shields.io/badge/Casper-Testnet-00F5FF)](https://testnet.cspr.live)
+[![Smart Contract](https://img.shields.io/badge/Contract-hash--f6ba9dfa-00FF94)](https://testnet.cspr.live)
+[![License: MIT](https://img.shields.io/badge/License-MIT-BF5AF2.svg)](LICENSE)
 
 ---
 
 ## Overview
 
-AGENT-CASPER is an end-to-end agentic DeFi system that autonomously manages a yield-optimized portfolio on the Casper blockchain. A Claude-powered AI agent monitors live yield rates, evaluates risk, and executes on-chain rebalancing decisions — all verifiably recorded via smart contract events.
+**AGENT-CASPER** is a fully autonomous DeFi yield optimization agent that lives on the Casper Network. It continuously monitors real-world asset prices, analyzes market conditions using Claude AI, and autonomously executes portfolio rebalancing transactions on a live smart contract — without human intervention.
 
-```
-Market Data (CSPR.cloud) → Claude AI Analysis → On-Chain Execution (YieldVault) → Dashboard
-```
+The system transforms a passive smart contract vault into a **self-driving portfolio manager** that:
+- Monitors RWA prices (gold, T-bonds, oil) and DeFi yield rates in real time
+- Uses Claude AI to analyze risk/yield trade-offs and decide when to rebalance
+- Signs and submits on-chain transactions to the YieldVault contract
+- Posts verified RWA oracle data directly to the Casper blockchain
 
 ---
 
 ## Architecture
 
-| Layer | Technology | Description |
-|---|---|---|
-| Smart Contract | Rust + Odra Framework | YieldVault deployed on Casper Testnet |
-| AI Agent | Python + Claude API | Autonomous decision engine |
-| API Server | FastAPI + WebSocket | Real-time data API |
-| Frontend | Next.js + Tailwind CSS | Live monitoring dashboard |
-| Payments | x402 Protocol | Per-request micropayments |
-| Blockchain | CSPR.cloud REST API | Casper middleware |
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        AGENT-CASPER                             │
+│                                                                 │
+│  ┌──────────┐    ┌──────────────┐    ┌──────────────────────┐  │
+│  │  RWA     │    │  Claude AI   │    │   YieldVault         │  │
+│  │  Oracle  ├───▶│  Decision    ├───▶│   Smart Contract     │  │
+│  │ PAXG/    │    │  Engine      │    │   (Odra 2.x / Casper │  │
+│  │ UST10Y/  │    │  (MCP Tools) │    │   Testnet)           │  │
+│  │ WTI Oil  │    └──────────────┘    └──────────────────────┘  │
+│  └──────────┘                                                   │
+│       │              ▲                        │                 │
+│  ┌────▼──────────────┴────────────────────────▼──────────────┐  │
+│  │          FastAPI Backend (Python)                         │  │
+│  │  • Yield Agent loop (every 60s)                           │  │
+│  │  • CSPR.cloud middleware                                  │  │
+│  │  • X402 micropayment handler                              │  │
+│  │  • WebSocket broadcast                                    │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│                            │                                    │
+│  ┌─────────────────────────▼──────────────────────────────────┐  │
+│  │         Next.js Dashboard (React + TypeScript)             │  │
+│  │  • Real-time cyber dashboard                               │  │
+│  │  • Casper Wallet integration                               │  │
+│  │  • Deploy / Register Agent / Deposit buttons               │  │
+│  │  • AI chat interface                                       │  │
+│  └────────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Casper AI Toolkit Used
+
+| Tool | Usage |
+|------|-------|
+| **CSPR.cloud** | Block data, deploy status, account balances |
+| **Odra Framework 2.7.2** | YieldVault smart contract (Rust) |
+| **casper-js-sdk v5** | Frontend deploy signing, wallet integration |
+| **X402 Protocol** | Micropayment handler (pluggable, `X402_ENABLED=true`) |
+| **MCP Server** | Exposes blockchain state to Claude via tool calls |
+| **Casper Wallet** | User authentication and transaction signing |
+| **Claude AI** | Autonomous rebalancing decisions with RWA context |
+
+---
+
+## Smart Contract — YieldVault
+
+**Deployed on Casper Testnet:**
+```
+Contract Hash: hash-f6ba9dfa2a236dcc253436c3350f06931465ca94290fad689dfc7c9058c559da
+Network:       casper-test
+Framework:     Odra 2.7.2 (Rust → WASM)
+```
+
+### Entry Points
+
+| Function | Description |
+|----------|-------------|
+| `deposit()` | Payable — users deposit CSPR into vault |
+| `withdraw(amount)` | Users withdraw their CSPR balance |
+| `register_agent(agent)` | Owner registers the AI agent address |
+| `rebalance(strategy, pcts, reason)` | Agent executes portfolio rebalance |
+| `update_rwa_price(asset, price, yield)` | Agent posts verified RWA data on-chain |
+| `get_portfolio()` | Returns current TVL and allocation |
+| `emergency_pause()` | Owner safety control |
+
+### Events Emitted
+`Deposited`, `Withdrawn`, `Rebalanced`, `AgentRegistered`, `RwaPriceUpdated`, `EmergencyPaused`
+
+---
+
+## Features
+
+### Autonomous AI Agent
+- Polls market data every 60 seconds
+- Claude AI analyzes RWA prices + yield rates + portfolio state
+- Decides: `HOLD`, `REBALANCE`, or `ALERT` with confidence score
+- Executes on-chain rebalances autonomously (up to 5/day)
+
+### RWA Oracle
+- Real-time prices: PAXG (gold), UST10Y (T-bond yield), WTI (oil)
+- Posts verified prices to YieldVault on-chain via `update_rwa_price()`
+- Creates auditable oracle trail on Casper blockchain
+
+### Yield Strategy Engine
+- **Conservative** (30% default): Low-risk, capital preservation
+- **Balanced** (50% default): Mixed risk/reward
+- **Aggressive** (20% default): High-yield opportunities
+
+### Live Dashboard
+- Real-time WebSocket updates from agent loop
+- Portfolio trajectory chart
+- Allocation donut visualization
+- Neural decision log with AI reasoning
+- RWA oracle panel with live prices
+- AI chat interface for natural language queries
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Smart Contract | Rust + Odra 2.7.2 → WASM (Casper 2.x) |
+| Backend | Python 3.11 + FastAPI + httpx |
+| AI | Anthropic Claude (claude-haiku-4-5) |
+| Frontend | Next.js 14 + React 18 + TypeScript |
+| UI | Tailwind CSS + Recharts + Lucide |
+| Wallet | Casper Wallet Extension + casper-js-sdk v5 |
+| CI/CD | GitHub Actions (auto-builds WASM on push) |
+
+---
+
+## Quick Start
+
+### Prerequisites
+- Node.js 18+
+- Python 3.11+
+- Casper Wallet browser extension
+- Testnet CSPR from [faucet](https://testnet.cspr.live/tools/faucet)
+
+### 1. Clone
+
+```bash
+git clone https://github.com/kataenda/agent-casper.git
+cd agent-casper
+```
+
+### 2. Backend
+
+```bash
+cd backend
+python -m venv venv
+venv\Scripts\activate        # Windows
+# source venv/bin/activate   # Linux/Mac
+
+pip install -r requirements.txt
+```
+
+Configure `.env`:
+```env
+ANTHROPIC_API_KEY=sk-ant-...
+CASPER_NODE_URL=https://node.testnet.cspr.cloud/rpc
+CSPR_CLOUD_API_KEY=your-key
+CSPR_CLOUD_BASE_URL=https://api.testnet.cspr.cloud
+```
+
+Start:
+```bash
+python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+### 3. Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000)
+
+### 4. Deploy & Activate
+
+1. **Connect Wallet** — click wallet button, connect Casper Wallet
+2. **Deploy Contract** — click "Deploy Contract" (~230 CSPR gas)
+3. **Register Agent** — click "Register Agent" so AI can rebalance
+4. **Deposit CSPR** — deposit CSPR into vault to activate AI decisions
+5. **Watch AI work** — agent polls every 60s, makes autonomous decisions
+
+### Agent Key Setup
+
+```bash
+cd backend
+python gen_key.py
+# Outputs: Public key, Account hash, saves agent_secret_key.pem
+# Fund the agent account via testnet faucet
+```
 
 ---
 
 ## Project Structure
 
 ```
-casper-yield-agent/
-├── REQUIREMENTS.md        # Full requirements analysis
-├── contracts/             # Odra smart contracts (Rust)
-│   ├── Cargo.toml
-│   └── src/
-│       ├── lib.rs
-│       └── yield_vault.rs
-├── backend/               # AI Agent + FastAPI server
-│   ├── requirements.txt
-│   ├── .env.example
-│   ├── main.py
+agent-casper/
+├── contracts/
+│   ├── src/yield_vault.rs      # YieldVault Odra contract
+│   ├── build.rs                # ODRA_MODULE cfg emission
+│   ├── Cargo.toml              # odra 2.7.2 deps
+│   ├── Dockerfile.build        # WASM compilation
+│   └── wasm/yield_vault.wasm   # Built by CI
+├── backend/
+│   ├── main.py                 # FastAPI + WebSocket + agent lifecycle
 │   ├── agent/
-│   │   ├── yield_agent.py
-│   │   └── decision_engine.py
+│   │   ├── yield_agent.py      # Autonomous 60s agent loop
+│   │   └── decision_engine.py  # Claude AI with MCP tools
 │   └── casper/
-│       ├── client.py
-│       └── x402.py
-└── frontend/              # Next.js dashboard
-    ├── package.json
-    └── src/
-        ├── app/
-        └── components/
+│       ├── client.py           # CSPR.cloud REST client
+│       ├── deployer.py         # Transaction signing (pycspr)
+│       ├── rwa_oracle.py       # PAXG / UST10Y / WTI prices
+│       └── x402.py             # X402 micropayment handler
+├── frontend/src/
+│   ├── app/page.tsx            # Cyber dashboard
+│   └── components/
+│       ├── DeployPanel.tsx     # Contract deployment
+│       ├── VaultControls.tsx   # Register agent + deposit
+│       ├── RWAPanel.tsx        # Real-world asset display
+│       ├── DecisionLog.tsx     # AI decision history
+│       └── ChatBox.tsx         # AI chat
+└── .github/workflows/
+    └── deploy-contract.yml     # Auto-build WASM CI
 ```
-
----
-
-## Quick Start
-
-### 1. Deploy Smart Contract
-
-```bash
-cd contracts
-
-# Install Rust + Odra toolchain
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-cargo install odra-casper-backend
-
-# Build wasm
-cargo build --release --features casper --target wasm32-unknown-unknown
-
-# Deploy to Casper Testnet
-casper-client put-deploy \
-  --node-address https://rpc.testnet.casperlabs.io \
-  --chain-name casper-test \
-  --secret-key ./agent_secret_key.pem \
-  --payment-amount 100000000000 \
-  --session-path ./target/wasm32-unknown-unknown/release/yield_vault.wasm
-```
-
-### 2. Configure Backend
-
-```bash
-cd backend
-
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Configure environment
-cp .env.example .env
-# Edit .env — fill in:
-#   ANTHROPIC_API_KEY=sk-ant-...
-#   VAULT_CONTRACT_HASH=hash-<deployed-contract>
-#   AGENT_ACCOUNT_HASH=account-hash-<your-account>
-#   CSPR_CLOUD_API_KEY=<your-key>
-
-# Run server
-python main.py
-```
-
-### 3. Start Frontend
-
-```bash
-cd frontend
-
-npm install
-
-# Optional: copy env
-echo "NEXT_PUBLIC_API_URL=http://localhost:8000" > .env.local
-echo "NEXT_PUBLIC_WS_URL=ws://localhost:8000/ws" >> .env.local
-
-npm run dev
-# Open http://localhost:3000
-```
-
----
-
-## Submission & Buildathon Links
-
-This repository is submitted to the Casper Agentic Buildathon 2026 (Qualification Round).
-Submit your project on DoraHacks at: https://dorahacks.io/hackathon/casper-agentic-buildathon/detail
-
-See `SUBMISSION.md` for the required submission checklist and instructions.
-
-Additional resources included in this repo:
-- `docs/PAYOUT_AND_VOTING.md` — guidance on voting, payout, and KYC for winners
-- `scripts/deploy_testnet.sh` and `scripts/deploy_testnet.ps1` — example deploy scripts for Testnet
-
----
-
-## How the Agent Works
-
-```
-Every 60 seconds:
-
-1. MONITOR  → Fetch yield rates from Casper DeFi protocols via CSPR.cloud
-2. ANALYZE  → Send portfolio state + market data to Claude AI (claude-sonnet-4-6)
-3. DECIDE   → Claude returns: HOLD | REBALANCE | ALERT
-4. EXECUTE  → If REBALANCE: sign & submit deploy to YieldVault.rebalance()
-5. RECORD   → Store result in DB + emit Casper contract events (on-chain audit trail)
-6. BROADCAST→ Push update to all connected WebSocket clients (real-time dashboard)
-```
-
----
-
-## Smart Contract API
-
-```rust
-// YieldVault entry points
-fn init()
-fn deposit()                             // payable — deposit CSPR
-fn withdraw(amount: U512)
-fn register_agent(agent: Address)        // owner only
-fn rebalance(                            // agent only
-    new_strategy: Strategy,
-    conservative_pct: u8,
-    balanced_pct: u8,
-    aggressive_pct: u8,
-    reasoning: String,
-)
-fn emergency_pause()                     // owner only
-fn resume()                              // owner only
-fn get_portfolio() -> Portfolio          // view
-fn get_apy_rates() -> (u16, u16, u16)   // view
-fn get_rebalance_record(index: u64)     // view
-```
-
----
-
-## REST API Endpoints
-
-| Method | Path | Description |
-|---|---|---|
-| GET | `/` | Health check |
-| GET | `/agent/status` | Agent stats (running, cycles, rebalances) |
-| GET | `/agent/history?limit=20` | Agent cycle history |
-| GET | `/portfolio` | Latest portfolio state |
-| GET | `/yields` | Current yield rates per strategy |
-| GET | `/decisions?limit=10` | AI decision history |
-| POST | `/rebalance/manual` | Manual rebalance override |
-| POST | `/agent/pause` | Pause the agent |
-| WS | `/ws` | Real-time event stream |
-
----
-
-## Casper AI Toolkit Integration
-
-| Tool | Usage |
-|---|---|
-| **Claude API** | Core AI decision engine for yield analysis |
-| **CSPR.cloud** | Blockchain state queries and event streaming |
-| **x402 Protocol** | Micropayments per API request (opt-in) |
-| **Odra Framework** | Smart contract development and deployment |
-| **MCP Server** | (Roadmap) Direct blockchain queries from AI agent |
-
----
-
-## Environment Variables
-
-| Variable | Description |
-|---|---|
-| `ANTHROPIC_API_KEY` | Claude API key |
-| `CASPER_NODE_URL` | Casper JSON-RPC node URL |
-| `CSPR_CLOUD_API_KEY` | CSPR.cloud API key |
-| `VAULT_CONTRACT_HASH` | Deployed YieldVault contract hash |
-| `AGENT_ACCOUNT_HASH` | Agent's Casper account hash |
-| `AGENT_SECRET_KEY_PATH` | Path to agent's `.pem` private key |
-| `AGENT_POLL_INTERVAL_SECONDS` | How often the agent polls (default: 60) |
-| `MAX_REBALANCES_PER_DAY` | Daily rebalance limit (default: 5) |
-| `X402_ENABLED` | Enable x402 micropayments (default: false) |
 
 ---
 
 ## Roadmap
 
-| Phase | Timeline | Milestone |
-|---|---|---|
-| Phase 1 | Q2 2026 | Testnet deploy + working prototype |
-| Phase 2 | Q3 2026 | Mainnet deployment + real yield protocols |
-| Phase 3 | Q3 2026 | Multi-protocol support (CSPR.trade integration) |
-| Phase 4 | Q4 2026 | Mobile app + community governance |
-| Phase 5 | Q1 2027 | MCP server + multi-agent coordination |
+### Phase 1 — Buildathon MVP ✅
+- YieldVault contract on Casper Testnet
+- Autonomous AI agent (Claude) with 60s decision loop
+- RWA oracle on-chain posting (PAXG, UST10Y)
+- Real-time cyber dashboard with WebSocket
 
----
+### Phase 2 — DeFi Integration (Q3 2026)
+- Connect to real Casper DeFi protocols
+- Live yield rate feeds from on-chain sources
+- Multi-vault strategy support
+- Mobile notifications (Telegram bot)
 
-## Team
-
-Built for the **Casper Agentic Buildathon 2026** — Qualification Round  
-June 1–30, 2026
+### Phase 3 — Production Launch (Q4 2026)
+- Casper Mainnet deployment
+- X402 fee-based API for institutional access
+- DAO governance for strategy parameters
+- Audited smart contracts
 
 ---
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE)
+
+---
+
+*Built for the Casper Agentic AI Buildathon 2026*  
+*Stack: Claude AI · CSPR.cloud · Odra 2.7.2 · casper-js-sdk v5 · FastAPI · Next.js*
