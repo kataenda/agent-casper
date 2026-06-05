@@ -211,6 +211,15 @@ class SetupContractRequest(BaseModel):
     agent_account_hash: str
 
 
+@app.get("/admin/agent-address")
+async def get_agent_address():
+    """Return the agent's account hash (from PEM key file) so the frontend can use it."""
+    return {
+        "agent_account_hash": settings.agent_account_hash,
+        "agent_secret_key_path": settings.agent_secret_key_path,
+    }
+
+
 @app.post("/admin/setup")
 async def setup_contract(req: SetupContractRequest):
     """

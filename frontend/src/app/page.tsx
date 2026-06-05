@@ -12,6 +12,14 @@ const DeployPanel = dynamic(
   () => import("@/components/DeployPanel").then((m) => ({ default: m.DeployPanel })),
   { ssr: false }
 );
+const RegisterAgentButton = dynamic(
+  () => import("@/components/VaultControls").then((m) => ({ default: m.RegisterAgentButton })),
+  { ssr: false }
+);
+const DepositButton = dynamic(
+  () => import("@/components/VaultControls").then((m) => ({ default: m.DepositButton })),
+  { ssr: false }
+);
 const AgentControls = dynamic(
   () => import("@/components/AgentControls").then((m) => ({ default: m.AgentControls })),
   { ssr: false }
@@ -123,9 +131,15 @@ export default function DashboardPage() {
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
           <AgentControls />
           <DeployPanel />
+          {latestCycle?.portfolio && (
+            <>
+              <RegisterAgentButton contractHash="hash-f6ba9dfa2a236dcc253436c3350f06931465ca94290fad689dfc7c9058c559da" />
+              <DepositButton contractHash="hash-f6ba9dfa2a236dcc253436c3350f06931465ca94290fad689dfc7c9058c559da" />
+            </>
+          )}
           <WalletWidget />
           <StatusBadge connected={connected} />
         </div>
