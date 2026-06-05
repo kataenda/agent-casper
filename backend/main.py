@@ -218,8 +218,8 @@ async def setup_contract(req: SetupContractRequest):
     Updates agent config without requiring a server restart.
     """
     global agent
-    if not req.vault_contract_hash.startswith("hash-"):
-        raise HTTPException(400, "vault_contract_hash must start with 'hash-'")
+    if not (req.vault_contract_hash.startswith("hash-") or req.vault_contract_hash.startswith("package-")):
+        raise HTTPException(400, "vault_contract_hash must start with 'hash-' or 'package-'")
     if not req.agent_account_hash.startswith("account-hash-"):
         raise HTTPException(400, "agent_account_hash must start with 'account-hash-'")
 
@@ -339,6 +339,18 @@ async def get_deploy(deploy_hash: str):
 async def get_account(account_id: str):
     """Proxy account info from CSPR.cloud to avoid browser CORS."""
     url = f"{settings.cspr_cloud_base_url}/accounts/{account_id}"
+    async with __import__("httpx").AsyncClient(
+        headers={"Authorization": settings.cspr_cloud_api_key},
+        timeout=10,
+    ) as client:
+        resp = await client.get(url)
+    return resp.json()
+
+
+@app.get("/named-keys/{account_hash}")
+async def get_named_keys(account_hash: str):
+    """Proxy account named-keys from CSPR.cloud — used to find contract package hash after Casper 2.x deploy."""
+    url = f"{settings.cspr_cloud_base_url}/accounts/{account_hash}/named-keys"
     async with __import__("httpx").AsyncClient(
         headers={"Authorization": settings.cspr_cloud_api_key},
         timeout=10,
