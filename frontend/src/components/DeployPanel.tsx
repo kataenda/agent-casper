@@ -49,7 +49,7 @@ export function DeployPanel() {
       // ── 2. Build deploy ───────────────────────────────────────────────
       setStep("building");
       const {
-        Deploy, DeployHeader, ExecutableDeployItem, Args, PublicKey, Duration, Timestamp,
+        Deploy, DeployHeader, ExecutableDeployItem, Args, CLValue, PublicKey, Duration, Timestamp,
       } = await import("casper-js-sdk");
 
       const pubKey = PublicKey.fromHex(account.publicKey);
@@ -62,7 +62,11 @@ export function DeployPanel() {
       header.dependencies = [];
 
       const payment = ExecutableDeployItem.standardPayment(PAYMENT);
-      const session = ExecutableDeployItem.newModuleBytes(wasmBytes, Args.fromMap({}));
+      const session = ExecutableDeployItem.newModuleBytes(wasmBytes, Args.fromMap({
+        "odra_cfg_package_hash_key_name": CLValue.newCLString("yield_vault"),
+        "odra_cfg_allow_key_override":    CLValue.newCLValueBool(false),
+        "odra_cfg_is_upgradable":         CLValue.newCLValueBool(false),
+      }));
       const deploy  = Deploy.makeDeploy(header, payment, session);
 
       // ── 3. Sign with Casper Wallet extension ─────────────────────────
