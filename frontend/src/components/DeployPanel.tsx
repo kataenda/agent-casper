@@ -115,7 +115,7 @@ export function DeployPanel() {
       const hash = await pollForContractHash(dHash, account.publicKey);
       setContractHash(hash);
 
-      const accountHash = `account-hash-${account.publicKey.replace(/^01|^02/, "")}`;
+      const accountHash = pubKey.accountHash().toPrefixedString();
       await fetch(`${BACKEND}/admin/setup`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
