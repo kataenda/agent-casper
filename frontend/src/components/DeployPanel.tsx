@@ -66,6 +66,7 @@ export function DeployPanel() {
         "odra_cfg_package_hash_key_name": CLValue.newCLString("yield_vault"),
         "odra_cfg_allow_key_override":    CLValue.newCLValueBool(false),
         "odra_cfg_is_upgradable":         CLValue.newCLValueBool(false),
+        "odra_cfg_is_upgrade":            CLValue.newCLValueBool(false),
       }));
       const deploy  = Deploy.makeDeploy(header, payment, session);
 
