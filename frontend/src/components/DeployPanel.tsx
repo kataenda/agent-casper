@@ -16,7 +16,7 @@ import { useWalletStore } from "@/lib/walletStore";
 
 const BACKEND = "http://localhost:8000";
 const CHAIN   = "casper-test";
-const PAYMENT = "150000000000"; // 150 CSPR
+const PAYMENT = "500000000000"; // 500 CSPR
 
 type Step = "idle" | "fetching-wasm" | "building" | "signing" | "submitting" | "waiting" | "done" | "error";
 
@@ -117,7 +117,9 @@ export function DeployPanel() {
 
       // ── 5. Poll + notify backend ──────────────────────────────────────
       setStep("waiting");
-      const hash = await pollForContractHash(dHash, account.publicKey);
+      // Pass the account hash (without "account-hash-" prefix) for named-key lookup
+      const callerHash = pubKey.accountHash().toHex();
+      const hash = await pollForContractHash(dHash, callerHash);
       setContractHash(hash);
 
       const accountHash = pubKey.accountHash().toPrefixedString();
@@ -173,7 +175,7 @@ export function DeployPanel() {
 
 // ── Poll until deploy finalized + return contract hash ─────────────────────────
 
-async function pollForContractHash(deployHash: string, _publicKey: string): Promise<string> {
+async function pollForContractHash(deployHash: string, callerHash: string): Promise<string> {
   const base     = "http://localhost:8000";
   const deadline = Date.now() + 300_000; // 5 min
 
@@ -191,16 +193,24 @@ async function pollForContractHash(deployHash: string, _publicKey: string): Prom
       // On-chain failure
       if (obj.error_message) throw new Error(`On-chain failure: ${obj.error_message}`);
 
-      // Success — CSPR.cloud returns contract_hash directly
+      // Casper 1.x — CSPR.cloud returns contract_hash directly in deploy result
       if (obj.contract_hash) return obj.contract_hash as string;
       if (obj.contract_package_hash) return obj.contract_package_hash as string;
 
-      // Processed but no contract hash (shouldn't happen for WASM deploy)
-      if (obj.status === "processed") {
-        throw new Error("Deploy processed tapi tidak ada contract_hash. Periksa WASM build.");
+      // Casper 2.x — contract stored as package under named key in account
+      // Query account named-keys to find "yield_vault"
+      if (obj.status === "processed" && callerHash) {
+        const nkRes  = await fetch(`${base}/named-keys/${callerHash}`);
+        const nkJson = await nkRes.json();
+        const items: Array<{name: string; key: string}> = nkJson.data ?? nkJson;
+        if (Array.isArray(items)) {
+          const vaultKey = items.find(k => k.name === "yield_vault");
+          if (vaultKey?.key) return vaultKey.key;
+        }
+        throw new Error("Deploy berhasil tapi named key 'yield_vault' tidak ditemukan di akun.");
       }
     } catch (e) {
-      if (e instanceof Error && (e.message.startsWith("On-chain") || e.message.startsWith("Deploy"))) throw e;
+      if (e instanceof Error && (e.message.startsWith("On-chain") || e.message.startsWith("Deploy") || e.message.startsWith("Deploy berhasil"))) throw e;
     }
   }
   throw new Error("Timeout: deploy tidak finalized dalam 5 menit");
