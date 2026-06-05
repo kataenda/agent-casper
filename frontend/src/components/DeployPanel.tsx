@@ -117,8 +117,8 @@ export function DeployPanel() {
 
       // ── 5. Poll + notify backend ──────────────────────────────────────
       setStep("waiting");
-      // Pass the account hash (without "account-hash-" prefix) for named-key lookup
-      const callerHash = pubKey.accountHash().toHex();
+      // Strip "account-hash-" prefix — RPC key format is "account-hash-{hex}"
+      const callerHash = pubKey.accountHash().toPrefixedString().replace("account-hash-", "");
       const hash = await pollForContractHash(dHash, callerHash);
       setContractHash(hash);
 
@@ -190,24 +190,54 @@ async function pollForContractHash(deployHash: string, callerHash: string): Prom
       // Skip if still pending or no status yet
       if (!obj.status || obj.status === "pending") continue;
 
-      // On-chain failure
-      if (obj.error_message) throw new Error(`On-chain failure: ${obj.error_message}`);
+      // On-chain failure — but CannotOverrideKeys (64641) means contract already exists:
+      // fall through to named-key lookup instead of throwing
+      const isAlreadyInstalled = obj.error_message === "User error: 64641";
+      if (obj.error_message && !isAlreadyInstalled)
+        throw new Error(`On-chain failure: ${obj.error_message}`);
 
       // Casper 1.x — CSPR.cloud returns contract_hash directly in deploy result
       if (obj.contract_hash) return obj.contract_hash as string;
       if (obj.contract_package_hash) return obj.contract_package_hash as string;
 
-      // Casper 2.x — contract stored as package under named key in account
-      // Query account named-keys to find "yield_vault"
-      if (obj.status === "processed" && callerHash) {
-        const nkRes  = await fetch(`${base}/named-keys/${callerHash}`);
-        const nkJson = await nkRes.json();
-        const items: Array<{name: string; key: string}> = nkJson.data ?? nkJson;
-        if (Array.isArray(items)) {
-          const vaultKey = items.find(k => k.name === "yield_vault");
-          if (vaultKey?.key) return vaultKey.key;
-        }
-        throw new Error("Deploy berhasil tapi named key 'yield_vault' tidak ditemukan di akun.");
+      // Casper 2.x — contract stored as package under named key "yield_vault" in account.
+      // Also handles CannotOverrideKeys: contract already deployed, just read its hash.
+      // Use query_global_state RPC to look up the named key directly.
+      if ((obj.status === "processed") && callerHash) {
+        const rpcRes = await fetch(`${base}/rpc`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: 1, jsonrpc: "2.0",
+            method: "query_global_state",
+            params: { key: `account-hash-${callerHash}`, path: ["yield_vault"] },
+          }),
+        });
+        const rpcData = await rpcRes.json();
+        if (rpcData.error) throw new Error(`RPC error: ${rpcData.error.message ?? JSON.stringify(rpcData.error)}`);
+
+        // path:["yield_vault"] returns the package CONTENT, not the hash.
+        // We need the account object (path:[]) which has named_keys listing the key.
+        const rpcAcc = await fetch(`${base}/rpc`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: 2, jsonrpc: "2.0",
+            method: "query_global_state",
+            params: { key: `account-hash-${callerHash}`, path: [] },
+          }),
+        });
+        const accData = await rpcAcc.json();
+        if (accData.error) throw new Error(`RPC error (account): ${accData.error.message ?? JSON.stringify(accData.error)}`);
+        const sv = accData.result?.stored_value;
+        // Named keys are in Account.named_keys (Casper 1.x) or AddressableEntity.named_keys (Casper 2.x)
+        const namedKeys: Array<{name: string; key: string}> =
+          sv?.Account?.named_keys ??
+          sv?.AddressableEntity?.named_keys ??
+          sv?.Entity?.named_keys ?? [];
+        const vaultEntry = namedKeys.find((k: {name: string}) => k.name === "yield_vault");
+        if (vaultEntry?.key) return vaultEntry.key as string;
+        throw new Error(`Named key 'yield_vault' tidak ditemukan. Keys: ${namedKeys.map((k: {name: string}) => k.name).join(", ")}`);
       }
     } catch (e) {
       if (e instanceof Error && (e.message.startsWith("On-chain") || e.message.startsWith("Deploy") || e.message.startsWith("Deploy berhasil"))) throw e;
