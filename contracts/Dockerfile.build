@@ -25,7 +25,7 @@ RUN wasm-objdump -x target/wasm32-unknown-unknown/release/yield_vault_build_cont
 
 RUN wasm-strip target/wasm32-unknown-unknown/release/yield_vault_build_contract.wasm
 
-RUN wasm-opt -Oz --signext-lowering \
+RUN wasm-opt -Oz --signext-lowering --enable-bulk-memory --llvm-memory-copy-fill-lowering \
     target/wasm32-unknown-unknown/release/yield_vault_build_contract.wasm \
     -o target/wasm32-unknown-unknown/release/yield_vault_build_contract.wasm
 
