@@ -7,10 +7,13 @@ edition = "2021"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-odra = { version = "=1.5.1" }
+odra = { version = "=2.7.2" }
 
 [dev-dependencies]
-odra-test = "=1.5.1"
+odra-test = "=2.7.2"
+
+[build-dependencies]
+odra-build = "=2.7.2"
 
 [[bin]]
 name = "yield_vault_build_contract"

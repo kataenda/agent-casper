@@ -142,7 +142,7 @@ impl YieldVault {
             self.env().revert(VaultError::InvalidAllocation);
         }
         let old_strategy = self.current_strategy.get_or_default();
-        let agent_addr   = self.agent.get().unwrap_or_revert(&self.env());
+        let agent_addr   = self.agent.get_or_revert_with(VaultError::NotAgent);
         let timestamp    = self.env().get_block_time();
         self.current_strategy.set(new_strategy.clone());
         self.conservative_pct.set(conservative_pct);
@@ -167,7 +167,7 @@ impl YieldVault {
 
     pub fn update_rwa_price(&mut self, asset_id: String, price_usd_cents: u64, yield_bps: u32) {
         self.only_agent();
-        let reporter  = self.agent.get().unwrap_or_revert(&self.env());
+        let reporter  = self.agent.get_or_revert_with(VaultError::NotAgent);
         let timestamp = self.env().get_block_time();
         self.env().emit_event(RwaPriceUpdated { asset_id, price_usd_cents, yield_bps, timestamp, reporter });
     }
@@ -205,12 +205,12 @@ impl YieldVault {
     }
 
     fn only_owner(&self) {
-        let owner = self.owner.get().unwrap_or_revert(&self.env());
+        let owner = self.owner.get_or_revert_with(VaultError::NotOwner);
         if self.env().caller() != owner { self.env().revert(VaultError::NotOwner); }
     }
 
     fn only_agent(&self) {
-        let agent = self.agent.get().unwrap_or_revert(&self.env());
+        let agent = self.agent.get_or_revert_with(VaultError::NotAgent);
         if self.env().caller() != agent { self.env().revert(VaultError::NotAgent); }
     }
 
