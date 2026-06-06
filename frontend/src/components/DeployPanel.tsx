@@ -14,7 +14,7 @@ import { useState, useEffect } from "react";
 import { Rocket, CheckCircle, Loader, AlertCircle, ExternalLink } from "lucide-react";
 import { useWalletStore } from "@/lib/walletStore";
 
-const BACKEND = "http://localhost:8000";
+const BACKEND = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const CHAIN   = "casper-test";
 const PAYMENT = "500000000000"; // 500 CSPR
 
@@ -120,35 +120,14 @@ export function DeployPanel() {
         params: { deploy: signedJson },
       });
 
-      let dHash: string | null = null;
-
-      // Try direct browser → node (no API key, different rate-limit bucket)
-      try {
-        const res = await fetch("https://node.testnet.cspr.cloud/rpc", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: deployBody,
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (data.result?.deploy_hash) dHash = data.result.deploy_hash;
-          else if (data.error) throw new Error(`Node: ${data.error.message}`);
-        }
-      } catch (e) {
-        if (e instanceof Error && e.message.startsWith("Node:")) throw e;
-      }
-
-      // Fallback: backend proxy
-      if (!dHash) {
-        const rpcRes = await fetch(`${BACKEND}/rpc`, {
-          method: "POST", headers: { "Content-Type": "application/json" }, body: deployBody,
-        });
-        const rpcData = await rpcRes.json();
-        if (!rpcRes.ok) throw new Error(`HTTP ${rpcRes.status}: ${rpcData.detail ?? JSON.stringify(rpcData).slice(0, 200)}`);
-        if (rpcData.error) throw new Error(`Node: ${rpcData.error.message}`);
-        if (!rpcData.result?.deploy_hash) throw new Error(`RPC: ${JSON.stringify(rpcData).slice(0, 200)}`);
-        dHash = rpcData.result.deploy_hash;
-      }
+      const rpcRes = await fetch(`${BACKEND}/rpc`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: deployBody,
+      });
+      const rpcData = await rpcRes.json();
+      if (!rpcRes.ok) throw new Error(`HTTP ${rpcRes.status}: ${rpcData.detail ?? JSON.stringify(rpcData).slice(0, 200)}`);
+      if (rpcData.error) throw new Error(`Node: ${rpcData.error.message}`);
+      if (!rpcData.result?.deploy_hash) throw new Error(`RPC: ${JSON.stringify(rpcData).slice(0, 200)}`);
+      const dHash = rpcData.result.deploy_hash;
 
       // ── 5. Poll + notify backend ──────────────────────────────────────
       setStep("waiting");
@@ -238,7 +217,7 @@ export function DeployPanel() {
 // ── Poll until deploy finalized + return contract hash ─────────────────────────
 
 async function pollForContractHash(deployHash: string, callerHash: string): Promise<string> {
-  const base     = "http://localhost:8000";
+  const base     = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
   const deadline = Date.now() + 300_000; // 5 min
 
   while (Date.now() < deadline) {
