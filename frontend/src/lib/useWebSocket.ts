@@ -40,10 +40,10 @@ export function useAgentWebSocket() {
       setConnected(true);
       if (isFirstConnect.current) {
         isFirstConnect.current = false;
-        // Reset chart history on fresh page load, then immediately backfill from HTTP
         useAgentStore.setState({ portfolioHistory: [], cycles: [] });
-        fetchHistory();
       }
+      // Always fetch history on (re)connect so data survives backend restarts
+      fetchHistory();
     };
 
     ws.current.onmessage = (event) => {
