@@ -15,7 +15,7 @@ export function ChatBox() {
   const [messages, setMessages] = useState<Message[]>([
     {
       role: "agent",
-      text: "Hello! I'm CasperYield AI. Ask me anything about portfolio allocation, yield strategies, or market conditions.",
+      text: "Hello! I'm Agent Casper. Ask me anything about portfolio allocation, yield strategies, or market conditions.",
       ts: new Date().toLocaleTimeString(),
     },
   ]);
