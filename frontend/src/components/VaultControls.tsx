@@ -12,10 +12,9 @@ import { UserPlus, ArrowDownCircle, Loader, CheckCircle, AlertCircle, ExternalLi
 import { useWalletStore } from "@/lib/walletStore";
 import { useAgentStore } from "@/lib/store";
 
-const BACKEND = "http://localhost:8000";
-const NODE    = "https://node.testnet.cspr.cloud/rpc";
+const BACKEND = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const CHAIN   = "casper-test";
-const GAS     = "10000000000"; // 10 CSPR
+const GAS     = "2500000000"; // 2.5 CSPR
 
 type Step = "idle" | "building" | "signing" | "submitting" | "done" | "error";
 
@@ -27,23 +26,6 @@ const STEP_LABEL: Record<Step, string> = {
 // ── Deploy submission — anonymous browser first, then backend fallback ─────────
 
 async function submitDeploy(deployBody: string): Promise<string> {
-  // 1. Try anonymous direct browser → node (no API key → different rate-limit bucket)
-  try {
-    const res = await fetch(NODE, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: deployBody,
-    });
-    if (res.ok) {
-      const data = await res.json();
-      if (data.result?.deploy_hash) return data.result.deploy_hash as string;
-      if (data.error) throw new Error(`Node: ${data.error.message}`);
-    }
-  } catch (e) {
-    if (e instanceof Error && e.message.startsWith("Node:")) throw e;
-  }
-
-  // 2. Fallback: backend /rpc proxy (uses API key — may be rate-limited)
   const rpcRes = await fetch(`${BACKEND}/rpc`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

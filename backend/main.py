@@ -41,6 +41,8 @@ class Settings(BaseSettings):
     vault_contract_version_hash: str = ""
     agent_account_hash: str = "account-hash-demo"
     agent_secret_key_path: str = "./agent_secret_key.pem"
+    # If set, the PEM content is written to a temp file (for cloud deployments like Railway)
+    agent_secret_key_content: str = ""
     agent_poll_interval_seconds: int = 60
     max_rebalances_per_day: int = 5
     x402_enabled: bool = False
@@ -54,6 +56,15 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+# If PEM content provided via env var, write to temp file
+if settings.agent_secret_key_content:
+    import tempfile
+    _pem_file = tempfile.NamedTemporaryFile(mode="w", suffix=".pem", delete=False)
+    _pem_file.write(settings.agent_secret_key_content.replace("\\n", "\n"))
+    _pem_file.close()
+    settings.agent_secret_key_path = _pem_file.name
+    logger.info("PEM key loaded from env var → %s", _pem_file.name)
 
 # Propagate settings to os.environ so MCP subprocess and deployer get them
 os.environ.setdefault("CASPER_NODE_URL", settings.casper_node_url)

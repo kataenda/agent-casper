@@ -20,8 +20,8 @@ module.exports = {
         },
       },
       fontFamily: {
-        mono: ["var(--font-space-mono)", "Consolas", "'Courier New'", "monospace"],
-        sans: ["var(--font-space-grotesk)", "system-ui", "sans-serif"],
+        mono: ["Consolas", "'Cascadia Code'", "'Courier New'", "monospace"],
+        sans: ["'Segoe UI'", "system-ui", "sans-serif"],
       },
       boxShadow: {
         "glow-cyan":    "0 0 20px rgba(0,245,255,0.35), 0 0 60px rgba(0,245,255,0.1)",

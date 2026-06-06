@@ -225,7 +225,7 @@ export default function DashboardPage() {
 
   const [agentInfo, setAgentInfo] = useState<{ account_hash: string; balance_cspr: number } | null>(null);
   useEffect(() => {
-    fetch("http://localhost:8000/admin/agent-address")
+    fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/admin/agent-address`)
       .then(r => r.json())
       .then(d => setAgentInfo({
         account_hash: d.agent_account_hash ?? "",
@@ -413,7 +413,7 @@ export default function DashboardPage() {
                 Tx History ({vaultTxs.length})
               </span>
               <div className="flex flex-col gap-1.5 overflow-y-auto" style={{ height: "66px", scrollbarWidth: "thin", scrollbarColor: "rgba(0,212,255,0.3) transparent" }}>
-                {[...vaultTxs].reverse().map((tx) => (
+                {vaultTxs.map((tx) => (
                   <a key={tx.hash} href={`https://testnet.cspr.live/deploy/${tx.hash}`}
                      target="_blank" rel="noopener noreferrer"
                      className="flex items-center gap-1.5 hover:opacity-75 font-mono text-[9px] shrink-0"
