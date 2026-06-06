@@ -1,10 +1,17 @@
 # Agent Casper AI — Autonomous DeFi Yield Agent on Casper Network
 
-> **Casper Agentic AI Buildathon 2026** · Build Direction #1: Autonomous Yield-Routing Agent
+> **Casper Agentic AI Buildathon 2026** · Build Direction #1: Autonomous Yield-Routing Agent via MCP
 
 [![Casper Testnet](https://img.shields.io/badge/Casper-Testnet-00F5FF)](https://testnet.cspr.live)
 [![Smart Contract](https://img.shields.io/badge/Contract-hash--f6ba9dfa-00FF94)](https://testnet.cspr.live)
 [![License: MIT](https://img.shields.io/badge/License-MIT-BF5AF2.svg)](LICENSE)
+[![Demo Video](https://img.shields.io/badge/Demo-YouTube-FF0000)](https://youtu.be/cYOoYzr03gI)
+
+---
+
+## Demo Video
+
+▶️ **[Watch Demo on YouTube](https://youtu.be/cYOoYzr03gI)**
 
 ---
 
@@ -17,6 +24,14 @@ The system transforms a passive smart contract vault into a **self-driving portf
 - Uses Claude AI to analyze risk/yield trade-offs and decide when to rebalance
 - Signs and submits on-chain transactions to the YieldVault contract
 - Posts verified RWA oracle data directly to the Casper blockchain
+
+> Built using the [Casper AI Toolkit](https://www.casper.network/ai) — x402, MCP Servers, CSPR.cloud, Odra Framework, casper-js-sdk v5
+
+---
+
+## 🗳️ Community Vote
+
+If you find this project useful, please **vote for Agent Casper AI** on the [CSPR.fans app](https://cspr.fans) to help us advance to the Final Round!
 
 ---
 
