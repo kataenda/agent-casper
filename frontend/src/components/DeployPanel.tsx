@@ -10,8 +10,8 @@
  *   5. Poll until finalized → send contract hash to backend (/admin/setup)
  */
 
-import { useState } from "react";
-import { Rocket, CheckCircle, Loader, AlertCircle } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Rocket, CheckCircle, Loader, AlertCircle, ExternalLink } from "lucide-react";
 import { useWalletStore } from "@/lib/walletStore";
 
 const BACKEND = "http://localhost:8000";
@@ -27,10 +27,24 @@ const STEP_LABEL: Record<Step, string> = {
 };
 
 export function DeployPanel() {
-  const { account }                     = useWalletStore();
-  const [step, setStep]                 = useState<Step>("idle");
-  const [error, setError]               = useState<string | null>(null);
-  const [contractHash, setContractHash] = useState<string | null>(null);
+  const { account }                         = useWalletStore();
+  const [step, setStep]                     = useState<Step>("idle");
+  const [error, setError]                   = useState<string | null>(null);
+  const [contractHash, setContractHash]     = useState<string | null>(null);
+  const [existingHash, setExistingHash]     = useState<string | null>(null);
+
+  useEffect(() => {
+    // Try static contract.json first (no backend dependency)
+    fetch("/contract.json")
+      .then(r => r.json())
+      .then(d => { if (d.deployed && d.vault_contract_hash) setExistingHash(d.vault_contract_hash); })
+      .catch(() => {});
+    // Also try backend endpoint (updated backend)
+    fetch(`${BACKEND}/admin/contract-info`)
+      .then(r => r.json())
+      .then(d => { if (d.contract_deployed && d.vault_contract_hash) setExistingHash(d.vault_contract_hash); })
+      .catch(() => {});
+  }, []);
 
   const doDeploy = async () => {
     if (!account) return;
@@ -100,20 +114,41 @@ export function DeployPanel() {
 
       // ── 4. Submit ─────────────────────────────────────────────────────
       setStep("submitting");
-      const rpcRes  = await fetch(`${BACKEND}/rpc`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: 1, jsonrpc: "2.0",
-          method: "account_put_deploy",
-          params: { deploy: signedJson },
-        }),
+      const deployBody = JSON.stringify({
+        id: 1, jsonrpc: "2.0",
+        method: "account_put_deploy",
+        params: { deploy: signedJson },
       });
-      const rpcData = await rpcRes.json();
-      if (rpcData.error) throw new Error(
-        `Node error: ${rpcData.error.message}${rpcData.error.data ? ` — ${rpcData.error.data}` : ""}`
-      );
-      const dHash = rpcData.result.deploy_hash as string;
+
+      let dHash: string | null = null;
+
+      // Try direct browser → node (no API key, different rate-limit bucket)
+      try {
+        const res = await fetch("https://node.testnet.cspr.cloud/rpc", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: deployBody,
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.result?.deploy_hash) dHash = data.result.deploy_hash;
+          else if (data.error) throw new Error(`Node: ${data.error.message}`);
+        }
+      } catch (e) {
+        if (e instanceof Error && e.message.startsWith("Node:")) throw e;
+      }
+
+      // Fallback: backend proxy
+      if (!dHash) {
+        const rpcRes = await fetch(`${BACKEND}/rpc`, {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: deployBody,
+        });
+        const rpcData = await rpcRes.json();
+        if (!rpcRes.ok) throw new Error(`HTTP ${rpcRes.status}: ${rpcData.detail ?? JSON.stringify(rpcData).slice(0, 200)}`);
+        if (rpcData.error) throw new Error(`Node: ${rpcData.error.message}`);
+        if (!rpcData.result?.deploy_hash) throw new Error(`RPC: ${JSON.stringify(rpcData).slice(0, 200)}`);
+        dHash = rpcData.result.deploy_hash;
+      }
 
       // ── 5. Poll + notify backend ──────────────────────────────────────
       setStep("waiting");
@@ -139,12 +174,36 @@ export function DeployPanel() {
     }
   };
 
-  if (step === "done" && contractHash) {
+  const displayHash = contractHash ?? existingHash;
+  const EXPLORER    = "https://testnet.cspr.live/contract-package";
+
+  if (displayHash) {
     return (
-      <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border text-[10px] font-mono"
-           style={{ borderColor: "rgba(0,255,148,0.3)", background: "rgba(0,255,148,0.05)", color: "#00FF94" }}>
-        <CheckCircle size={11} />
-        Contract live · {contractHash.slice(0, 18)}…
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border"
+             style={{ borderColor: "rgba(0,255,148,0.35)", background: "rgba(0,255,148,0.06)" }}>
+          <CheckCircle size={11} style={{ color: "#00FF94", flexShrink: 0 }} />
+          <span className="text-[10px] font-mono font-bold" style={{ color: "#00FF94" }}>
+            CONTRACT LIVE
+          </span>
+          {contractHash && (
+            <span className="text-[9px] font-mono text-cyber-muted ml-1">✓ just deployed</span>
+          )}
+        </div>
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border"
+             style={{ borderColor: "rgba(0,245,255,0.2)", background: "rgba(0,245,255,0.04)" }}>
+          <span className="text-[9px] font-mono text-cyber-muted shrink-0">HASH</span>
+          <span className="text-[9px] font-mono truncate max-w-[160px]"
+                style={{ color: "#00F5FF" }} title={displayHash}>
+            {displayHash.replace("hash-", "").slice(0, 20)}…
+          </span>
+          <a href={`${EXPLORER}/${displayHash.replace("hash-", "")}`}
+             target="_blank" rel="noopener noreferrer"
+             className="ml-auto hover:opacity-75 transition-opacity shrink-0"
+             title="View on testnet.cspr.live">
+            <ExternalLink size={10} style={{ color: "#00F5FF" }} />
+          </a>
+        </div>
       </div>
     );
   }

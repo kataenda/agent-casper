@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     vault_contract_version_hash: str = ""
     agent_account_hash: str = "account-hash-demo"
     agent_secret_key_path: str = "./agent_secret_key.pem"
-    agent_poll_interval_seconds: int = 60
+    agent_poll_interval_seconds: int = 300
     max_rebalances_per_day: int = 5
     x402_enabled: bool = False
     x402_payment_amount: int = 1_000_000
@@ -228,24 +228,34 @@ async def get_agent_address():
     """Return the agent's account hash + public key so the frontend can register it and fund it."""
     public_key = None
     try:
-        from cryptography.hazmat.primitives.serialization import load_pem_private_key
-        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-        pem_path = settings.agent_secret_key_path
-        with open(pem_path, "rb") as f:
-            pem_bytes = f.read()
-        priv = load_pem_private_key(pem_bytes, password=None)
-        if isinstance(priv, Ed25519PrivateKey):
-            from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
-            pub_bytes = priv.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
-            public_key = "01" + pub_bytes.hex()
+        import pathlib, pycspr
+        kp = pycspr.parse_private_key(pathlib.Path(settings.agent_secret_key_path))
+        public_key = kp.account_key.hex()
     except Exception as exc:
-        logger.debug("Could not derive agent public key: %s", exc)
+        logger.debug("Could not derive agent public key via pycspr: %s", exc)
 
+    # Prefer live agent value (updated via /admin/setup) over static settings
+    contract_hash = (agent.vault_contract_hash if agent else None) or settings.vault_contract_hash
+    is_deployed = bool(contract_hash and not contract_hash.startswith("hash-demo"))
     return {
         "agent_account_hash": settings.agent_account_hash,
         "agent_public_key": public_key,
         "agent_secret_key_path": settings.agent_secret_key_path,
-        "faucet_url": f"https://testnet.cspr.live/tools/faucet",
+        "faucet_url": "https://testnet.cspr.live/tools/faucet",
+        "vault_contract_hash": contract_hash if is_deployed else None,
+        "contract_deployed": is_deployed,
+    }
+
+
+@app.get("/admin/contract-info")
+async def get_contract_info():
+    """Return deployed contract hash — separate endpoint for frontend contract status check."""
+    contract_hash = (agent.vault_contract_hash if agent else None) or settings.vault_contract_hash
+    is_deployed = bool(contract_hash and not contract_hash.startswith("hash-demo"))
+    return {
+        "vault_contract_hash": contract_hash if is_deployed else None,
+        "contract_deployed": is_deployed,
+        "explorer_url": f"https://testnet.cspr.live/contract-package/{contract_hash.replace('hash-', '')}" if is_deployed else None,
     }
 
 
@@ -361,6 +371,33 @@ async def rpc_proxy(request: Request):
         raise HTTPException(status_code=502, detail="Upstream returned non-JSON response")
 
 
+@app.post("/deploy")
+async def submit_deploy(request: Request):
+    """Submit deploy — tries anonymous then authenticated CSPR.cloud node."""
+    body = await request.json()
+    node_url = settings.casper_node_url  # e.g. https://node.testnet.cspr.cloud/rpc
+    attempts = [
+        # Anonymous first — no org rate-limit applies
+        {"url": node_url, "headers": {"Content-Type": "application/json"}},
+        # Auth fallback
+        {"url": node_url, "headers": {"Content-Type": "application/json", "Authorization": settings.cspr_cloud_api_key}},
+    ]
+    last_err = None
+    async with __import__("httpx").AsyncClient(timeout=60) as client:
+        for attempt in attempts:
+            try:
+                resp = await client.post(attempt["url"], json=body, headers=attempt["headers"])
+                logger.info("Deploy submit → %s ← %s", attempt["url"], resp.status_code)
+                if resp.status_code == 200:
+                    return resp.json()
+                last_err = f"HTTP {resp.status_code}: {resp.text[:300]}"
+                logger.warning("Deploy attempt failed: %s", last_err)
+            except Exception as exc:
+                last_err = str(exc)
+                logger.warning("Deploy attempt exception: %s", exc)
+    raise HTTPException(502, f"All nodes failed: {last_err}")
+
+
 @app.get("/deploys/{deploy_hash}")
 async def get_deploy(deploy_hash: str):
     """Proxy deploy status from CSPR.cloud to avoid browser CORS."""
@@ -410,17 +447,120 @@ async def resume_agent():
     if not agent:
         raise HTTPException(503, "Agent not initialized")
     if not agent._running:
+        agent._running = True          # visible to status polls immediately
         asyncio.create_task(agent.start())
-    return {"status": "running"}
+    return {"status": "running", "running": agent._running}
 
 
 class ChatRequest(BaseModel):
     message: str
 
 
+def _parse_strategy(text: str) -> Optional[str]:
+    """Extract strategy name from message text."""
+    t = text.lower()
+    if any(w in t for w in ["conservative", "konservatif", "aman", "safe"]):
+        return "conservative"
+    if any(w in t for w in ["aggressive", "agresif", "berani", "high"]):
+        return "aggressive"
+    if any(w in t for w in ["balanced", "seimbang", "tengah", "medium"]):
+        return "balanced"
+    return None
+
+
+async def _handle_command(text: str) -> Optional[str]:
+    """
+    Detect and execute agent commands from chat input.
+    Returns a response string, or None if the message is not a command.
+    """
+    if not agent:
+        return None
+
+    t = text.lower().strip()
+
+    # ── PAUSE / STOP ──────────────────────────────────────────────────────────
+    if any(w in t for w in ["pause", "berhenti", "stop agent", "hentikan", "tidurkan"]):
+        agent.stop()
+        return (
+            "Agent di-STOP. Loop autonomous dihentikan. "
+            "Ketik 'resume' atau 'start' untuk menjalankan kembali."
+        )
+
+    # ── RESUME / START ────────────────────────────────────────────────────────
+    if any(w in t for w in [
+        "resume", "lanjutkan", "aktifkan", "mulai lagi", "unpause",
+        "start", "mulai", "running", "jalankan", "hidupkan", "run",
+    ]):
+        if not agent._running:
+            agent._running = True      # immediately visible to status polls
+            asyncio.create_task(agent.start())
+            return (
+                f"Agent di-START. Loop autonomous berjalan kembali. "
+                f"Cycle pertama dalam ~{agent.poll_interval}s."
+            )
+        return "Agent sudah running. Tidak perlu di-start lagi."
+
+    # ── STATUS ────────────────────────────────────────────────────────────────
+    if any(w in t for w in ["status", "laporan", "info", "state", "kondisi"]):
+        stats = agent.get_stats()
+        history = agent.get_history(1)
+        latest = history[0] if history else None
+        lines = [
+            f"STATUS AGENT:",
+            f"• Running: {'Ya' if stats['running'] else 'Tidak (ketik start untuk menjalankan)'}",
+            f"• Rebalances hari ini: {stats['rebalances_today']}/{settings.max_rebalances_per_day}",
+            f"• Total cycles: {stats['total_cycles']}",
+        ]
+        if latest:
+            port = latest.portfolio
+            lines += [
+                f"• Block: #{latest.block_height:,}",
+                f"• TVL: {port.get('total_value_motes', 0) / 1e9:.1f} CSPR",
+                f"• Alokasi: CON={port.get('conservative_pct', 0)}% BAL={port.get('balanced_pct', 0)}% AGG={port.get('aggressive_pct', 0)}%",
+                f"• Strategi: {port.get('current_strategy', 'N/A')}",
+                f"• Keputusan terakhir: {latest.decision.get('action')} ({latest.decision.get('confidence', 0)*100:.0f}% confidence)",
+            ]
+            if latest.tx_hash:
+                lines.append(f"• TX terakhir: {latest.tx_hash[:14]}...")
+        return "\n".join(lines)
+
+    # ── FORCE REBALANCE ───────────────────────────────────────────────────────
+    is_rebalance_cmd = any(w in t for w in [
+        "rebalance", "rebalans", "seimbangkan", "alokasi ulang",
+        "execute", "eksekusi", "jalankan", "trigger",
+    ])
+    if is_rebalance_cmd:
+        strategy = _parse_strategy(t) or "balanced"
+        _ALLOC_LABEL = {
+            "conservative": "CON=70% BAL=20% AGG=10%",
+            "balanced":     "CON=20% BAL=60% AGG=20%",
+            "aggressive":   "CON=10% BAL=20% AGG=70%",
+        }
+        try:
+            tx_hash = await agent.force_rebalance(strategy)
+            if tx_hash:
+                return (
+                    f"REBALANCE DIEKSEKUSI!\n"
+                    f"• Strategi: {strategy.capitalize()} ({_ALLOC_LABEL[strategy]})\n"
+                    f"• TX Hash: {tx_hash}\n"
+                    f"• Cek: https://testnet.cspr.live/deploy/{tx_hash}"
+                )
+            return f"Rebalance gagal — lihat log backend untuk detail."
+        except Exception as exc:
+            return f"Error saat rebalance: {exc}"
+
+    return None  # not a command
+
+
 @app.post("/chat")
 async def chat(req: ChatRequest):
-    """Direct chat with the Claude AI agent about the portfolio."""
+    """Direct chat with the Claude AI agent. Supports commands and free-form Q&A."""
+    # Try command first
+    cmd_reply = await _handle_command(req.message)
+    if cmd_reply:
+        return {"reply": cmd_reply}
+
+    # Free-form Q&A via Claude Haiku
     import anthropic as _anthropic
     client = _anthropic.Anthropic(api_key=settings.anthropic_api_key)
 
@@ -428,24 +568,29 @@ async def chat(req: ChatRequest):
     context = ""
     if history:
         latest = history[0]
+        port = latest.portfolio
         context = (
-            f"Portfolio: {latest.portfolio.get('total_value_motes', 0) / 1e9:.0f} CSPR, "
-            f"strategy: {latest.portfolio.get('current_strategy', 'N/A')}. "
-            f"Last decision: {latest.decision.get('action')} "
+            f"TVL: {port.get('total_value_motes', 0) / 1e9:.0f} CSPR. "
+            f"Alokasi: CON={port.get('conservative_pct', 0)}% BAL={port.get('balanced_pct', 0)}% AGG={port.get('aggressive_pct', 0)}%. "
+            f"Strategi: {port.get('current_strategy', 'N/A')}. "
+            f"Keputusan terakhir: {latest.decision.get('action')} "
             f"(confidence {latest.decision.get('confidence', 0)*100:.0f}%). "
-            f"Block: #{latest.block_height:,}."
+            f"Block: #{latest.block_height:,}. "
+            f"Agent paused: {agent.paused}."
         )
 
     system = (
-        "You are CasperYield AI, an autonomous DeFi agent on Casper Network. "
-        "Answer questions about the portfolio, yield strategies, and market conditions. "
-        "Be concise (2-3 sentences max). "
+        "You are CasperYield AI, an autonomous DeFi yield-routing agent on Casper Network testnet. "
+        "Answer questions in the same language as the user (Indonesian or English). "
+        "Be concise — 2-4 sentences max. "
+        "Available commands the user can type: 'rebalance [conservative/balanced/aggressive]', "
+        "'pause', 'resume', 'status'. "
         + (f"Current state: {context}" if context else "No portfolio data yet.")
     )
 
     resp = client.messages.create(
         model="claude-haiku-4-5-20251001",
-        max_tokens=256,
+        max_tokens=300,
         system=system,
         messages=[{"role": "user", "content": req.message}],
     )
