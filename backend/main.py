@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     vault_contract_version_hash: str = ""
     agent_account_hash: str = "account-hash-demo"
     agent_secret_key_path: str = "./agent_secret_key.pem"
-    agent_poll_interval_seconds: int = 300
+    agent_poll_interval_seconds: int = 60
     max_rebalances_per_day: int = 5
     x402_enabled: bool = False
     x402_payment_amount: int = 1_000_000
@@ -132,7 +132,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="CasperYield AI",
+    title="Agent Casper AI",
     description="Autonomous DeFi Yield Optimization Agent on Casper Network",
     version="1.0.0",
     lifespan=lifespan,
@@ -447,9 +447,8 @@ async def resume_agent():
     if not agent:
         raise HTTPException(503, "Agent not initialized")
     if not agent._running:
-        agent._running = True          # visible to status polls immediately
         asyncio.create_task(agent.start())
-    return {"status": "running", "running": agent._running}
+    return {"status": "running", "running": True}
 
 
 class ChatRequest(BaseModel):
@@ -492,7 +491,6 @@ async def _handle_command(text: str) -> Optional[str]:
         "start", "mulai", "running", "jalankan", "hidupkan", "run",
     ]):
         if not agent._running:
-            agent._running = True      # immediately visible to status polls
             asyncio.create_task(agent.start())
             return (
                 f"Agent di-START. Loop autonomous berjalan kembali. "
@@ -580,8 +578,8 @@ async def chat(req: ChatRequest):
         )
 
     system = (
-        "You are CasperYield AI, an autonomous DeFi yield-routing agent on Casper Network testnet. "
-        "Answer questions in the same language as the user (Indonesian or English). "
+        "You are Agent Casper AI, an autonomous DeFi yield-routing agent on Casper Network testnet. "
+        "ALWAYS answer in Bahasa Indonesia regardless of what language the user uses. "
         "Be concise — 2-4 sentences max. "
         "Available commands the user can type: 'rebalance [conservative/balanced/aggressive]', "
         "'pause', 'resume', 'status'. "

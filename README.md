@@ -1,4 +1,4 @@
-# AGENT-CASPER — Autonomous DeFi Yield Agent on Casper Network
+# Agent Casper AI — Autonomous DeFi Yield Agent on Casper Network
 
 > **Casper Agentic AI Buildathon 2026** · Build Direction #1: Autonomous Yield-Routing Agent
 
@@ -61,8 +61,8 @@ The system transforms a passive smart contract vault into a **self-driving portf
 | **CSPR.cloud** | Block data, deploy status, account balances |
 | **Odra Framework 2.7.2** | YieldVault smart contract (Rust) |
 | **casper-js-sdk v5** | Frontend deploy signing, wallet integration |
-| **X402 Protocol** | Micropayment handler (pluggable, `X402_ENABLED=true`) |
-| **MCP Server** | Exposes blockchain state to Claude via tool calls |
+| **X402 Protocol** | Micropayment handler (disabled by default, enable via `X402_ENABLED=true`) |
+| **MCP Server** | Exposes blockchain state to Claude via tool calls (`backend/casper/mcp_server.py`) |
 | **Casper Wallet** | User authentication and transaction signing |
 | **Claude AI** | Autonomous rebalancing decisions with RWA context |
 
@@ -104,7 +104,7 @@ Framework:     Odra 2.7.2 (Rust → WASM)
 
 ### RWA Oracle
 - Real-time prices: PAXG (gold), UST10Y (T-bond yield), WTI (oil)
-- Posts verified prices to YieldVault on-chain via `update_rwa_price()`
+- On-chain posting via `update_rwa_price()` supported (disabled by default to conserve RPC quota — enable by adding assets to `ASSETS_TO_POST` in `yield_agent.py`)
 - Creates auditable oracle trail on Casper blockchain
 
 ### Yield Strategy Engine
@@ -154,12 +154,12 @@ cd agent-casper
 ### 2. Backend
 
 ```bash
-cd backend
-python -m venv venv
-venv\Scripts\activate        # Windows
-# source venv/bin/activate   # Linux/Mac
+# Run from project root
+python -m venv .venv
+.venv\Scripts\activate        # Windows
+# source .venv/bin/activate   # Linux/Mac
 
-pip install -r requirements.txt
+pip install -r backend/requirements.txt
 ```
 
 Configure `.env`:
@@ -172,7 +172,7 @@ CSPR_CLOUD_BASE_URL=https://api.testnet.cspr.cloud
 
 Start:
 ```bash
-python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+python -m uvicorn main:app --app-dir backend --host 0.0.0.0 --port 8000 --reload
 ```
 
 ### 3. Frontend
@@ -193,75 +193,65 @@ Open [http://localhost:3000](http://localhost:3000)
 4. **Deposit CSPR** — deposit CSPR into vault to activate AI decisions
 5. **Watch AI work** — agent polls every 60s, makes autonomous decisions
 
-### Agent Key Setup
-
-```bash
-cd backend
-python gen_key.py
-# Outputs: Public key, Account hash, saves agent_secret_key.pem
-# Fund the agent account via testnet faucet
-```
-
 ---
 
-## Menjalankan & Mengontrol Agent
+## Running & Controlling the Agent
 
 ### Auto-Start
-Agent loop **otomatis berjalan** saat backend di-start. Tidak perlu konfigurasi tambahan.
+The agent loop starts automatically when the backend starts — no extra configuration needed.
 
 ```bash
-# Backend start → agent langsung aktif
-python -m uvicorn main:app --host 0.0.0.0 --port 8000
+python -m uvicorn main:app --app-dir backend --host 0.0.0.0 --port 8000
 # Output: "CasperYield AI agent started"
 # Output: "YieldAgent started — polling every 60s"
 ```
 
-### Kontrol via Dashboard Button
+### Dashboard Controls
 
-| Button | Aksi |
-|--------|------|
-| **START AGENT** | Mulai agent loop (jika sedang stop) |
-| **STOP AGENT** | Hentikan agent loop |
+| Button | Action |
+|--------|--------|
+| **START AGENT** | Start the agent loop |
+| **STOP AGENT** | Stop the agent loop |
 
-### Kontrol via Chat Box (Ask AI Agent)
+### Chat Box Commands (Ask AI Agent)
 
-Ketik perintah langsung di chat box — agent merespons dan mengeksekusi:
+Type commands directly in the chat box — agent responds and executes:
 
-| Perintah | Contoh | Efek |
-|----------|--------|------|
-| **Start** | `start` · `running` · `mulai` · `jalankan` | Mulai agent loop |
-| **Stop** | `pause` · `berhenti` · `hentikan` | Hentikan agent loop |
-| **Status** | `status` · `laporan` · `kondisi` | Tampilkan state lengkap agent |
-| **Rebalance** | `rebalance` · `rebalance conservative` | Force rebalance sekarang |
-| **Tanya bebas** | `berapa TVL?` · `strategi terbaik?` | Dijawab Claude AI |
+| Command | Example | Effect |
+|---------|---------|--------|
+| **Start** | `start` · `resume` · `running` | Start agent loop |
+| **Stop** | `pause` · `stop` | Stop agent loop |
+| **Status** | `status` · `report` | Show full agent state |
+| **Rebalance** | `rebalance` · `rebalance conservative` | Force rebalance now |
+| **Free Q&A** | `what is TVL?` · `best strategy?` | Answered by Claude AI |
 
-**Contoh output perintah `status`:**
+**Example `status` output:**
 ```
 STATUS AGENT:
-• Running: Ya
-• Rebalances hari ini: 2/5
+• Running: Yes
+• Rebalances today: 2/5
 • Total cycles: 12
 • Block: #8,081,826
 • TVL: 141.0 CSPR
-• Alokasi: CON=20% BAL=60% AGG=20%
-• Strategi: Balanced
-• Keputusan terakhir: HOLD (78% confidence)
+• Allocation: CON=20% BAL=60% AGG=20%
+• Strategy: Balanced
+• Last decision: HOLD (78% confidence)
 ```
 
-**Contoh output perintah `rebalance conservative`:**
+**Example `rebalance conservative` output:**
 ```
-REBALANCE DIEKSEKUSI!
-• Strategi: Conservative (CON=70% BAL=20% AGG=10%)
+REBALANCE EXECUTED!
+• Strategy: Conservative (CON=70% BAL=20% AGG=10%)
 • TX Hash: 7563c5813420aa0a...
-• Cek: https://testnet.cspr.live/deploy/7563c581...
+• View: https://testnet.cspr.live/deploy/7563c581...
 ```
 
-### Catatan Penting
+### Important Notes
 
-- Agent membutuhkan saldo CSPR di account agent untuk gas (~5 CSPR per rebalance)
-- Maksimal **5 rebalance per hari** (dapat diubah via `MAX_REBALANCES_PER_DAY` di `.env`)
-- Setelah 5 rebalance, agent tetap monitoring tapi tidak eksekusi sampai hari berikutnya
-- Semua transaksi dapat dilihat di [testnet.cspr.live](https://testnet.cspr.live)
+- Agent needs CSPR balance in agent account for gas (~5 CSPR per rebalance)
+- Max **5 rebalances per day** (configurable via `MAX_REBALANCES_PER_DAY` in `.env`)
+- After 5 rebalances, agent continues monitoring but won't execute until next day
+- All transactions visible at [testnet.cspr.live](https://testnet.cspr.live)
 
 ---
 
@@ -284,6 +274,7 @@ agent-casper/
 │       ├── client.py           # CSPR.cloud REST client
 │       ├── deployer.py         # Transaction signing (pycspr)
 │       ├── rwa_oracle.py       # PAXG / UST10Y / WTI prices
+│       ├── mcp_server.py       # MCP server — blockchain tools for Claude
 │       └── x402.py             # X402 micropayment handler
 ├── frontend/src/
 │   ├── app/page.tsx            # Cyber dashboard
@@ -323,9 +314,29 @@ agent-casper/
 
 ## License
 
-MIT — see [LICENSE](LICENSE)
+MIT License
+
+Copyright (c) 2026 Soesoe
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 ---
 
-*Built for the Casper Agentic AI Buildathon 2026*  
-*Stack: Claude AI · CSPR.cloud · Odra 2.7.2 · casper-js-sdk v5 · FastAPI · Next.js*
+Built for the **Casper Agentic AI Buildathon 2026**  
+Stack: Claude AI · CSPR.cloud · Odra 2.7.2 · casper-js-sdk v5 · FastAPI · Next.js
