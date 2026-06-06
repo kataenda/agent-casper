@@ -36,7 +36,7 @@ After running the agent against the deployed testnet contract, fill in real tx h
 | Action | Deploy Hash | Testnet Explorer |
 |---|---|---|
 | Contract deploy | `hash-f6ba9dfa2a236dcc253436c3350f06931465ca94290fad689dfc7c9058c559da` | https://testnet.cspr.live/contract-package/f6ba9dfa2a236dcc253436c3350f06931465ca94290fad689dfc7c9058c559da |
-| register_agent call | __________________________ | https://testnet.cspr.live/deploy/... |
+| register_agent call | `7c3c0da82f682eab1f8be8131f11b2b0319b86a7f618d589c2fa7230e4b24380` | https://testnet.cspr.live/deploy/7c3c0da82f682eab1f8be8131f11b2b0319b86a7f618d589c2fa7230e4b24380 |
 | First AI rebalance | `dd0c391f1d69d5fe55a3b72fd6fd1d617a354812c80de67b9d12ddc9233ec29e` | https://testnet.cspr.live/deploy/dd0c391f1d69d5fe55a3b72fd6fd1d617a354812c80de67b9d12ddc9233ec29e |
 
 ---
