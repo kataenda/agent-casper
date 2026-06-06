@@ -6,8 +6,15 @@
 [![Smart Contract](https://img.shields.io/badge/Contract-hash--f6ba9dfa-00FF94)](https://testnet.cspr.live)
 [![License: MIT](https://img.shields.io/badge/License-MIT-BF5AF2.svg)](LICENSE)
 [![Demo Video](https://img.shields.io/badge/Demo-YouTube-FF0000)](https://youtu.be/cYOoYzr03gI)
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-Vercel-000000)](https://agent-casper-git-master-soeclaw.vercel.app)
 
 ---
+
+## 🌐 Live Demo
+
+▶️ **[Open Live Dashboard](https://agent-casper-git-master-soeclaw.vercel.app)**
+
+The dashboard shows the agent running live on Casper Testnet — real block heights, on-chain portfolio data, RWA oracle prices, and AI decision log.
 
 ## Demo Video
 
