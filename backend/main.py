@@ -147,7 +147,7 @@ app = FastAPI(
     description="Autonomous DeFi Yield Optimization Agent on Casper Network",
     version="1.0.0",
     lifespan=lifespan,
-    swagger_ui_parameters={"favicon_url": "https://agent-casper-git-master-soeclaw.vercel.app/agent_casper.png"},
+    swagger_favicon_url="https://agent-casper-git-master-soeclaw.vercel.app/agent_casper.png",
 )
 
 app.add_middleware(
