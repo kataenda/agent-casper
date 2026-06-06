@@ -9,6 +9,7 @@ import hashlib
 import json
 import logging
 import os
+import pathlib
 import time
 from typing import Optional
 
@@ -35,10 +36,52 @@ class CasperDeployer:
         node_url: str,
         chain_name: str = "casper-test",
         payment_motes: int = REBALANCE_PAYMENT_MOTES,
+        cloud_api_key: str = "",
+        resolved_contract_hash: Optional[str] = None,
     ):
         self.node_url = node_url
         self.chain_name = chain_name
         self.payment_motes = payment_motes
+        self.cloud_api_key = cloud_api_key
+        self._resolved_contract_hash = resolved_contract_hash  # pre-populated from env to avoid runtime DNS
+
+    def _auth_headers(self) -> dict:
+        return {"Authorization": self.cloud_api_key} if self.cloud_api_key else {}
+
+    async def _resolve_contract_hash(self, package_hash: str) -> str:
+        """
+        Resolve ContractPackage hash → latest ContractVersion hash.
+        ODRA deploys as a ContractPackage; entry points must target the version hash.
+        """
+        if self._resolved_contract_hash:
+            return self._resolved_contract_hash
+
+        raw_pkg = (package_hash
+                   .removeprefix("hash-")
+                   .removeprefix("contract-")
+                   .removeprefix("package-"))
+        try:
+            async with httpx.AsyncClient(timeout=10, headers=self._auth_headers()) as client:
+                resp = await client.post(self.node_url, json={
+                    "id": 1, "jsonrpc": "2.0",
+                    "method": "query_global_state",
+                    "params": {"key": f"hash-{raw_pkg}", "path": []},
+                })
+                pkg = resp.json().get("result", {}).get("stored_value", {}).get("ContractPackage", {})
+                versions = pkg.get("versions", [])
+                if versions:
+                    latest = versions[-1].get("contract_hash", "")
+                    # contract_hash in package versions is "contract-XXX"
+                    resolved = latest.replace("contract-", "")
+                    if len(resolved) == 64:
+                        self._resolved_contract_hash = resolved
+                        logger.info("Resolved contract version hash: %s", resolved[:16])
+                        return resolved
+        except Exception as exc:
+            logger.warning("Failed to resolve contract version hash: %s", exc)
+
+        # Fall back to the package hash itself (may work on some Casper 2.x nodes)
+        return raw_pkg
 
     # ── Public API ─────────────────────────────────────────────────────────
 
@@ -88,49 +131,46 @@ class CasperDeployer:
     ) -> str:
         try:
             import pycspr
-            from pycspr.crypto import KeyAlgorithm
-            from pycspr.types.cl import CLV_U8, CLV_String
+            from pycspr.types import StoredContractByHash
+            from pycspr.types.cl_values import CL_U8, CL_String
         except ImportError as exc:
-            raise RuntimeError("pycspr is not installed. Run: pip install pycspr==0.12.4") from exc
+            raise RuntimeError("pycspr is not installed. Run: pip install pycspr") from exc
 
-        # 1. Load agent keypair from PEM file
-        keypair = pycspr.parse_private_key(
-            path_to_secret_key=key_path,
-            key_algo=KeyAlgorithm.ED25519,
-        )
+        # 1. Load agent keypair
+        keypair = pycspr.parse_private_key(pathlib.Path(key_path))
 
-        # 2. Strip "hash-" prefix from contract hash
-        hash_hex = contract_hash.removeprefix("hash-")
+        # 2. Resolve package hash → contract version hash (ODRA deploys as ContractPackage)
+        hash_hex = await self._resolve_contract_hash(contract_hash)
         if len(hash_hex) != 64:
             raise ValueError(f"Expected 64-char contract hash hex, got: {hash_hex!r}")
 
-        # 3. Map strategy name → Odra enum index
+        # 3. Map strategy name → ODRA enum index
         strategy_idx = STRATEGY_INDEX.get(new_strategy.lower(), 1)
 
-        # 4. Build deploy
+        # 4. Build deploy using StoredContractByHash (works for ODRA package hash)
         deploy_params = pycspr.create_deploy_parameters(
             account=keypair,
             chain_name=self.chain_name,
         )
         payment = pycspr.create_standard_payment(self.payment_motes)
-        session = pycspr.create_contract_call(
-            contract_hash=bytes.fromhex(hash_hex),
-            entry_point="rebalance",
+        session = StoredContractByHash(
             args={
-                "new_strategy":    CLV_U8(strategy_idx),
-                "conservative_pct": CLV_U8(conservative_pct),
-                "balanced_pct":    CLV_U8(balanced_pct),
-                "aggressive_pct":  CLV_U8(aggressive_pct),
-                "reasoning":       CLV_String(reasoning[:500]),
+                "new_strategy":     CL_U8(strategy_idx),
+                "conservative_pct": CL_U8(conservative_pct),
+                "balanced_pct":     CL_U8(balanced_pct),
+                "aggressive_pct":   CL_U8(aggressive_pct),
+                "reasoning":        CL_String(reasoning[:500]),
             },
+            entry_point="rebalance",
+            hash=bytes.fromhex(hash_hex),
         )
         deploy = pycspr.create_deploy(deploy_params, payment, session)
 
         # 5. Sign
         deploy.approve(keypair)
 
-        # 6. Serialize and submit
-        deploy_dict = json.loads(pycspr.to_json(deploy))
+        # 6. Serialize (pycspr.to_json returns dict directly) and submit
+        deploy_dict = pycspr.to_json(deploy)
         deploy_hash = await self._put_deploy_rpc(deploy_dict)
 
         logger.info("Rebalance deploy submitted — hash: %s", deploy_hash)
@@ -140,7 +180,7 @@ class CasperDeployer:
 
     async def _put_deploy_rpc(self, deploy_dict: dict) -> str:
         """Submit deploy via account_put_deploy JSON-RPC. Returns deploy hash string."""
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with httpx.AsyncClient(timeout=30, headers=self._auth_headers()) as client:
             resp = await client.post(
                 self.node_url,
                 json={
@@ -182,29 +222,29 @@ class CasperDeployer:
 
         try:
             import pycspr
-            from pycspr.crypto import KeyAlgorithm
-            from pycspr.types.cl import CLV_U8, CLV_U16, CLV_U64, CLV_String
+            from pycspr.types import StoredContractByHash
+            from pycspr.types.cl_values import CL_U64, CL_U32, CL_String
         except ImportError as exc:
             raise RuntimeError("pycspr not installed") from exc
 
-        keypair  = pycspr.parse_private_key(path_to_secret_key=key_path, key_algo=KeyAlgorithm.ED25519)
-        hash_hex = contract_hash.removeprefix("hash-")
+        keypair  = pycspr.parse_private_key(pathlib.Path(key_path))
+        hash_hex = await self._resolve_contract_hash(contract_hash)
 
         deploy_params = pycspr.create_deploy_parameters(account=keypair, chain_name=self.chain_name)
-        payment       = pycspr.create_standard_payment(2_000_000_000)   # 2 CSPR — lighter than rebalance
-        session       = pycspr.create_contract_call(
-            contract_hash=bytes.fromhex(hash_hex),
-            entry_point="update_rwa_price",
+        payment       = pycspr.create_standard_payment(2_000_000_000)
+        session       = StoredContractByHash(
             args={
-                "asset_id":        CLV_String(asset_id),
-                "price_usd_cents": CLV_U64(price_usd_cents),
-                "yield_bps":       CLV_U16(yield_bps),
+                "asset_id":        CL_String(asset_id),
+                "price_usd_cents": CL_U64(price_usd_cents),
+                "yield_bps":       CL_U32(yield_bps),
             },
+            entry_point="update_rwa_price",
+            hash=bytes.fromhex(hash_hex),
         )
         deploy = pycspr.create_deploy(deploy_params, payment, session)
         deploy.approve(keypair)
 
-        deploy_dict = json.loads(pycspr.to_json(deploy))
+        deploy_dict = pycspr.to_json(deploy)
         deploy_hash = await self._put_deploy_rpc(deploy_dict)
         logger.info("RWA price posted on-chain [%s=$%.2f] — hash: %s", asset_id, price_usd, deploy_hash)
         return deploy_hash

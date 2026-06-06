@@ -32,12 +32,19 @@ export function AllocationDonut({ portfolio }: Props) {
     maximumFractionDigits: 0,
   });
 
-  const data = SEGMENTS.map(s => ({
+  const rawData = SEGMENTS.map(s => ({
     name:  s.label,
     value: portfolio[s.key as keyof Portfolio] as number,
     color: s.color,
     glow:  s.glow,
-  })).filter(d => d.value > 0);
+  }));
+  // If all percentages are 0, show a placeholder ring so the donut always renders
+  const hasAllocation = rawData.some(d => d.value > 0);
+  const data = hasAllocation ? rawData.filter(d => d.value > 0) : [
+    { name: "Conservative", value: 40, color: "#00FF9420", glow: "rgba(0,255,148,0.1)" },
+    { name: "Balanced",     value: 50, color: "#00F5FF20", glow: "rgba(0,245,255,0.1)" },
+    { name: "Aggressive",   value: 10, color: "#BF5AF220", glow: "rgba(191,90,242,0.1)" },
+  ];
 
   return (
     <div className="flex flex-row items-center gap-3">

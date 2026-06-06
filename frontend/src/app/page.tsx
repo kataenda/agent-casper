@@ -1,7 +1,8 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
-import { TrendingUp, RefreshCw, Activity, Zap, AlertTriangle } from "lucide-react";
+import { TrendingUp, RefreshCw, Activity, Zap, AlertTriangle, Wallet, ArrowDownCircle, ArrowUpCircle } from "lucide-react";
 import Image from "next/image";
 
 const WalletWidget = dynamic(
@@ -18,6 +19,10 @@ const RegisterAgentButton = dynamic(
 );
 const DepositButton = dynamic(
   () => import("@/components/VaultControls").then((m) => ({ default: m.DepositButton })),
+  { ssr: false }
+);
+const WithdrawButton = dynamic(
+  () => import("@/components/VaultControls").then((m) => ({ default: m.WithdrawButton })),
   { ssr: false }
 );
 const AgentControls = dynamic(
@@ -38,11 +43,88 @@ import { DecisionLog } from "@/components/DecisionLog";
 import { YieldRatesPanel } from "@/components/YieldRatesPanel";
 import { RWAPanel } from "@/components/RWAPanel";
 
-/* ── Panel wrapper ─────────────────────────────────────────────── */
-function Panel({ children, className = "", style }: { children: React.ReactNode; className?: string; style?: React.CSSProperties }) {
+const CUT = 12;   // px — diagonal corner cut size
+const BRD = 1.5;  // px — border thickness (semua sisi)
+
+// Outer clip: full chamfered octagon
+const CLIP_OUTER = `polygon(
+  ${CUT}px 0%, calc(100% - ${CUT}px) 0%,
+  100% ${CUT}px, 100% calc(100% - ${CUT}px),
+  calc(100% - ${CUT}px) 100%, ${CUT}px 100%,
+  0% calc(100% - ${CUT}px), 0% ${CUT}px
+)`;
+
+// Inner clip: uniform BRD on all sides
+const CLIP_INNER = `polygon(
+  ${CUT}px ${BRD}px, calc(100% - ${CUT}px) ${BRD}px,
+  calc(100% - ${BRD}px) ${CUT}px, calc(100% - ${BRD}px) calc(100% - ${CUT}px),
+  calc(100% - ${CUT}px) calc(100% - ${BRD}px), ${CUT}px calc(100% - ${BRD}px),
+  ${BRD}px calc(100% - ${CUT}px), ${BRD}px ${CUT}px
+)`;
+
+/* ── Panel wrapper — cyberpunk chamfered border ────────────────── */
+function Panel({ children, className = "", style, accent = "#00F5FF" }: {
+  children: React.ReactNode;
+  className?: string;
+  style?: React.CSSProperties;
+  accent?: string;
+}) {
   return (
-    <div className={`glass-panel rounded-2xl p-3 relative overflow-hidden ${className}`} style={style}>
-      {children}
+    /* Outer: accent color fills chamfer shape → becomes the visible border */
+    <div style={{
+      clipPath: CLIP_OUTER,
+      background: accent,
+      filter: `drop-shadow(0 0 18px ${accent}) drop-shadow(0 0 6px ${accent}ee) drop-shadow(0 0 40px ${accent}66)`,
+      ...style,
+    }}>
+      {/* Inner: dark glass with atmosphere */}
+      <div
+        className={`relative overflow-hidden p-3 ${className}`}
+        style={{
+          background: "rgba(3, 7, 22, 0.96)",
+          backdropFilter: "blur(24px)",
+          WebkitBackdropFilter: "blur(24px)",
+          clipPath: CLIP_INNER,
+          height: "100%",
+          minHeight: 0,
+        }}
+      >
+        {/* Atmospheric top glow — accent color radiates down from top edge */}
+        <div style={{
+          position: "absolute", inset: 0, pointerEvents: "none", zIndex: 0,
+          background: `radial-gradient(ellipse 90% 50% at 50% 0%, ${accent}10 0%, transparent 65%)`,
+        }} />
+        {/* Subtle inner grid */}
+        <div style={{
+          position: "absolute", inset: 0, pointerEvents: "none", zIndex: 0, opacity: 0.4,
+          backgroundImage: `linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px)`,
+          backgroundSize: "22px 22px",
+        }} />
+        {/* Top highlight bar */}
+        <div style={{
+          position: "absolute", top: 0, left: "8%", right: "8%", height: 2, zIndex: 1, pointerEvents: "none",
+          background: `linear-gradient(90deg, transparent, ${accent}cc, ${accent}, ${accent}cc, transparent)`,
+          boxShadow: `0 0 14px 3px ${accent}88, 0 0 4px ${accent}`,
+        }} />
+        {/* Corner tab kiri atas */}
+        <div style={{ position: "absolute", top: -BRD, left: CUT - 2, zIndex: 2, pointerEvents: "none" }}>
+          <div style={{ width: 2, height: 8, background: accent, boxShadow: `0 0 6px ${accent}` }} />
+        </div>
+        {/* Corner tab kanan atas */}
+        <div style={{ position: "absolute", top: -BRD, right: CUT - 2, zIndex: 2, pointerEvents: "none" }}>
+          <div style={{ width: 2, height: 8, background: accent, boxShadow: `0 0 6px ${accent}` }} />
+        </div>
+        {/* Bottom vignette */}
+        <div style={{
+          position: "absolute", bottom: 0, left: 0, right: 0, height: "35%",
+          background: "linear-gradient(0deg, rgba(0,0,0,0.35) 0%, transparent 100%)",
+          pointerEvents: "none", zIndex: 0,
+        }} />
+        {/* Content sits above overlays */}
+        <div className="relative flex flex-col h-full min-h-0" style={{ zIndex: 1 }}>
+          {children}
+        </div>
+      </div>
     </div>
   );
 }
@@ -50,14 +132,21 @@ function Panel({ children, className = "", style }: { children: React.ReactNode;
 /* ── Panel label ───────────────────────────────────────────────── */
 function PanelLabel({ text, accent = "#00F5FF" }: { text: string; accent?: string }) {
   return (
-    <div className="flex items-center gap-2 mb-2 shrink-0">
-      <div className="w-0.5 h-3 rounded-full" style={{ backgroundColor: accent, boxShadow: `0 0 5px ${accent}` }} />
-      <span className="text-[9px] font-mono font-bold uppercase tracking-[0.2em]"
-            style={{ color: accent, opacity: 0.8 }}>
+    <div className="flex items-center gap-2 mb-2.5 shrink-0">
+      {/* Blinking status dot */}
+      <span style={{
+        width: 5, height: 5, borderRadius: "50%", flexShrink: 0,
+        backgroundColor: accent,
+        boxShadow: `0 0 6px ${accent}`,
+        animation: "pulse 2s ease-in-out infinite",
+      }} />
+      <span className="font-mono font-bold uppercase tracking-[0.18em] text-[9px]"
+            style={{ color: accent }}>
         {text}
       </span>
-      <div className="flex-1 h-px"
-           style={{ background: `linear-gradient(90deg, ${accent}30, transparent)` }} />
+      <div className="flex-1 h-px" style={{
+        background: `linear-gradient(90deg, ${accent}50, ${accent}10, transparent)`,
+      }} />
     </div>
   );
 }
@@ -69,33 +158,100 @@ function StatCard({
   icon: React.ElementType; label: string; value: string; sub?: string; accent?: string;
 }) {
   return (
-    <div className="glass-panel rounded-xl px-3 py-2 relative overflow-hidden group transition-all duration-300"
-         style={{ borderTopColor: `${accent}35`, borderTopWidth: 1 }}>
-      <div className="flex items-center justify-between mb-1">
-        <span className="text-[9px] font-mono uppercase tracking-widest text-cyber-muted">{label}</span>
-        <Icon size={11} style={{ color: accent, opacity: 0.6 }} />
+    <div className="relative overflow-hidden transition-all duration-500 group cursor-default h-full"
+         style={{
+           background: `linear-gradient(135deg, rgba(2,5,18,0.99) 0%, ${accent}09 100%)`,
+           border: `1px solid ${accent}35`,
+           clipPath: "polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px))",
+           boxShadow: `0 0 0 1px ${accent}15, 0 4px 30px rgba(0,0,0,0.7), inset 0 1px 0 ${accent}25`,
+         }}>
+      {/* Animated left bar */}
+      <div style={{
+        position: "absolute", left: 0, top: 0, bottom: 0, width: 3,
+        background: `linear-gradient(180deg, transparent 0%, ${accent} 30%, ${accent} 70%, transparent 100%)`,
+        boxShadow: `0 0 12px 2px ${accent}cc, 0 0 24px ${accent}66`,
+        animation: "pulse 2.5s ease-in-out infinite",
+      }} />
+      {/* Top-right chamfer fill */}
+      <div style={{
+        position: "absolute", top: 0, right: 0, width: 32, height: 32,
+        background: `linear-gradient(225deg, ${accent}40 0%, transparent 65%)`,
+      }} />
+      {/* Inner top glow */}
+      <div style={{
+        position: "absolute", top: 0, left: 0, right: 0, height: "60%",
+        background: `radial-gradient(ellipse 80% 60% at 40% 0%, ${accent}10 0%, transparent 70%)`,
+        pointerEvents: "none",
+      }} />
+      {/* Hover radial glow */}
+      <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-700"
+           style={{ background: `radial-gradient(ellipse at 40% 60%, ${accent}12 0%, transparent 65%)` }} />
+
+      <div className="px-4 py-3 pl-6">
+        <div className="flex items-center justify-between mb-1.5">
+          <span className="font-mono uppercase tracking-[0.25em] text-[8px]"
+                style={{ color: `${accent}70` }}>{label}</span>
+          <Icon size={11} style={{ color: accent, opacity: 0.4 }} />
+        </div>
+        <div className="font-mono font-black cyber-num leading-none"
+             style={{
+               fontSize: 24, color: accent,
+               textShadow: `0 0 10px ${accent}, 0 0 25px ${accent}cc, 0 0 50px ${accent}66, 0 0 80px ${accent}33`,
+             }}>
+          {value}
+        </div>
+        {sub && (
+          <div className="font-mono uppercase tracking-widest truncate mt-2 text-[8px]"
+               style={{ color: `${accent}50` }}>
+            {sub}
+          </div>
+        )}
       </div>
-      <div className="font-mono font-bold cyber-num leading-none"
-           style={{ fontSize: 16, color: accent, textShadow: `0 0 14px ${accent}80` }}>
-        {value}
-      </div>
-      {sub && <div className="text-[9px] font-mono text-cyber-muted mt-1 uppercase tracking-wider truncate">{sub}</div>}
+      {/* Bottom glowing line */}
+      <div style={{
+        position: "absolute", bottom: 0, left: 0, right: 0, height: 2,
+        background: `linear-gradient(90deg, transparent 0%, ${accent}80 25%, ${accent} 50%, ${accent}80 75%, transparent 100%)`,
+        boxShadow: `0 0 12px 2px ${accent}99, 0 -2px 20px ${accent}44`,
+      }} />
     </div>
   );
 }
+
+const CONTRACT_HASH = "hash-f6ba9dfa2a236dcc253436c3350f06931465ca94290fad689dfc7c9058c559da";
 
 /* ── Main page ─────────────────────────────────────────────────── */
 export default function DashboardPage() {
   useAgentWebSocket();
 
-  const { connected, latestCycle, cycles } = useAgentStore();
+  const { connected, latestCycle, cycles, depositedMotes, vaultTxs } = useAgentStore();
+
+  const [agentInfo, setAgentInfo] = useState<{ account_hash: string; balance_cspr: number } | null>(null);
+  useEffect(() => {
+    fetch("http://localhost:8000/admin/agent-address")
+      .then(r => r.json())
+      .then(d => setAgentInfo({
+        account_hash: d.agent_account_hash ?? "",
+        balance_cspr: d.balance_cspr ?? 0,
+      }))
+      .catch(() => {});
+  }, [latestCycle?.block_height]);
 
   const portfolio   = latestCycle?.portfolio;
   const decision    = latestCycle?.decision;
-  const hasContract = portfolio && portfolio.total_value_motes > 0;
-  const totalCspr   = hasContract
-    ? (portfolio.total_value_motes / 1e9).toLocaleString(undefined, { maximumFractionDigits: 0 })
+  const hasContract = !!latestCycle;
+  const effectiveMotes = (portfolio?.total_value_motes ?? 0) + depositedMotes;
+  const totalCspr   = hasContract && effectiveMotes > 0
+    ? (effectiveMotes / 1e9).toLocaleString(undefined, { maximumFractionDigits: 0 })
+    : hasContract ? "0"
     : "—";
+  // Build display portfolio: use effective motes + AI allocation when on-chain is 0
+  const displayPortfolio = portfolio ? {
+    ...portfolio,
+    total_value_motes: effectiveMotes,
+    conservative_pct: (portfolio.conservative_pct || decision?.conservative_pct || 40),
+    balanced_pct:     (portfolio.balanced_pct     || decision?.balanced_pct     || 50),
+    aggressive_pct:   (portfolio.aggressive_pct   || decision?.aggressive_pct   || 10),
+  } : undefined;
   const rebalances  = cycles.filter(c => c.decision.action === "REBALANCE").length;
   const lastAction  = decision?.action ?? "—";
   const confidence  = decision && decision.confidence > 0 ? `${(decision.confidence * 100).toFixed(0)}%` : "—";
@@ -103,10 +259,29 @@ export default function DashboardPage() {
   const actionAccent =
     lastAction === "REBALANCE" ? "#00F5FF" : lastAction === "ALERT" ? "#FF2D55" : "#4B5563";
 
+  const HUD_C = "rgba(0,245,255,0.35)";
+
   return (
     /* Full viewport — no scroll */
     <div className="h-screen overflow-hidden flex flex-col px-3 py-2 md:px-5 md:py-3"
          style={{ maxWidth: 1700, margin: "0 auto" }}>
+
+      {/* ── HUD screen corners ──────────────────────────────────── */}
+      {[
+        { top: 6, left: 6, bTop: true, bLeft: true },
+        { top: 6, right: 6, bTop: true, bRight: true },
+        { bottom: 6, left: 6, bBottom: true, bLeft: true },
+        { bottom: 6, right: 6, bBottom: true, bRight: true },
+      ].map((pos, i) => (
+        <div key={i} style={{
+          position: "fixed", zIndex: 50, width: 20, height: 20, pointerEvents: "none",
+          top: pos.top, left: pos.left, right: (pos as any).right, bottom: (pos as any).bottom,
+          borderTop:    (pos as any).bTop    ? `2px solid ${HUD_C}` : undefined,
+          borderBottom: (pos as any).bBottom ? `2px solid ${HUD_C}` : undefined,
+          borderLeft:   (pos as any).bLeft   ? `2px solid ${HUD_C}` : undefined,
+          borderRight:  (pos as any).bRight  ? `2px solid ${HUD_C}` : undefined,
+        }} />
+      ))}
 
       {/* ── Header ─────────────────────────────────────────────── */}
       <header className="flex items-center justify-between shrink-0 mb-2">
@@ -136,8 +311,7 @@ export default function DashboardPage() {
           <DeployPanel />
           {latestCycle?.portfolio && (
             <>
-              <RegisterAgentButton contractHash="hash-f6ba9dfa2a236dcc253436c3350f06931465ca94290fad689dfc7c9058c559da" />
-              <DepositButton contractHash="hash-f6ba9dfa2a236dcc253436c3350f06931465ca94290fad689dfc7c9058c559da" />
+              <RegisterAgentButton contractHash={CONTRACT_HASH} />
             </>
           )}
           <WalletWidget />
@@ -145,11 +319,22 @@ export default function DashboardPage() {
         </div>
       </header>
 
+      {/* ── Header separator — gradient glow line ──────────────── */}
+      <div className="shrink-0 mb-2" style={{ height: 2, position: "relative" }}>
+        <div style={{
+          position: "absolute", inset: 0,
+          background: "linear-gradient(90deg, transparent 0%, #00F5FF 20%, #00F5FF 35%, #BF5AF2 55%, #00FF94 80%, transparent 100%)",
+          boxShadow: "0 0 18px 2px rgba(0,245,255,0.5), 0 0 40px rgba(191,90,242,0.3), 0 0 60px rgba(0,255,148,0.15)",
+          opacity: 0.85,
+        }} />
+      </div>
+
       {/* ── Stat cards ─────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 shrink-0 mb-2">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 shrink-0 mb-2"
+           style={{ gridAutoRows: "88px" }}>
         <StatCard icon={TrendingUp} label="Portfolio Value"
           value={hasContract ? `${totalCspr} CSPR` : "—"}
-          sub={hasContract ? `Strategy: ${portfolio.current_strategy}` : "Deploy contract first"}
+          sub={hasContract ? `Strategy: ${portfolio?.current_strategy ?? "HOLDING"}` : "Deploy contract first"}
           accent="#00F5FF" />
         <StatCard icon={RefreshCw} label="Rebalances"
           value={String(rebalances)} sub={`of ${cycles.length} cycles`} accent="#BF5AF2" />
@@ -176,19 +361,85 @@ export default function DashboardPage() {
       <div className="flex-1 min-h-0 gap-2" style={{
         display: "grid",
         gridTemplateColumns: "1fr 2fr 1.5fr 1fr",
-        gridTemplateRows: "minmax(0,1fr) minmax(0,1fr) minmax(0,1.35fr)",
+        gridTemplateRows: "minmax(0,1.25fr) minmax(0,0.62fr) minmax(0,0.75fr)",
       }}>
 
-        {/* RWA Oracle — col 1, rows 1–3 */}
-        <Panel className="flex flex-col overflow-hidden" style={{ gridColumn: "1", gridRow: "1 / 4" }}>
+        {/* RWA Oracle — col 1, rows 1–2 */}
+        <Panel accent="#FF9F0A" className="flex flex-col overflow-hidden" style={{ gridColumn: "1", gridRow: "1 / 3" }}>
           <PanelLabel text="RWA Oracle — Real-World Assets" accent="#FF9F0A" />
           <div className="flex-1 min-h-0 overflow-y-auto">
             <RWAPanel />
           </div>
         </Panel>
 
+        {/* Vault Actions — col 1, row 3 */}
+        <Panel accent="#00D4FF" className="flex flex-col justify-between overflow-hidden" style={{ gridColumn: "1", gridRow: "3" }}>
+          <PanelLabel text="Vault Actions" accent="#00D4FF" />
+
+          {/* Agent wallet info */}
+          <div className="rounded px-3 py-2 flex items-center justify-between gap-2"
+               style={{ background: "rgba(0,212,255,0.04)", border: "1px solid rgba(0,212,255,0.15)" }}>
+            <div className="flex items-center gap-1.5 min-w-0">
+              <Wallet size={9} style={{ color: "#00D4FF" }} />
+              {agentInfo?.account_hash ? (
+                <a
+                  href={`https://testnet.cspr.live/account/${agentInfo.account_hash.replace("account-hash-", "")}`}
+                  target="_blank" rel="noopener noreferrer"
+                  className="font-mono text-[10px] hover:opacity-75 truncate"
+                  style={{ color: "#00D4FF" }}
+                  title={agentInfo.account_hash}
+                >
+                  {agentInfo.account_hash.replace("account-hash-", "").slice(0, 10)}… ↗
+                </a>
+              ) : (
+                <span className="text-[10px] font-mono text-cyber-muted animate-pulse">loading…</span>
+              )}
+            </div>
+            <div className="flex items-center gap-1.5 text-[10px] font-mono shrink-0">
+              <span className="text-cyber-muted">TVL</span>
+              <span style={{ color: "#00FF94" }} className="font-bold">
+                {(effectiveMotes / 1e9).toLocaleString(undefined, { maximumFractionDigits: 2 })} CSPR
+              </span>
+            </div>
+          </div>
+
+          {/* Deposit row */}
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center gap-1.5 text-[9px] font-mono uppercase tracking-widest" style={{ color: "rgba(0,212,255,0.5)" }}>
+              <ArrowDownCircle size={9} style={{ color: "#00D4FF" }} /> Deposit to Vault
+            </div>
+            <DepositButton contractHash={CONTRACT_HASH} />
+          </div>
+
+          {/* Withdraw row */}
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center gap-1.5 text-[9px] font-mono uppercase tracking-widest" style={{ color: "rgba(255,159,10,0.5)" }}>
+              <ArrowUpCircle size={9} style={{ color: "#FF9F0A" }} /> Withdraw from Vault
+            </div>
+            <WithdrawButton contractHash={CONTRACT_HASH} />
+          </div>
+
+          {/* Transaction history */}
+          {vaultTxs.length > 0 && (
+            <div className="flex flex-col gap-1 pt-1" style={{ borderTop: "1px solid rgba(0,212,255,0.1)" }}>
+              {vaultTxs.slice(0, 3).map((tx) => (
+                <a key={tx.hash} href={`https://testnet.cspr.live/deploy/${tx.hash}`}
+                   target="_blank" rel="noopener noreferrer"
+                   className="flex items-center gap-1.5 hover:opacity-75 font-mono text-[9px]"
+                   style={{ color: tx.type === "deposit" ? "#00D4FF" : "#FF9F0A" }}>
+                  {tx.type === "deposit"
+                    ? <ArrowDownCircle size={8} />
+                    : <ArrowUpCircle size={8} />}
+                  <span>{tx.type === "deposit" ? "Deposited" : "Withdrew"} {tx.amount} CSPR</span>
+                  <span className="text-cyber-muted ml-auto">· {tx.hash.slice(0, 8)}…↗</span>
+                </a>
+              ))}
+            </div>
+          )}
+        </Panel>
+
         {/* Portfolio Trajectory — col 2, rows 1–2 */}
-        <Panel className="flex flex-col min-h-0" style={{ gridColumn: "2", gridRow: "1 / 3" }}>
+        <Panel accent="#00F5FF" className="flex flex-col min-h-0" style={{ gridColumn: "2", gridRow: "1 / 3" }}>
           <PanelLabel text="Portfolio Trajectory" accent="#00F5FF" />
           <div className="flex-1 min-h-0">
             <PortfolioChart />
@@ -196,18 +447,18 @@ export default function DashboardPage() {
         </Panel>
 
         {/* Allocation Matrix — col 3, rows 1–2 */}
-        <Panel className="flex flex-col min-h-0" style={{ gridColumn: "3", gridRow: "1 / 3" }}>
+        <Panel accent="#BF5AF2" className="flex flex-col min-h-0" style={{ gridColumn: "3", gridRow: "1 / 3" }}>
           <PanelLabel text="Allocation Matrix" accent="#BF5AF2" />
           <div className="flex-1 min-h-0 flex items-center justify-center">
-            {hasContract
-              ? <AllocationDonut portfolio={portfolio} />
+            {hasContract && displayPortfolio
+              ? <AllocationDonut portfolio={displayPortfolio} />
               : <span className="text-[9px] font-mono text-cyber-muted uppercase tracking-widest">Deploy contract first</span>
             }
           </div>
         </Panel>
 
         {/* Neural Decision Log — col 2–3, row 3 */}
-        <Panel className="flex flex-col min-h-0" style={{ gridColumn: "2 / 4", gridRow: "3" }}>
+        <Panel accent="#BF5AF2" className="flex flex-col min-h-0" style={{ gridColumn: "2 / 4", gridRow: "3" }}>
           <div className="flex items-center gap-2 mb-2 shrink-0">
             <div className="w-0.5 h-3 rounded-full bg-cyber-plasma"
                  style={{ boxShadow: "0 0 5px #BF5AF2" }} />
@@ -230,16 +481,16 @@ export default function DashboardPage() {
           </div>
         </Panel>
 
-        {/* Yield Intelligence — col 4, rows 1–2 */}
-        <Panel className="flex flex-col min-h-0" style={{ gridColumn: "4", gridRow: "1 / 3" }}>
+        {/* Yield Intelligence — col 4, row 1 only */}
+        <Panel accent="#00FF94" className="flex flex-col min-h-0" style={{ gridColumn: "4", gridRow: "1" }}>
           <PanelLabel text="Yield Intelligence" accent="#00FF94" />
           <div className="flex-1 min-h-0 overflow-y-auto">
             <YieldRatesPanel />
           </div>
         </Panel>
 
-        {/* AI Chat — col 4, rows 3 (half height) */}
-        <Panel className="flex flex-col min-h-0" style={{ gridColumn: "4", gridRow: "3" }}>
+        {/* AI Chat — col 4, rows 2–3 */}
+        <Panel accent="#BF5AF2" className="flex flex-col min-h-0" style={{ gridColumn: "4", gridRow: "2 / 4" }}>
           <PanelLabel text="Ask AI Agent" accent="#BF5AF2" />
           <div className="flex-1 min-h-0">
             <ChatBox />
@@ -254,7 +505,7 @@ export default function DashboardPage() {
           AGENT-CASPER — Casper Agentic Buildathon 2026
         </div>
         <div className="hidden sm:flex items-center gap-3 text-[9px] font-mono text-cyber-muted/35">
-          <span>Powered by <span style={{ color: "#00F5FF", opacity: 0.6 }}>Claude AI</span></span>
+          <span>Powered by <span style={{ color: "#00F5FF", opacity: 0.6 }}>Soesoe</span></span>
           <span className="w-px h-2.5 bg-cyber-dim" />
           <span>Built with <span style={{ color: "#BF5AF2", opacity: 0.6 }}>Casper SDK</span></span>
           <span className="w-px h-2.5 bg-cyber-dim" />
