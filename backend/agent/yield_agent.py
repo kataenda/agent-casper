@@ -59,11 +59,15 @@ class YieldAgent:
         self.on_cycle_complete = on_cycle_complete
 
         self._running = False
+        self.paused = False           # set True to freeze rebalancing without stopping loop
         self._rebalances_today = 0
         self._last_rebalance_date: Optional[date] = None
         self._cycle_history: list[AgentCycleResult] = []
 
     async def start(self):
+        if self._running:
+            logger.warning("YieldAgent.start() called while already running — ignored")
+            return
         self._running = True
         logger.info("YieldAgent started — polling every %ds", self.poll_interval)
         while self._running:
@@ -107,6 +111,12 @@ class YieldAgent:
             block_height=block_height,
         )
 
+        if decision is None:
+            from agent.decision_engine import RebalanceDecision
+            decision = RebalanceDecision(action="HOLD", new_strategy=None, conservative_pct=0,
+                                         balanced_pct=0, aggressive_pct=0, confidence=0.0,
+                                         risk_level="LOW", reasoning="analyze() returned None — holding")
+
         logger.info(
             "[Block %d] Decision: %s | Confidence: %.2f | Risk: %s",
             block_height,
@@ -116,10 +126,18 @@ class YieldAgent:
         )
 
         tx_hash = None
-        if decision.action == "REBALANCE" and self._rebalances_today < self.max_rebalances:
-            tx_hash = await self._execute_rebalance(decision, portfolio)
-            if tx_hash:
-                self._rebalances_today += 1
+        cycle_error = None
+        if decision.action == "REBALANCE":
+            if self.paused:
+                cycle_error = "PAUSED"
+            elif self._rebalances_today >= self.max_rebalances:
+                cycle_error = f"QUOTA {self._rebalances_today}/{self.max_rebalances}"
+            else:
+                tx_hash = await self._execute_rebalance(decision, portfolio)
+                if tx_hash:
+                    self._rebalances_today += 1
+                else:
+                    cycle_error = "TX_FAILED"
 
         # Post verified RWA prices on-chain — creates auditable oracle trail on Casper
         rwa_tx_hashes = await self._post_rwa_prices_onchain(rwa_prices)
@@ -133,6 +151,7 @@ class YieldAgent:
             rwa_prices=rwa_prices,
             rwa_tx_hashes=rwa_tx_hashes,
             tx_hash=tx_hash,
+            error=cycle_error,
         )
 
     async def _post_rwa_prices_onchain(self, rwa_prices: list[dict]) -> dict[str, str]:
@@ -141,7 +160,7 @@ class YieldAgent:
         Returns dict of asset_id → deploy_hash for each asset posted.
         Only posts PAXG and UST10Y — the key RWA indicators.
         """
-        ASSETS_TO_POST = {"PAXG", "UST10Y"}
+        ASSETS_TO_POST: set[str] = set()  # disabled to conserve CSPR.cloud RPC quota
         results: dict[str, str] = {}
 
         for asset in rwa_prices:
@@ -200,6 +219,35 @@ class YieldAgent:
             logger.error("Failed to execute rebalance: %s", exc)
             return None
 
+    async def force_rebalance(self, strategy: str = "balanced") -> Optional[str]:
+        """
+        Immediately execute a rebalance with the specified strategy.
+        Bypasses the normal decision cycle; used for manual chat commands.
+        """
+        _ALLOC = {
+            "conservative": (70, 20, 10),
+            "balanced":     (20, 60, 20),
+            "aggressive":   (10, 20, 70),
+        }
+        con, bal, agg = _ALLOC.get(strategy, (20, 60, 20))
+        portfolio = await self.casper.get_vault_portfolio(
+            self.vault_contract_hash, agent_account_hash=self.agent_account
+        )
+        decision = RebalanceDecision(
+            action="REBALANCE",
+            new_strategy=strategy,
+            conservative_pct=con,
+            balanced_pct=bal,
+            aggressive_pct=agg,
+            confidence=1.0,
+            risk_level="MEDIUM",
+            reasoning=f"Manual command: force rebalance to {strategy}",
+        )
+        tx_hash = await self._execute_rebalance(decision, portfolio)
+        if tx_hash:
+            self._rebalances_today += 1
+        return tx_hash
+
     def get_history(self, limit: int = 20) -> list[AgentCycleResult]:
         return list(reversed(self._cycle_history))[:limit]
 
@@ -209,6 +257,7 @@ class YieldAgent:
     def get_stats(self) -> dict:
         return {
             "running": self._running,
+            "paused": self.paused,
             "rebalances_today": self._rebalances_today,
             "total_cycles": len(self._cycle_history),
             "poll_interval_seconds": self.poll_interval,

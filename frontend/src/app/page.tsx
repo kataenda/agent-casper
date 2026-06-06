@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
-import { TrendingUp, RefreshCw, Activity, Zap, AlertTriangle, Wallet, ArrowDownCircle, ArrowUpCircle } from "lucide-react";
+import { TrendingUp, RefreshCw, Activity, Zap, AlertTriangle, Wallet, ArrowDownCircle } from "lucide-react";
 import Image from "next/image";
 
 const WalletWidget = dynamic(
@@ -19,10 +19,6 @@ const RegisterAgentButton = dynamic(
 );
 const DepositButton = dynamic(
   () => import("@/components/VaultControls").then((m) => ({ default: m.DepositButton })),
-  { ssr: false }
-);
-const WithdrawButton = dynamic(
-  () => import("@/components/VaultControls").then((m) => ({ default: m.WithdrawButton })),
   { ssr: false }
 );
 const AgentControls = dynamic(
@@ -81,7 +77,7 @@ function Panel({ children, className = "", style, accent = "#00F5FF" }: {
       <div
         className={`relative overflow-hidden p-3 ${className}`}
         style={{
-          background: "rgba(3, 7, 22, 0.96)",
+          background: "rgba(2, 2, 6, 0.98)",
           backdropFilter: "blur(24px)",
           WebkitBackdropFilter: "blur(24px)",
           clipPath: CLIP_INNER,
@@ -160,7 +156,7 @@ function StatCard({
   return (
     <div className="relative overflow-hidden transition-all duration-500 group cursor-default h-full"
          style={{
-           background: `linear-gradient(135deg, rgba(2,5,18,0.99) 0%, ${accent}09 100%)`,
+           background: `linear-gradient(135deg, rgba(0,0,3,0.99) 0%, ${accent}08 100%)`,
            border: `1px solid ${accent}35`,
            clipPath: "polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px))",
            boxShadow: `0 0 0 1px ${accent}15, 0 4px 30px rgba(0,0,0,0.7), inset 0 1px 0 ${accent}25`,
@@ -257,7 +253,7 @@ export default function DashboardPage() {
   const confidence  = decision && decision.confidence > 0 ? `${(decision.confidence * 100).toFixed(0)}%` : "—";
   const blockHeight = latestCycle?.block_height ? `#${latestCycle.block_height.toLocaleString()}` : "—";
   const actionAccent =
-    lastAction === "REBALANCE" ? "#00F5FF" : lastAction === "ALERT" ? "#FF2D55" : "#4B5563";
+    lastAction === "REBALANCE" ? "#00F5FF" : lastAction === "ALERT" ? "#FF2D55" : "#FFFFFF";
 
   const HUD_C = "rgba(0,245,255,0.35)";
 
@@ -411,29 +407,25 @@ export default function DashboardPage() {
             <DepositButton contractHash={CONTRACT_HASH} />
           </div>
 
-          {/* Withdraw row */}
-          <div className="flex flex-col gap-1.5">
-            <div className="flex items-center gap-1.5 text-[9px] font-mono uppercase tracking-widest" style={{ color: "rgba(255,159,10,0.5)" }}>
-              <ArrowUpCircle size={9} style={{ color: "#FF9F0A" }} /> Withdraw from Vault
-            </div>
-            <WithdrawButton contractHash={CONTRACT_HASH} />
-          </div>
 
           {/* Transaction history */}
           {vaultTxs.length > 0 && (
             <div className="flex flex-col gap-1 pt-1" style={{ borderTop: "1px solid rgba(0,212,255,0.1)" }}>
-              {vaultTxs.slice(0, 3).map((tx) => (
-                <a key={tx.hash} href={`https://testnet.cspr.live/deploy/${tx.hash}`}
-                   target="_blank" rel="noopener noreferrer"
-                   className="flex items-center gap-1.5 hover:opacity-75 font-mono text-[9px]"
-                   style={{ color: tx.type === "deposit" ? "#00D4FF" : "#FF9F0A" }}>
-                  {tx.type === "deposit"
-                    ? <ArrowDownCircle size={8} />
-                    : <ArrowUpCircle size={8} />}
-                  <span>{tx.type === "deposit" ? "Deposited" : "Withdrew"} {tx.amount} CSPR</span>
-                  <span className="text-cyber-muted ml-auto">· {tx.hash.slice(0, 8)}…↗</span>
-                </a>
-              ))}
+              <span className="text-[8px] font-mono uppercase tracking-widest" style={{ color: "rgba(0,212,255,0.4)" }}>
+                Tx History ({vaultTxs.length})
+              </span>
+              <div className="flex flex-col gap-1" style={{ maxHeight: "80px", overflowY: "scroll", scrollbarWidth: "thin", scrollbarColor: "rgba(0,212,255,0.3) transparent" }}>
+                {vaultTxs.map((tx) => (
+                  <a key={tx.hash} href={`https://testnet.cspr.live/deploy/${tx.hash}`}
+                     target="_blank" rel="noopener noreferrer"
+                     className="flex items-center gap-1.5 hover:opacity-75 font-mono text-[9px] shrink-0"
+                     style={{ color: "#00D4FF" }}>
+                    <ArrowDownCircle size={8} />
+                    <span>Deposited {tx.amount} CSPR</span>
+                    <span className="text-cyber-muted ml-auto">· {tx.hash.slice(0, 8)}…↗</span>
+                  </a>
+                ))}
+              </div>
             </div>
           )}
         </Panel>

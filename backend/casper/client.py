@@ -5,6 +5,7 @@ Docs: https://docs.cspr.cloud  |  Skill: https://cspr.cloud/skill.md
 
 import httpx
 import random
+import time
 from typing import Optional
 from pydantic import BaseModel
 
@@ -41,13 +42,33 @@ class CasperClient:
             "Accept": "application/json",
         }
         self._mock_block = 3_000_000
+        self._block_cache: Optional[tuple[int, Optional[int], float]] = None  # (height, era_id, ts)
 
     def _unwrap(self, resp_json: dict) -> dict:
         """CSPR.cloud wraps responses in a 'data' object per API spec."""
         return resp_json.get("data", resp_json)
 
-    async def get_block_height(self) -> int:
-        """Handles Casper 1.x flat, 2.x Version2/Version1, and block_with_signatures wrapper."""
+    async def _get_latest_block_info(self) -> tuple[int, Optional[int]]:
+        """Fetch (height, era_id) — cached 15s so multiple callers per cycle share one RPC call."""
+        if self._block_cache and (time.monotonic() - self._block_cache[2]) < 15:
+            return self._block_cache[0], self._block_cache[1]
+
+        # Try CSPR.cloud REST /blocks first (no RPC quota cost)
+        try:
+            async with httpx.AsyncClient(headers=self.headers, timeout=10) as client:
+                resp = await client.get(f"{self.cloud_base_url}/blocks", params={"limit": 1})
+                if resp.status_code == 200:
+                    items = resp.json().get("data", [])
+                    if items:
+                        blk = items[0]
+                        height = int(blk.get("block_height") or blk.get("height") or 0)
+                        era_id = blk.get("era_id")
+                        self._block_cache = (height, era_id, time.monotonic())
+                        return height, era_id
+        except Exception:
+            pass
+
+        # Fallback: single JSON-RPC call
         try:
             async with httpx.AsyncClient(headers={"Authorization": self.headers["Authorization"]}) as client:
                 resp = await client.post(
@@ -57,16 +78,25 @@ class CasperClient:
                 )
                 resp.raise_for_status()
                 result = resp.json()["result"]
-                # Casper 2.x wraps in block_with_signatures; 1.x has block directly
                 raw = result.get("block_with_signatures", {}).get("block") or result.get("block") or {}
                 if "Version2" in raw:
-                    return int(raw["Version2"]["header"]["height"])
-                if "Version1" in raw:
-                    return int(raw["Version1"]["header"]["height"])
-                return int(raw.get("header", raw)["height"])
+                    h = raw["Version2"]["header"]
+                    height, era_id = int(h["height"]), h.get("era_id")
+                elif "Version1" in raw:
+                    h = raw["Version1"]["header"]
+                    height, era_id = int(h["height"]), h.get("era_id")
+                else:
+                    h = raw.get("header", raw)
+                    height, era_id = int(h["height"]), h.get("era_id")
+                self._block_cache = (height, era_id, time.monotonic())
+                return height, era_id
         except Exception:
             self._mock_block += 1
-            return self._mock_block
+            return self._mock_block, None
+
+    async def get_block_height(self) -> int:
+        height, _ = await self._get_latest_block_info()
+        return height
 
     async def get_account_balance(self, account_identifier: str) -> int:
         """
@@ -218,24 +248,10 @@ class CasperClient:
         CASPER_GROSS_APY_PCT = 10.0
 
         try:
-            async with httpx.AsyncClient(headers=self.headers, timeout=12) as client:
-                era_id = None
-                try:
-                    br = await client.post(
-                        self.node_url,
-                        json={"id": 1, "jsonrpc": "2.0", "method": "chain_get_block", "params": []},
-                        timeout=8,
-                    )
-                    raw = br.json()["result"]
-                    blk = (raw.get("block_with_signatures", {}).get("block")
-                           or raw.get("block") or {})
-                    if "Version2" in blk:
-                        era_id = blk["Version2"]["header"]["era_id"]
-                    elif "Version1" in blk:
-                        era_id = blk["Version1"]["header"]["era_id"]
-                except Exception:
-                    pass
+            # Get era_id from cached block info (no extra RPC call if get_block_height ran first)
+            _, era_id = await self._get_latest_block_info()
 
+            async with httpx.AsyncClient(headers=self.headers, timeout=12) as client:
                 validators = []
                 if era_id is not None:
                     vr = await client.get(
