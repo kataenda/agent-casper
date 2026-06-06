@@ -15,7 +15,7 @@ export function ChatBox() {
   const [messages, setMessages] = useState<Message[]>([
     {
       role: "agent",
-      text: "Halo! Saya CasperYield AI. Tanya apa saja tentang portfolio, strategi yield, atau kondisi pasar.",
+      text: "Hello! I'm CasperYield AI. Ask me anything about portfolio allocation, yield strategies, or market conditions.",
       ts: new Date().toLocaleTimeString(),
     },
   ]);
@@ -117,7 +117,7 @@ export function ChatBox() {
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={e => e.key === "Enter" && !e.shiftKey && send()}
-          placeholder="Tanya tentang portfolio..."
+          placeholder="Ask about portfolio..."
           className="flex-1 bg-transparent text-[10px] font-mono text-cyber-bright placeholder-cyber-muted/50 outline-none px-2 py-1 rounded-lg"
           style={{ border: "1px solid rgba(0,245,255,0.15)" }}
         />
