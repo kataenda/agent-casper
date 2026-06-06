@@ -19,10 +19,10 @@ Use this checklist to prepare your DoraHacks submission for the Casper Agentic B
 
 | Field | Value |
 |---|---|
-| Repo URL | ______________________ |
+| Repo URL | https://github.com/kataenda/agent-casper |
 | Demo video URL | _____________________ |
-| Deployed contract hash | __________________________ |
-| Agent account hash | _____________________________ |
+| Deployed contract hash | hash-f6ba9dfa2a236dcc253436c3350f06931465ca94290fad689dfc7c9058c559da |
+| Agent account hash | account-hash-88cb6d5e2b0a47b99688e0179a16f5c0c2a16f88c3294b6bf291d9020965843f |
 | Initial deploy tx hash | __________________________ |
 | Example rebalance tx hash | _____________________ |
 | DoraHacks submission link | ____________________ |
@@ -35,9 +35,9 @@ After running the agent against the deployed testnet contract, fill in real tx h
 
 | Action | Deploy Hash | Testnet Explorer |
 |---|---|---|
-| Contract deploy | `hash-...` | https://testnet.cspr.live/deploy/... |
-| register_agent call | `hash-...` | https://testnet.cspr.live/deploy/... |
-| First AI rebalance | `hash-...` | https://testnet.cspr.live/deploy/... |
+| Contract deploy | `hash-f6ba9dfa2a236dcc253436c3350f06931465ca94290fad689dfc7c9058c559da` | https://testnet.cspr.live/contract-package/f6ba9dfa2a236dcc253436c3350f06931465ca94290fad689dfc7c9058c559da |
+| register_agent call | __________________________ | https://testnet.cspr.live/deploy/... |
+| First AI rebalance | __________________________ | https://testnet.cspr.live/deploy/... |
 
 ---
 
