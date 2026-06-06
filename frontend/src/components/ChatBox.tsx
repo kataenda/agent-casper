@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Send, Loader, Bot, User } from "lucide-react";
 
-const BACKEND = "http://localhost:8000";
+const BACKEND = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 interface Message {
   role: "user" | "agent";
