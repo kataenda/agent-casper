@@ -503,14 +503,14 @@ class DecisionEngine:
         can_rebalance = rebalance_count_today < max_rebalances_per_day
 
         if can_rebalance and premium > 8.0 and conservative > 8.0:
-            # Good DeFi yields with safe conservative floor — balanced allocation
+            # Good DeFi yields with safe conservative floor — trigger rebalance
             reasoning = (
                 f"Quantitative analysis: Aggressive yield {aggressive:.1f}% vs risk-free {risk_free:.2f}% "
                 f"({premium:.1f}% premium). Conservative floor {conservative:.1f}% provides strong downside protection. "
-                f"Maintaining balanced 40/45/15 allocation."
+                f"Rebalancing to optimized 40/45/15 allocation."
             )
             return RebalanceDecision(
-                action="HOLD",
+                action="REBALANCE",
                 new_strategy="balanced",
                 conservative_pct=40,
                 balanced_pct=45,
