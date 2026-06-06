@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { Play, Square, Loader } from "lucide-react";
 
-const BACKEND = "http://localhost:8000";
+const BACKEND = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export function AgentControls({ isRegistered = false }: { isRegistered?: boolean }) {
   const [running, setRunning] = useState<boolean | null>(null);
