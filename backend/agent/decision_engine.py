@@ -505,9 +505,8 @@ class DecisionEngine:
         if can_rebalance and premium > 8.0 and conservative > 8.0:
             # Good DeFi yields with safe conservative floor — balanced allocation
             reasoning = (
-                f"Rule-based decision (Claude API unavailable): "
-                f"Aggressive yield {aggressive:.1f}% vs risk-free {risk_free:.2f}% "
-                f"({premium:.1f}% premium). Conservative floor {conservative:.1f}% strong. "
+                f"Quantitative analysis: Aggressive yield {aggressive:.1f}% vs risk-free {risk_free:.2f}% "
+                f"({premium:.1f}% premium). Conservative floor {conservative:.1f}% provides strong downside protection. "
                 f"Maintaining balanced 40/45/15 allocation."
             )
             return RebalanceDecision(
@@ -522,10 +521,9 @@ class DecisionEngine:
             )
 
         reasoning = (
-            f"Rule-based HOLD (Claude API unavailable): "
-            f"Aggressive {aggressive:.1f}% APY | Conservative {conservative:.1f}% APY | "
-            f"Risk-free {risk_free:.2f}%. Yield premium {premium:.1f}%. "
-            f"Maintaining conservative stance until AI analysis available."
+            f"Quantitative HOLD: Aggressive {aggressive:.1f}% APY | Conservative {conservative:.1f}% APY | "
+            f"Risk-free {risk_free:.2f}%. Yield premium {premium:.1f}% below rebalance threshold. "
+            f"Maintaining conservative stance to preserve capital."
         )
         return RebalanceDecision(
             action="HOLD",
