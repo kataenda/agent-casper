@@ -163,13 +163,29 @@ from starlette.middleware.base import BaseHTTPMiddleware
 class CORSErrorMiddleware(BaseHTTPMiddleware):
     """Ensure CORS headers are present even on unhandled 500 errors."""
     async def dispatch(self, request, call_next):
-        response = await call_next(request)
         origin = request.headers.get("origin", "*")
+        try:
+            response = await call_next(request)
+        except Exception as exc:
+            return JSONResponse(
+                status_code=500,
+                content={"detail": str(exc)},
+                headers={"Access-Control-Allow-Origin": origin},
+            )
         response.headers.setdefault("Access-Control-Allow-Origin", origin)
-        response.headers.setdefault("Access-Control-Allow-Credentials", "true")
         return response
 
 app.add_middleware(CORSErrorMiddleware)
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    origin = request.headers.get("origin", "*")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": str(exc)},
+        headers={"Access-Control-Allow-Origin": origin},
+    )
 
 
 # ── REST Endpoints ────────────────────────────────────────────────────────────
