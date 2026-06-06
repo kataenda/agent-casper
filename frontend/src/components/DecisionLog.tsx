@@ -64,7 +64,8 @@ function NoTxBadge({ error }: { error?: string | null }) {
 
 function CycleRow({ cycle, index }: { cycle: AgentCycle; index: number }) {
   const { decision, timestamp, block_height, tx_hash, rwa_tx_hashes, error } = cycle;
-  const time    = format(new Date(timestamp), "HH:mm:ss");
+  const ts      = timestamp && !timestamp.endsWith("Z") && !timestamp.includes("+") ? timestamp + "Z" : timestamp;
+  const time    = ts ? format(new Date(ts), "HH:mm:ss") : "--:--:--";
   const action  = ACTION_CFG[decision.action] ?? ACTION_CFG.HOLD;
   const risk    = RISK_CFG[decision.risk_level] ?? RISK_CFG.LOW;
   const confPct = (decision.confidence * 100).toFixed(0);
