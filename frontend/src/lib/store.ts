@@ -50,6 +50,7 @@ export interface AgentCycle {
   rwa_prices?: RWAPrice[];
   rwa_tx_hashes?: Record<string, string>;
   tx_hash: string | null;
+  error?: string | null;
 }
 
 export interface AgentStats {
@@ -60,7 +61,7 @@ export interface AgentStats {
 }
 
 export interface VaultTx {
-  type: "deposit" | "withdraw";
+  type: "deposit";
   amount: string;
   hash: string;
   ts: number;

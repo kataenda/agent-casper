@@ -4,9 +4,9 @@
 
 /* ── Deep space base ───────────────────────────────────────────── */
 html {
-  background-color: #010410;
+  background-color: #000000;
   /* Dot grid — technical depth */
-  background-image: radial-gradient(rgba(0,245,255,0.07) 1px, transparent 1px);
+  background-image: radial-gradient(rgba(0,245,255,0.05) 1px, transparent 1px);
   background-size: 26px 26px;
 }
 
@@ -22,12 +22,12 @@ body::before {
   position: fixed;
   inset: 0;
   background:
-    radial-gradient(ellipse 60% 50% at 10%  30%, rgba(120,  0, 255, 0.22) 0%, transparent 60%),
-    radial-gradient(ellipse 50% 60% at 88%  15%, rgba(  0, 60, 255, 0.18) 0%, transparent 60%),
-    radial-gradient(ellipse 70% 40% at 50% 105%, rgba(  0,200, 220, 0.14) 0%, transparent 55%),
-    radial-gradient(ellipse 35% 55% at 92%  75%, rgba(200,  0, 255, 0.14) 0%, transparent 50%),
-    radial-gradient(ellipse 45% 30% at  8%  80%, rgba(  0,120, 255, 0.10) 0%, transparent 55%),
-    radial-gradient(ellipse 30% 40% at 50%  40%, rgba(  0,245, 255, 0.04) 0%, transparent 60%);
+    radial-gradient(ellipse 60% 50% at 10%  30%, rgba(120,  0, 255, 0.12) 0%, transparent 60%),
+    radial-gradient(ellipse 50% 60% at 88%  15%, rgba(  0, 60, 255, 0.10) 0%, transparent 60%),
+    radial-gradient(ellipse 70% 40% at 50% 105%, rgba(  0,200, 220, 0.08) 0%, transparent 55%),
+    radial-gradient(ellipse 35% 55% at 92%  75%, rgba(200,  0, 255, 0.08) 0%, transparent 50%),
+    radial-gradient(ellipse 45% 30% at  8%  80%, rgba(  0,120, 255, 0.06) 0%, transparent 55%),
+    radial-gradient(ellipse 30% 40% at 50%  40%, rgba(  0,245, 255, 0.03) 0%, transparent 60%);
   animation: nebula-drift 25s ease-in-out infinite alternate;
   pointer-events: none;
   z-index: 0;
@@ -41,35 +41,6 @@ body::before {
   100% { transform: translate(6px,   20px) scale(1.02); opacity: 0.88; }
 }
 
-/* ── Scan line (sweeps top → bottom every 10s) ─────────────────── */
-body::after {
-  content: '';
-  position: fixed;
-  left: 0;
-  right: 0;
-  height: 1.5px;
-  background: linear-gradient(
-    90deg,
-    transparent    0%,
-    rgba(0,245,255,0.0) 10%,
-    rgba(0,245,255,0.5) 35%,
-    rgba(0,245,255,0.9) 50%,
-    rgba(0,245,255,0.5) 65%,
-    rgba(0,245,255,0.0) 90%,
-    transparent   100%
-  );
-  box-shadow: 0 0 12px rgba(0,245,255,0.6), 0 0 24px rgba(0,245,255,0.2);
-  animation: scan-sweep 10s linear infinite;
-  pointer-events: none;
-  z-index: 1;
-}
-
-@keyframes scan-sweep {
-  0%   { top: -2px;    opacity: 0;   }
-  3%   { opacity: 1;               }
-  97%  { opacity: 0.4;             }
-  100% { top: 100vh;   opacity: 0;  }
-}
 
 /* ── Scrollbar ─────────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 3px; height: 3px; }
@@ -88,7 +59,7 @@ body::after {
 
 /* ── Glass panel — cyberpunk corner-bracket style ──────────────── */
 .glass-panel {
-  background: rgba(2, 6, 20, 0.82);
+  background: rgba(1, 1, 5, 0.95);
   backdrop-filter: blur(22px);
   -webkit-backdrop-filter: blur(22px);
   border: 1px solid rgba(0,245,255,0.08);

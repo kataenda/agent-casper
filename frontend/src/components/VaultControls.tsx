@@ -120,7 +120,7 @@ async function signDeploy(deploy: unknown, publicKey: string, sdk: any): Promise
 // ── Register Agent ─────────────────────────────────────────────────────────────
 
 export function RegisterAgentButton({ contractHash }: { contractHash: string }) {
-  const { account }         = useWalletStore();
+  const { account, setAgentRegistered } = useWalletStore();
   const [step, setStep]     = useState<Step>("idle");
   const [error, setError]   = useState<string | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
@@ -157,6 +157,7 @@ export function RegisterAgentButton({ contractHash }: { contractHash: string }) 
       setStep("submitting");
       const hash = await submitDeploy(deployBody);
       setTxHash(hash);
+      setAgentRegistered(true);
       setStep("done");
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));

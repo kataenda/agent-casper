@@ -4,7 +4,7 @@ import { format } from "date-fns";
 import { useAgentStore, AgentCycle } from "@/lib/store";
 
 const ACTION_CFG = {
-  HOLD:      { color: "#4B5563", border: "rgba(75,85,99,0.4)",   bg: "rgba(75,85,99,0.06)",   label: "HOLD"      },
+  HOLD:      { color: "#FFFFFF", border: "rgba(255,255,255,0.3)", bg: "rgba(255,255,255,0.06)", label: "HOLD"      },
   REBALANCE: { color: "#00F5FF", border: "rgba(0,245,255,0.3)",  bg: "rgba(0,245,255,0.06)",  label: "REBALANCE" },
   ALERT:     { color: "#FF2D55", border: "rgba(255,45,85,0.3)",  bg: "rgba(255,45,85,0.06)",  label: "ALERT ⚠"   },
 };
@@ -34,7 +34,7 @@ function TxLink({ hash, label }: { hash: string; label?: string }) {
   const isSim = hash.startsWith("sim-");
   if (isSim) return (
     <span className="font-mono text-[9px] px-1.5 py-0.5 rounded"
-          style={{ color: "#4B5563", background: "rgba(75,85,99,0.08)", border: "1px solid rgba(75,85,99,0.2)" }}>
+          style={{ color: "#FFFFFF", background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.2)" }}>
       {label ?? "SIM"}
     </span>
   );
@@ -48,8 +48,22 @@ function TxLink({ hash, label }: { hash: string; label?: string }) {
   );
 }
 
+function NoTxBadge({ error }: { error?: string | null }) {
+  if (!error) return null;
+  const isQuota   = error.startsWith("QUOTA");
+  const isPaused  = error === "PAUSED";
+  const color     = isQuota ? "#FF9F0A" : isPaused ? "#BF5AF2" : "#FF2D55";
+  const label     = isQuota ? `QUOTA ${error.split(" ")[1]}` : isPaused ? "PAUSED" : "TX FAILED";
+  return (
+    <span className="font-mono text-[9px] px-1.5 py-0.5 rounded"
+          style={{ color, background: `${color}12`, border: `1px solid ${color}30` }}>
+      {label}
+    </span>
+  );
+}
+
 function CycleRow({ cycle, index }: { cycle: AgentCycle; index: number }) {
-  const { decision, timestamp, block_height, tx_hash, rwa_tx_hashes } = cycle;
+  const { decision, timestamp, block_height, tx_hash, rwa_tx_hashes, error } = cycle;
   const time    = format(new Date(timestamp), "HH:mm:ss");
   const action  = ACTION_CFG[decision.action] ?? ACTION_CFG.HOLD;
   const risk    = RISK_CFG[decision.risk_level] ?? RISK_CFG.LOW;
@@ -105,7 +119,10 @@ function CycleRow({ cycle, index }: { cycle: AgentCycle; index: number }) {
         </div>
 
         <div className="flex items-center gap-1 flex-wrap">
-          {tx_hash && <TxLink hash={tx_hash} label="REBALANCE" />}
+          {tx_hash
+            ? <TxLink hash={tx_hash} label="REBALANCE" />
+            : decision.action === "REBALANCE" && <NoTxBadge error={error} />
+          }
           {rwa_tx_hashes && Object.entries(rwa_tx_hashes).map(([asset, hash]) =>
             hash ? <TxLink key={asset} hash={hash} label={asset} /> : null
           )}

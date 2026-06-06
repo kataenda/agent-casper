@@ -5,7 +5,7 @@ import { Play, Square, Loader } from "lucide-react";
 
 const BACKEND = "http://localhost:8000";
 
-export function AgentControls() {
+export function AgentControls({ isRegistered = false }: { isRegistered?: boolean }) {
   const [running, setRunning] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -36,11 +36,13 @@ export function AgentControls() {
 
   if (running === null) return null;
 
+  const canStart = isRegistered || running;
+
   return (
     <button
       onClick={toggle}
-      disabled={loading}
-      title={running ? "Stop AI Agent" : "Start AI Agent"}
+      disabled={loading || (!canStart && !running)}
+      title={!isRegistered && !running ? "Register agent first" : running ? "Stop AI Agent" : "Start AI Agent"}
       className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[10px] font-mono font-bold uppercase tracking-widest transition-all duration-300 disabled:opacity-50"
       style={running ? {
         background:  "rgba(255,45,85,0.07)",

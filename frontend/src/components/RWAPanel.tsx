@@ -53,7 +53,7 @@ function AssetRow({ asset }: { asset: RWAPrice }) {
     : "—";
 
   const change = asset.change_pct ?? 0;
-  const changeColor = change > 0 ? "#00FF94" : change < 0 ? "#FF3B5C" : "#4B5563";
+  const changeColor = change > 0 ? "#00FF94" : change < 0 ? "#FF3B5C" : "#FFFFFF";
 
   return (
     <div

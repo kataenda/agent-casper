@@ -204,6 +204,67 @@ python gen_key.py
 
 ---
 
+## Menjalankan & Mengontrol Agent
+
+### Auto-Start
+Agent loop **otomatis berjalan** saat backend di-start. Tidak perlu konfigurasi tambahan.
+
+```bash
+# Backend start → agent langsung aktif
+python -m uvicorn main:app --host 0.0.0.0 --port 8000
+# Output: "CasperYield AI agent started"
+# Output: "YieldAgent started — polling every 60s"
+```
+
+### Kontrol via Dashboard Button
+
+| Button | Aksi |
+|--------|------|
+| **START AGENT** | Mulai agent loop (jika sedang stop) |
+| **STOP AGENT** | Hentikan agent loop |
+
+### Kontrol via Chat Box (Ask AI Agent)
+
+Ketik perintah langsung di chat box — agent merespons dan mengeksekusi:
+
+| Perintah | Contoh | Efek |
+|----------|--------|------|
+| **Start** | `start` · `running` · `mulai` · `jalankan` | Mulai agent loop |
+| **Stop** | `pause` · `berhenti` · `hentikan` | Hentikan agent loop |
+| **Status** | `status` · `laporan` · `kondisi` | Tampilkan state lengkap agent |
+| **Rebalance** | `rebalance` · `rebalance conservative` | Force rebalance sekarang |
+| **Tanya bebas** | `berapa TVL?` · `strategi terbaik?` | Dijawab Claude AI |
+
+**Contoh output perintah `status`:**
+```
+STATUS AGENT:
+• Running: Ya
+• Rebalances hari ini: 2/5
+• Total cycles: 12
+• Block: #8,081,826
+• TVL: 141.0 CSPR
+• Alokasi: CON=20% BAL=60% AGG=20%
+• Strategi: Balanced
+• Keputusan terakhir: HOLD (78% confidence)
+```
+
+**Contoh output perintah `rebalance conservative`:**
+```
+REBALANCE DIEKSEKUSI!
+• Strategi: Conservative (CON=70% BAL=20% AGG=10%)
+• TX Hash: 7563c5813420aa0a...
+• Cek: https://testnet.cspr.live/deploy/7563c581...
+```
+
+### Catatan Penting
+
+- Agent membutuhkan saldo CSPR di account agent untuk gas (~5 CSPR per rebalance)
+- Maksimal **5 rebalance per hari** (dapat diubah via `MAX_REBALANCES_PER_DAY` di `.env`)
+- Setelah 5 rebalance, agent tetap monitoring tapi tidak eksekusi sampai hari berikutnya
+- Semua transaksi dapat dilihat di [testnet.cspr.live](https://testnet.cspr.live)
+
+---
+
 ## Project Structure
 
 ```
