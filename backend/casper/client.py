@@ -107,15 +107,66 @@ class CasperClient:
             return None
 
 
+    _STRATEGY_NAMES = {0: "Conservative", 1: "Balanced", 2: "Aggressive"}
+
     def _is_placeholder(self, value: str) -> bool:
         """True when the hash/account is still the default placeholder."""
         return "xxx" in value or value.endswith("-demo")
 
+    async def _fetch_allocation_from_deploys(
+        self, package_hash: str, agent_hash: str
+    ) -> tuple[int, int, int, str, int]:
+        """
+        Read current allocation by querying the latest successful rebalance deploy
+        from CSPR.cloud. ODRA stores state internally so we reconstruct from
+        the most recent on-chain rebalance() call args.
+
+        Returns (conservative_pct, balanced_pct, aggressive_pct, strategy_name, rebalance_count).
+        """
+        _log = __import__("logging").getLogger(__name__)
+        pkg_hex = package_hash.replace("hash-", "").replace("package-", "")
+        acct_hex = agent_hash.replace("account-hash-", "")
+        url = f"{self.cloud_base_url}/deploys"
+        params = {
+            "caller_hash": acct_hex,
+            "contract_package_hash": pkg_hex,
+            "limit": 20,
+            "page": 1,
+        }
+        try:
+            async with httpx.AsyncClient(headers=self.headers, timeout=12) as client:
+                resp = await client.get(url, params=params)
+                if resp.status_code != 200:
+                    return 0, 0, 0, "HOLDING", 0
+                items = resp.json().get("data", [])
+                count = 0
+                for item in items:
+                    args = item.get("args", {})
+                    if item.get("error_message"):
+                        continue
+                    if "conservative_pct" not in args:
+                        continue
+                    count += 1
+                    con = int(args["conservative_pct"].get("parsed", 0))
+                    bal = int(args["balanced_pct"].get("parsed", 0))
+                    agg = int(args["aggressive_pct"].get("parsed", 0))
+                    strategy_idx = int(args.get("new_strategy", {}).get("parsed", 1))
+                    strategy = self._STRATEGY_NAMES.get(strategy_idx, "Balanced")
+                    _log.info(
+                        "Portfolio from on-chain deploy: con=%d%% bal=%d%% agg=%d%% strategy=%s",
+                        con, bal, agg, strategy,
+                    )
+                    return con, bal, agg, strategy, count
+        except Exception as exc:
+            _log.debug("fetch_allocation_from_deploys error: %s", exc)
+        return 0, 0, 0, "HOLDING", 0
+
     async def get_vault_portfolio(self, contract_hash: str, agent_account_hash: str = "") -> PortfolioState:
         """
-        Reads portfolio state from YieldVault contract via Casper RPC.
-        ODRA contracts store state internally — we read what we can via named keys
-        and fall back to the contract purse balance for total TVL.
+        Reads portfolio state from YieldVault contract.
+        Allocation (con/bal/agg %) is reconstructed from the latest successful
+        rebalance() deploy on CSPR.cloud — 100% on-chain data.
+        TVL comes from agent account balance.
         """
         if self._is_placeholder(contract_hash):
             return PortfolioState(
@@ -124,123 +175,29 @@ class CasperClient:
             )
 
         _log = __import__("logging").getLogger(__name__)
+
+        # ── Allocation from latest on-chain rebalance deploy ─────────────────
+        conservative_pct, balanced_pct, aggressive_pct, current_strategy, _ = (
+            await self._fetch_allocation_from_deploys(contract_hash, agent_account_hash)
+            if agent_account_hash and not self._is_placeholder(agent_account_hash)
+            else (0, 0, 0, "HOLDING", 0)
+        )
+
+        # ── TVL from agent account balance (CSPR.cloud REST) ─────────────────
         total_value = 0
-        conservative_pct = 0
-        balanced_pct = 0
-        aggressive_pct = 0
-        current_strategy = "HOLDING"
-
-        async with httpx.AsyncClient(
-            headers={"Authorization": self.headers["Authorization"]},
-            timeout=15,
-        ) as client:
-            # ── Step 1: resolve contract version hash from package ────────────
-            contract_version_hash = None
+        if agent_account_hash and not self._is_placeholder(agent_account_hash):
+            acct_hex = agent_account_hash.replace("account-hash-", "")
             try:
-                resp = await client.post(self.node_url, json={
-                    "id": 1, "jsonrpc": "2.0",
-                    "method": "query_global_state",
-                    "params": {"key": contract_hash, "path": []},
-                })
-                pkg = resp.json().get("result", {}).get("stored_value", {}).get("ContractPackage", {})
-                versions = pkg.get("versions", [])
-                if versions:
-                    # latest version — contract_hash is "contract-XXX", use "hash-XXX" for query
-                    raw = versions[-1].get("contract_hash", "")
-                    contract_version_hash = "hash-" + raw.replace("contract-", "")
-            except Exception as exc:
-                _log.debug("resolve contract version error: %s", exc)
-
-            # ── Step 2: read named keys from contract version ─────────────────
-            state_uref = None
-            if contract_version_hash:
-                try:
-                    resp = await client.post(self.node_url, json={
-                        "id": 2, "jsonrpc": "2.0",
-                        "method": "query_global_state",
-                        "params": {"key": contract_version_hash, "path": []},
-                    })
-                    contract_obj = resp.json().get("result", {}).get("stored_value", {}).get("Contract", {})
-                    named_keys = contract_obj.get("named_keys", [])
-                    for nk in named_keys:
-                        if nk.get("name") == "state":
-                            state_uref = nk.get("key")
-                    # Also try to read rebalance count as proxy for strategy
-                    for nk in named_keys:
-                        if "rebalance" in nk.get("name", "").lower():
-                            try:
-                                r2 = await client.post(self.node_url, json={
-                                    "id": 3, "jsonrpc": "2.0",
-                                    "method": "query_global_state",
-                                    "params": {"key": nk["key"], "path": []},
-                                })
-                                val = r2.json().get("result", {}).get("stored_value", {}).get("CLValue", {}).get("parsed")
-                                if val and int(val) > 0:
-                                    current_strategy = "REBALANCED"
-                            except Exception:
-                                pass
-                except Exception as exc:
-                    _log.debug("read named keys error: %s", exc)
-
-            # ── Step 3: query contract main purse balance (Casper 2.x) ───────────
-            # Use query_balance with main_purse_under_entity_addr (Casper 2.x RPC)
-            # The contract version hash stripped of "hash-" prefix gives the entity addr.
-            if contract_version_hash:
-                entity_addr = "contract-" + contract_version_hash.replace("hash-", "")
-                for purse_key in [
-                    {"main_purse_under_entity_addr": entity_addr},
-                    {"main_purse_under_entity_addr": contract_hash.replace("hash-", "contract-")},
-                ]:
-                    try:
-                        bal_resp = await client.post(self.node_url, json={
-                            "id": 5, "jsonrpc": "2.0",
-                            "method": "query_balance",
-                            "params": {"purse_identifier": purse_key},
-                        })
-                        bal_data = bal_resp.json()
-                        bal = bal_data.get("result", {}).get("balance")
-                        if bal and int(bal) > 0:
-                            total_value = int(bal)
-                            break
-                    except Exception as exc:
-                        _log.debug("query_balance error (%s): %s", purse_key, exc)
-
-            # Fallback: try CSPR.cloud REST for entity balance
-            if total_value == 0 and contract_version_hash:
-                hash_hex = contract_version_hash.replace("hash-", "")
-                try:
-                    cloud_base = self.cloud_base_url
-                    for path in [
-                        f"{cloud_base}/contracts/{hash_hex}",
-                        f"{cloud_base}/entities/contract-{hash_hex}",
-                    ]:
-                        r = await client.get(path)
-                        if r.status_code == 200:
-                            obj = r.json().get("data", r.json())
-                            bal = obj.get("balance") or obj.get("main_purse_balance")
-                            if bal and int(bal) > 0:
-                                total_value = int(bal)
-                                break
-                except Exception as exc:
-                    _log.debug("CSPR.cloud entity balance error: %s", exc)
-
-            # Final fallback: use agent account balance (agent manages its own CSPR)
-            if total_value == 0 and agent_account_hash:
-                try:
-                    acct_hex = agent_account_hash.replace("account-hash-", "")
-                    r = await client.get(f"{self.cloud_base_url}/accounts/{acct_hex}", timeout=10)
-                    _log.info("Agent account balance API: %s → %s", r.status_code, r.text[:120])
+                async with httpx.AsyncClient(headers=self.headers, timeout=10) as client:
+                    r = await client.get(f"{self.cloud_base_url}/accounts/{acct_hex}")
                     if r.status_code == 200:
                         obj = r.json().get("data", r.json())
                         bal = obj.get("balance") or obj.get("main_purse_balance")
                         if bal:
                             total_value = int(bal)
-                            current_strategy = "HOLDING"
-                            _log.info("Portfolio fallback: agent account balance = %s motes", total_value)
-                except Exception as exc:
-                    _log.warning("agent account balance fallback error: %s — using cached 100 CSPR", exc)
-                    # Network intermittent: use known testnet faucet balance as static fallback
-                    total_value = 100_000_000_000  # 100 CSPR (testnet faucet amount)
+            except Exception as exc:
+                _log.warning("agent account balance error: %s — using 100 CSPR fallback", exc)
+                total_value = 100_000_000_000
 
         return PortfolioState(
             total_value_motes=total_value,
