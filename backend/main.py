@@ -602,17 +602,17 @@ async def chat(req: ChatRequest):
         port = latest.portfolio
         context = (
             f"TVL: {port.get('total_value_motes', 0) / 1e9:.0f} CSPR. "
-            f"Alokasi: CON={port.get('conservative_pct', 0)}% BAL={port.get('balanced_pct', 0)}% AGG={port.get('aggressive_pct', 0)}%. "
-            f"Strategi: {port.get('current_strategy', 'N/A')}. "
-            f"Keputusan terakhir: {latest.decision.get('action')} "
+            f"Allocation: CON={port.get('conservative_pct', 0)}% BAL={port.get('balanced_pct', 0)}% AGG={port.get('aggressive_pct', 0)}%. "
+            f"Strategy: {port.get('current_strategy', 'N/A')}. "
+            f"Last decision: {latest.decision.get('action')} "
             f"(confidence {latest.decision.get('confidence', 0)*100:.0f}%). "
             f"Block: #{latest.block_height:,}. "
             f"Agent paused: {agent.paused}."
         )
 
     system = (
-        "You are Agent Casper AI, an autonomous DeFi yield-routing agent on Casper Network testnet. "
-        "ALWAYS answer in Bahasa Indonesia regardless of what language the user uses. "
+        "You are Agent Casper, an autonomous DeFi yield-routing agent on Casper Network testnet. "
+        "ALWAYS respond in English regardless of what language the user uses. "
         "Be concise — 2-4 sentences max. "
         "Available commands the user can type: 'rebalance [conservative/balanced/aggressive]', "
         "'pause', 'resume', 'status'. "
