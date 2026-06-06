@@ -117,6 +117,7 @@ export const useAgentStore = create<AgentStore>()(
 
       addCycle: (c) => {
         const { cycles, portfolioHistory, depositedMotes } = get();
+        if (cycles.some(e => e.timestamp === c.timestamp)) return;
         const newCycles = [c, ...cycles].slice(0, 50);
         const displayValue = (c.portfolio.total_value_motes + depositedMotes) / 1e9;
         const newHistory = [

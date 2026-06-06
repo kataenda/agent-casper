@@ -43,7 +43,7 @@ MCP_SERVER_PATH = str(
     pathlib.Path(__file__).parent.parent / "casper" / "mcp_server.py"
 )
 
-MAX_TOOL_ROUNDS = 6  # max Claude tool-call rounds per cycle
+MAX_TOOL_ROUNDS = 4  # max Claude tool-call rounds per cycle
 
 # CSPR.trade DEX tool injected into Claude's tool list (HTTP MCP — no subprocess needed)
 CSPR_TRADE_DEX_TOOL: dict = {
@@ -154,6 +154,58 @@ class DecisionEngine:
     def __init__(self, api_key: str, model: str = "claude-haiku-4-5-20251001"):
         self.client = anthropic.AsyncAnthropic(api_key=api_key)
         self.model  = model
+        # Persistent MCP session — reused across cycles to avoid subprocess cold-start overhead
+        self._mcp_session: "ClientSession | None" = None
+        self._mcp_tools: list[dict] = []
+        self._stdio_cm = None
+        self._session_cm = None
+
+    async def _get_mcp_session(
+        self, vault_contract_hash: str, agent_account_hash: str
+    ) -> "ClientSession | None":
+        """Return the live MCP session, reconnecting if the subprocess has died."""
+        if self._mcp_session is not None:
+            return self._mcp_session
+
+        server_params = StdioServerParameters(
+            command=sys.executable,
+            args=[MCP_SERVER_PATH],
+            env={**os.environ, "VAULT_CONTRACT_HASH": vault_contract_hash,
+                 "AGENT_ACCOUNT_HASH": agent_account_hash},
+        )
+        try:
+            self._stdio_cm = stdio_client(server_params)
+            read, write = await self._stdio_cm.__aenter__()
+            self._session_cm = ClientSession(read, write)
+            session = await self._session_cm.__aenter__()
+            await session.initialize()
+            result = await session.list_tools()
+            self._mcp_tools = [
+                {"name": t.name, "description": t.description or "",
+                 "input_schema": t.inputSchema or {"type": "object", "properties": {}}}
+                for t in result.tools
+            ]
+            self._mcp_session = session
+            logger.info("MCP session started — %d tools: %s",
+                        len(self._mcp_tools), [t["name"] for t in self._mcp_tools])
+            return session
+        except Exception as exc:
+            logger.warning("MCP session start failed: %s", exc)
+            await self._close_mcp_session()
+            return None
+
+    async def _close_mcp_session(self) -> None:
+        """Tear down the persistent MCP subprocess so the next call reconnects."""
+        for attr in ("_session_cm", "_stdio_cm"):
+            cm = getattr(self, attr, None)
+            if cm:
+                try:
+                    await cm.__aexit__(None, None, None)
+                except Exception:
+                    pass
+                setattr(self, attr, None)
+        self._mcp_session = None
+        self._mcp_tools = []
 
     async def analyze(
         self,
@@ -168,78 +220,58 @@ class DecisionEngine:
         block_height: int = 0,
     ) -> RebalanceDecision:
         """
-        Spawn Casper MCP server, give Claude blockchain tools,
-        run agentic loop until Claude submits rebalance_decision.
-        Falls back to direct Claude call with pre-gathered data if MCP fails.
+        Run agentic loop via persistent MCP session (subprocess stays alive between cycles).
+        Falls back to direct Claude call with pre-gathered data if MCP/API fails.
         """
         if not MCP_AVAILABLE:
             logger.warning("MCP package not installed — running in demo fallback mode.")
             return self._demo_hold()
 
-        server_params = StdioServerParameters(
-            command=sys.executable,
-            args=[MCP_SERVER_PATH],
-            env={
-                **os.environ,
-                "VAULT_CONTRACT_HASH": vault_contract_hash,
-                "AGENT_ACCOUNT_HASH":  agent_account_hash,
-            },
-        )
+        session = await self._get_mcp_session(vault_contract_hash, agent_account_hash)
 
-        try:
-            async with stdio_client(server_params) as (read, write):
-                async with ClientSession(read, write) as session:
-                    await session.initialize()
-                    return await self._agentic_loop(
-                        session=session,
-                        vault_contract_hash=vault_contract_hash,
-                        agent_account_hash=agent_account_hash,
-                        rebalance_count_today=rebalance_count_today,
-                        max_rebalances_per_day=max_rebalances_per_day,
-                    )
-        except anthropic.AuthenticationError:
-            logger.warning("Invalid ANTHROPIC_API_KEY — returning demo HOLD. Set a real key for live AI decisions.")
-            return self._demo_hold()
-        except Exception as exc:
-            logger.warning("MCP/Claude error (%s) — falling back to direct Claude call.", type(exc).__name__)
-            if yield_rates is not None:
-                return await self._direct_claude_decide(
-                    yield_rates=yield_rates,
-                    portfolio=portfolio,
-                    rwa_prices=rwa_prices or [],
-                    block_height=block_height,
+        if session is not None:
+            try:
+                return await self._agentic_loop(
+                    session=session,
                     vault_contract_hash=vault_contract_hash,
                     agent_account_hash=agent_account_hash,
                     rebalance_count_today=rebalance_count_today,
                     max_rebalances_per_day=max_rebalances_per_day,
                 )
-            return self._rule_based_decide(yield_rates or [], rwa_prices or [], rebalance_count_today, max_rebalances_per_day)
+            except anthropic.AuthenticationError:
+                logger.warning("Invalid ANTHROPIC_API_KEY — returning demo HOLD.")
+                return self._demo_hold()
+            except Exception as exc:
+                logger.warning("MCP/Claude error (%s) — closing session, falling back.", type(exc).__name__)
+                await self._close_mcp_session()
+
+        if yield_rates is not None:
+            return await self._direct_claude_decide(
+                yield_rates=yield_rates,
+                portfolio=portfolio,
+                rwa_prices=rwa_prices or [],
+                block_height=block_height,
+                vault_contract_hash=vault_contract_hash,
+                agent_account_hash=agent_account_hash,
+                rebalance_count_today=rebalance_count_today,
+                max_rebalances_per_day=max_rebalances_per_day,
+            )
+        return self._rule_based_decide(yield_rates or [], rwa_prices or [], rebalance_count_today, max_rebalances_per_day)
 
     async def _agentic_loop(
         self,
-        session: ClientSession,
+        session: "ClientSession",
         vault_contract_hash: str,
         agent_account_hash: str,
         rebalance_count_today: int,
         max_rebalances_per_day: int,
     ) -> RebalanceDecision:
-        # Discover tools from local Casper MCP server (stdio subprocess)
-        mcp_tools_result = await session.list_tools()
-        mcp_tools = [
-            {
-                "name":         t.name,
-                "description":  t.description or "",
-                "input_schema": t.inputSchema or {"type": "object", "properties": {}},
-            }
-            for t in mcp_tools_result.tools
-        ]
-        # Add CSPR.trade MCP tool (official Casper AI Toolkit DEX data)
-        all_tools = mcp_tools + [CSPR_TRADE_DEX_TOOL, REBALANCE_TOOL]
+        # Use cached tool list — no extra round-trip to the subprocess
+        all_tools = self._mcp_tools + [CSPR_TRADE_DEX_TOOL, REBALANCE_TOOL]
 
         logger.info(
-            "MCP session ready — %d Casper tools available: %s",
-            len(mcp_tools),
-            [t["name"] for t in mcp_tools],
+            "MCP agentic loop — %d Casper tools + DEX + decision",
+            len(self._mcp_tools),
         )
 
         # Initial user message — lean prompt, Claude gathers data autonomously
@@ -320,30 +352,38 @@ class DecisionEngine:
     @staticmethod
     async def _call_cspr_trade(arguments: dict) -> str:
         """
-        Calls the official CSPR.trade MCP server (https://mcp.cspr.trade).
-        Streamable HTTP MCP transport — no subprocess needed.
-        Falls back to simulated DEX data if the server is unreachable.
+        Fetches CSPR.trade DEX pool data — queries all candidate URLs in parallel
+        (5 s timeout each) so we don't wait serially for each failure.
+        Falls back to simulated data if all endpoints are unreachable.
         """
+        import asyncio as _asyncio
         import httpx, random as _r
-        pair = arguments.get("pair", "")
-        # Try CSPR.trade REST API endpoints (MCP SSE endpoint returns 406 for plain HTTP POST)
+
+        URLS = [
+            "https://api.cspr.trade/pools",
+            "https://cspr.trade/api/pools",
+            "https://api.cspr.trade/liquidity-pools",
+        ]
+
+        async def _try(client: httpx.AsyncClient, url: str):
+            try:
+                resp = await client.get(url, headers={"Accept": "application/json"}, timeout=5)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    pools = data if isinstance(data, list) else data.get("data", data.get("pools", []))
+                    if pools:
+                        return pools, url
+            except Exception:
+                pass
+            return None, url
+
         try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                for url in [
-                    "https://api.cspr.trade/pools",
-                    "https://cspr.trade/api/pools",
-                    "https://api.cspr.trade/liquidity-pools",
-                ]:
-                    try:
-                        resp = await client.get(url, headers={"Accept": "application/json"})
-                        if resp.status_code == 200:
-                            data = resp.json()
-                            pools = data if isinstance(data, list) else data.get("data", data.get("pools", []))
-                            if pools:
-                                logger.info("CSPR.trade pools from %s: %d pools", url, len(pools))
-                                return json.dumps({"source": "CSPR.trade live", "pools": pools[:10]})
-                    except Exception:
-                        continue
+            async with httpx.AsyncClient() as client:
+                results = await _asyncio.gather(*[_try(client, u) for u in URLS])
+            for pools, url in results:
+                if pools:
+                    logger.info("CSPR.trade pools from %s: %d pools", url, len(pools))
+                    return json.dumps({"source": "CSPR.trade live", "pools": pools[:10]})
         except Exception as exc:
             logger.debug("CSPR.trade REST API unreachable: %s", exc)
 
