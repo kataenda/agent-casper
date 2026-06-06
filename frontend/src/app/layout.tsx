@@ -20,13 +20,18 @@ const spaceMono = Space_Mono({
 export const metadata: Metadata = {
   title: "AGENT-CASPER — Autonomous DeFi Agent",
   description: "Autonomous AI yield optimization agent on Casper Network",
+  icons: {
+    icon: "/agent_casper.png",
+    shortcut: "/agent_casper.png",
+    apple: "/agent_casper.png",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${spaceGrotesk.variable} ${spaceMono.variable}`}>
       <body
-        className="min-h-screen bg-[#02040F] text-cyber-bright antialiased"
+        className="min-h-screen bg-black text-cyber-bright antialiased"
         style={{ fontFamily: "var(--font-space-grotesk), system-ui, sans-serif" }}
       >
         <StarField />

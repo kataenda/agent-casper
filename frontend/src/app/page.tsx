@@ -31,6 +31,7 @@ const ChatBox = dynamic(
 );
 
 import { useAgentStore } from "@/lib/store";
+import { useWalletStore } from "@/lib/walletStore";
 import { useAgentWebSocket } from "@/lib/useWebSocket";
 import { StatusBadge } from "@/components/StatusBadge";
 import { PortfolioChart } from "@/components/PortfolioChart";
@@ -220,6 +221,7 @@ export default function DashboardPage() {
   useAgentWebSocket();
 
   const { connected, latestCycle, cycles, depositedMotes, vaultTxs } = useAgentStore();
+  const { agentRegistered } = useWalletStore();
 
   const [agentInfo, setAgentInfo] = useState<{ account_hash: string; balance_cspr: number } | null>(null);
   useEffect(() => {
@@ -249,6 +251,8 @@ export default function DashboardPage() {
     aggressive_pct:   (portfolio.aggressive_pct   || decision?.aggressive_pct   || 10),
   } : undefined;
   const rebalances  = cycles.filter(c => c.decision.action === "REBALANCE").length;
+  const latestRebalanceTx = cycles.find(c => c.decision.action === "REBALANCE" && c.tx_hash)?.tx_hash
+    ?? "dd0c391f1d69d5fe55a3b72fd6fd1d617a354812c80de67b9d12ddc9233ec29e";
   const lastAction  = decision?.action ?? "—";
   const confidence  = decision && decision.confidence > 0 ? `${(decision.confidence * 100).toFixed(0)}%` : "—";
   const blockHeight = latestCycle?.block_height ? `#${latestCycle.block_height.toLocaleString()}` : "—";
@@ -303,13 +307,7 @@ export default function DashboardPage() {
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap justify-end">
-          <AgentControls />
-          <DeployPanel />
-          {latestCycle?.portfolio && (
-            <>
-              <RegisterAgentButton contractHash={CONTRACT_HASH} />
-            </>
-          )}
+          <AgentControls isRegistered={agentRegistered} />
           <WalletWidget />
           <StatusBadge connected={connected} />
         </div>
@@ -357,7 +355,7 @@ export default function DashboardPage() {
       <div className="flex-1 min-h-0 gap-2" style={{
         display: "grid",
         gridTemplateColumns: "1fr 2fr 1.5fr 1fr",
-        gridTemplateRows: "minmax(0,1.25fr) minmax(0,0.62fr) minmax(0,0.75fr)",
+        gridTemplateRows: "minmax(0,0.7fr) minmax(0,1.15fr) minmax(0,0.75fr)",
       }}>
 
         {/* RWA Oracle — col 1, rows 1–2 */}
@@ -410,12 +408,12 @@ export default function DashboardPage() {
 
           {/* Transaction history */}
           {vaultTxs.length > 0 && (
-            <div className="flex flex-col gap-1 pt-1" style={{ borderTop: "1px solid rgba(0,212,255,0.1)" }}>
-              <span className="text-[8px] font-mono uppercase tracking-widest" style={{ color: "rgba(0,212,255,0.4)" }}>
+            <div className="flex flex-col gap-1.5 pt-1.5 min-h-0" style={{ borderTop: "1px solid rgba(0,212,255,0.1)" }}>
+              <span className="text-[8px] font-mono uppercase tracking-widest shrink-0" style={{ color: "rgba(0,212,255,0.4)" }}>
                 Tx History ({vaultTxs.length})
               </span>
-              <div className="flex flex-col gap-1" style={{ maxHeight: "80px", overflowY: "scroll", scrollbarWidth: "thin", scrollbarColor: "rgba(0,212,255,0.3) transparent" }}>
-                {vaultTxs.map((tx) => (
+              <div className="flex flex-col gap-1.5 overflow-y-auto" style={{ height: "66px", scrollbarWidth: "thin", scrollbarColor: "rgba(0,212,255,0.3) transparent" }}>
+                {[...vaultTxs].reverse().map((tx) => (
                   <a key={tx.hash} href={`https://testnet.cspr.live/deploy/${tx.hash}`}
                      target="_blank" rel="noopener noreferrer"
                      className="flex items-center gap-1.5 hover:opacity-75 font-mono text-[9px] shrink-0"
@@ -438,8 +436,17 @@ export default function DashboardPage() {
           </div>
         </Panel>
 
-        {/* Allocation Matrix — col 3, rows 1–2 */}
-        <Panel accent="#BF5AF2" className="flex flex-col min-h-0" style={{ gridColumn: "3", gridRow: "1 / 3" }}>
+        {/* On-Chain Proof — col 3, row 1 */}
+        <Panel accent="#00FF94" className="flex flex-col min-h-0" style={{ gridColumn: "3", gridRow: "1" }}>
+          <PanelLabel text="On-Chain Proof" accent="#00FF94" />
+          <div className="flex flex-col gap-2 flex-1 justify-center">
+            <DeployPanel />
+            <RegisterAgentButton contractHash={CONTRACT_HASH} />
+          </div>
+        </Panel>
+
+        {/* Allocation Matrix — col 3, row 2 */}
+        <Panel accent="#BF5AF2" className="flex flex-col min-h-0" style={{ gridColumn: "3", gridRow: "2" }}>
           <PanelLabel text="Allocation Matrix" accent="#BF5AF2" />
           <div className="flex-1 min-h-0 flex items-center justify-center">
             {hasContract && displayPortfolio
@@ -473,16 +480,16 @@ export default function DashboardPage() {
           </div>
         </Panel>
 
-        {/* Yield Intelligence — col 4, row 1 only */}
-        <Panel accent="#00FF94" className="flex flex-col min-h-0" style={{ gridColumn: "4", gridRow: "1" }}>
+        {/* Yield Intelligence — col 4, rows 1–2 */}
+        <Panel accent="#00FF94" className="flex flex-col min-h-0" style={{ gridColumn: "4", gridRow: "1 / 3" }}>
           <PanelLabel text="Yield Intelligence" accent="#00FF94" />
           <div className="flex-1 min-h-0 overflow-y-auto">
             <YieldRatesPanel />
           </div>
         </Panel>
 
-        {/* AI Chat — col 4, rows 2–3 */}
-        <Panel accent="#BF5AF2" className="flex flex-col min-h-0" style={{ gridColumn: "4", gridRow: "2 / 4" }}>
+        {/* AI Chat — col 4, row 3 */}
+        <Panel accent="#BF5AF2" className="flex flex-col min-h-0" style={{ gridColumn: "4", gridRow: "3" }}>
           <PanelLabel text="Ask AI Agent" accent="#BF5AF2" />
           <div className="flex-1 min-h-0">
             <ChatBox />

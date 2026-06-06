@@ -5,16 +5,16 @@ module.exports = {
     extend: {
       colors: {
         cyber: {
-          void:    "#030712",
-          deep:    "#060B1A",
-          surface: "#0A1628",
+          void:    "#000000",
+          deep:    "#02020A",
+          surface: "#050510",
           border:  "rgba(0,245,255,0.12)",
           glow:    "#00F5FF",
           plasma:  "#BF5AF2",
           matrix:  "#00FF94",
           fire:    "#FF9F0A",
           red:     "#FF2D55",
-          muted:   "#4B5563",
+          muted:   "#FFFFFF",
           dim:     "#1E2D42",
           bright:  "#E2E8F0",
         },

@@ -92,8 +92,12 @@ export function WalletWidget() {
   };
 
   const handleDisconnect = async () => {
-    if (window.CasperWalletProvider) {
-      await window.CasperWalletProvider().disconnectFromSite().catch(() => {});
+    try {
+      if (window.CasperWalletProvider) {
+        await window.CasperWalletProvider().disconnectFromSite();
+      }
+    } catch {
+      // extension may not support disconnectFromSite — ignore
     }
     clearAccount();
   };
