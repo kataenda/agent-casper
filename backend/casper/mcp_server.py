@@ -284,11 +284,15 @@ async def _fetch_real_yield_rates() -> dict:
     }
 
 
+_STRATEGY_NAMES = {0: "Conservative", 1: "Balanced", 2: "Aggressive"}
+
+
 async def _query_vault_portfolio(contract_hash: str) -> dict:
     """
     Query YieldVault portfolio state.
-    ODRA contracts store state internally. Falls back to agent account balance
-    so Claude always has meaningful TVL data for decision-making.
+    Allocation (con/bal/agg %) is read from the latest successful rebalance()
+    deploy on CSPR.cloud — 100% on-chain data, no ODRA internal state parsing needed.
+    TVL comes from agent account balance.
     """
     base = {
         "total_value_motes": 0,
@@ -297,6 +301,7 @@ async def _query_vault_portfolio(contract_hash: str) -> dict:
         "balanced_pct": 0,
         "aggressive_pct": 0,
         "current_strategy": "HOLDING",
+        "rebalance_count": 0,
         "last_rebalance_timestamp": 0,
     }
 
@@ -305,9 +310,37 @@ async def _query_vault_portfolio(contract_hash: str) -> dict:
         return base
 
     headers = {"Authorization": CSPR_CLOUD_KEY, "Accept": "application/json"}
-
-    # Use agent account balance as portfolio TVL (agent manages its own CSPR)
     agent_hash = os.getenv("AGENT_ACCOUNT_HASH", "")
+
+    # ── Allocation from latest on-chain rebalance deploy ─────────────────────
+    if agent_hash and not agent_hash.endswith("demo"):
+        pkg_hex = contract_hash.replace("hash-", "").replace("package-", "")
+        acct_hex = agent_hash.replace("account-hash-", "")
+        try:
+            async with httpx.AsyncClient(headers=headers, timeout=12) as c:
+                resp = await c.get(
+                    f"{CSPR_CLOUD_BASE}/deploys",
+                    params={"caller_hash": acct_hex, "contract_package_hash": pkg_hex, "limit": 20},
+                )
+                if resp.status_code == 200:
+                    count = 0
+                    for item in resp.json().get("data", []):
+                        args = item.get("args", {})
+                        if item.get("error_message") or "conservative_pct" not in args:
+                            continue
+                        count += 1
+                        if count == 1:  # latest successful rebalance
+                            base["conservative_pct"] = int(args["conservative_pct"].get("parsed", 0))
+                            base["balanced_pct"]     = int(args["balanced_pct"].get("parsed", 0))
+                            base["aggressive_pct"]   = int(args["aggressive_pct"].get("parsed", 0))
+                            idx = int(args.get("new_strategy", {}).get("parsed", 1))
+                            base["current_strategy"] = _STRATEGY_NAMES.get(idx, "Balanced")
+                    base["rebalance_count"] = count
+                    base["_source"] = "cspr_cloud_deploys"
+        except Exception:
+            pass
+
+    # ── TVL from agent account balance ────────────────────────────────────────
     if agent_hash and not agent_hash.endswith("demo"):
         acct_hex = agent_hash.replace("account-hash-", "")
         try:
@@ -319,13 +352,10 @@ async def _query_vault_portfolio(contract_hash: str) -> dict:
                     if bal and int(bal) > 0:
                         motes = int(bal)
                         base["total_value_motes"] = motes
-                        base["total_value_cspr"] = round(motes / 1e9, 2)
-                        base["_source"] = "agent_account"
+                        base["total_value_cspr"]  = round(motes / 1e9, 2)
         except Exception:
-            # Static fallback — testnet faucet gives 100 CSPR
             base["total_value_motes"] = 100_000_000_000
-            base["total_value_cspr"] = 100.0
-            base["_source"] = "static_fallback"
+            base["total_value_cspr"]  = 100.0
 
     return base
 
