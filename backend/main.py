@@ -387,15 +387,21 @@ async def rpc_proxy(request: Request):
     if settings.cspr_cloud_api_key:
         headers["Authorization"] = settings.cspr_cloud_api_key
     logger.info("RPC proxy → %s (api_key set: %s)", settings.casper_node_url, bool(settings.cspr_cloud_api_key))
-    async with __import__("httpx").AsyncClient(timeout=30) as client:
-        resp = await client.post(settings.casper_node_url, json=body, headers=headers)
-    logger.info("RPC proxy ← %s %s", resp.status_code, resp.text[:200])
-    if resp.status_code != 200:
-        raise HTTPException(status_code=resp.status_code, detail=resp.text[:500])
     try:
-        return resp.json()
-    except Exception:
-        raise HTTPException(status_code=502, detail="Upstream returned non-JSON response")
+        async with __import__("httpx").AsyncClient(timeout=30) as client:
+            resp = await client.post(settings.casper_node_url, json=body, headers=headers)
+        logger.info("RPC proxy ← %s %s", resp.status_code, resp.text[:200])
+        if resp.status_code != 200:
+            raise HTTPException(status_code=resp.status_code, detail=resp.text[:500])
+        try:
+            return resp.json()
+        except Exception:
+            raise HTTPException(status_code=502, detail="Upstream returned non-JSON response")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("RPC proxy exception: %s", exc, exc_info=True)
+        raise HTTPException(status_code=502, detail=f"RPC proxy error: {exc}")
 
 
 @app.post("/deploy")
