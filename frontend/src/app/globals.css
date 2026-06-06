@@ -3,8 +3,14 @@
 @tailwind utilities;
 
 /* ── Deep space base ───────────────────────────────────────────── */
-html, body {
-  background-color: #02040F;
+html {
+  background-color: #010410;
+  /* Dot grid — technical depth */
+  background-image: radial-gradient(rgba(0,245,255,0.07) 1px, transparent 1px);
+  background-size: 26px 26px;
+}
+
+body {
   color: #E2E8F0;
   min-height: 100vh;
   overflow-x: hidden;
@@ -16,11 +22,12 @@ body::before {
   position: fixed;
   inset: 0;
   background:
-    radial-gradient(ellipse 70% 55% at 15%  35%, rgba(100,  0, 220, 0.18) 0%, transparent 65%),
-    radial-gradient(ellipse 60% 70% at 85%  20%, rgba(  0, 80, 255, 0.14) 0%, transparent 65%),
-    radial-gradient(ellipse 80% 45% at 50% 100%, rgba(  0,180, 200, 0.10) 0%, transparent 60%),
-    radial-gradient(ellipse 40% 60% at 90%  80%, rgba(180,  0, 255, 0.10) 0%, transparent 55%),
-    radial-gradient(ellipse 55% 35% at 10%  85%, rgba(  0,100, 255, 0.08) 0%, transparent 60%);
+    radial-gradient(ellipse 60% 50% at 10%  30%, rgba(120,  0, 255, 0.22) 0%, transparent 60%),
+    radial-gradient(ellipse 50% 60% at 88%  15%, rgba(  0, 60, 255, 0.18) 0%, transparent 60%),
+    radial-gradient(ellipse 70% 40% at 50% 105%, rgba(  0,200, 220, 0.14) 0%, transparent 55%),
+    radial-gradient(ellipse 35% 55% at 92%  75%, rgba(200,  0, 255, 0.14) 0%, transparent 50%),
+    radial-gradient(ellipse 45% 30% at  8%  80%, rgba(  0,120, 255, 0.10) 0%, transparent 55%),
+    radial-gradient(ellipse 30% 40% at 50%  40%, rgba(  0,245, 255, 0.04) 0%, transparent 60%);
   animation: nebula-drift 25s ease-in-out infinite alternate;
   pointer-events: none;
   z-index: 0;
@@ -79,26 +86,28 @@ body::after {
   color: #00F5FF;
 }
 
-/* ── Glass panel ───────────────────────────────────────────────── */
+/* ── Glass panel — cyberpunk corner-bracket style ──────────────── */
 .glass-panel {
-  background: rgba(2, 6, 20, 0.78);
+  background: rgba(2, 6, 20, 0.82);
   backdrop-filter: blur(22px);
   -webkit-backdrop-filter: blur(22px);
-  border: 1px solid rgba(0,245,255,0.1);
+  border: 1px solid rgba(0,245,255,0.08);
+  border-radius: 4px;
   box-shadow:
-    0 8px 40px rgba(0,0,0,0.75),
-    inset 0 1px 0 rgba(255,255,255,0.04),
-    inset 0 -1px 0 rgba(0,0,0,0.3);
+    0 8px 40px rgba(0,0,0,0.8),
+    inset 0 1px 0 rgba(255,255,255,0.03);
   transition: border-color 0.3s ease, box-shadow 0.3s ease;
+  position: relative;
 }
 
 .glass-panel:hover {
-  border-color: rgba(0,245,255,0.2);
+  border-color: rgba(0,245,255,0.15);
   box-shadow:
-    0 8px 40px rgba(0,0,0,0.75),
-    0 0 28px rgba(0,245,255,0.06),
-    inset 0 1px 0 rgba(255,255,255,0.06);
+    0 8px 40px rgba(0,0,0,0.8),
+    0 0 20px rgba(0,245,255,0.05),
+    inset 0 1px 0 rgba(255,255,255,0.04);
 }
+
 
 /* ── Cyber number ──────────────────────────────────────────────── */
 .cyber-num {
@@ -122,4 +131,16 @@ body::after {
 @keyframes slide-up {
   from { transform: translateY(6px); opacity: 0; }
   to   { transform: translateY(0);   opacity: 1; }
+}
+
+/* ── Status dot pulse ──────────────────────────────────────────── */
+@keyframes pulse {
+  0%, 100% { opacity: 1;   transform: scale(1);    }
+  50%       { opacity: 0.4; transform: scale(0.75); }
+}
+
+/* ── Hover shimmer ─────────────────────────────────────────────── */
+@keyframes shimmer {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(100%);  }
 }

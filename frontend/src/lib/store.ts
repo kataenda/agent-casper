@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 
 export interface YieldRate {
   strategy: string;
@@ -58,42 +59,79 @@ export interface AgentStats {
   poll_interval_seconds: number;
 }
 
+export interface VaultTx {
+  type: "deposit" | "withdraw";
+  amount: string;
+  hash: string;
+  ts: number;
+}
+
 interface AgentStore {
   connected: boolean;
   stats: AgentStats | null;
   latestCycle: AgentCycle | null;
   cycles: AgentCycle[];
   portfolioHistory: { time: string; value: number }[];
+  depositedMotes: number;
+  vaultTxs: VaultTx[];
 
   setConnected: (v: boolean) => void;
   setStats: (s: AgentStats) => void;
   addCycle: (c: AgentCycle) => void;
+  addDeposit: (motes: number) => void;
+  addVaultTx: (tx: VaultTx) => void;
 }
 
-export const useAgentStore = create<AgentStore>((set, get) => ({
-  connected: false,
-  stats: null,
-  latestCycle: null,
-  cycles: [],
-  portfolioHistory: [],
+export const useAgentStore = create<AgentStore>()(
+  persist(
+    (set, get) => ({
+      connected: false,
+      stats: null,
+      latestCycle: null,
+      cycles: [],
+      portfolioHistory: [],
+      depositedMotes: 0,
+      vaultTxs: [],
 
-  setConnected: (v) => set({ connected: v }),
-  setStats: (s) => set({ stats: s }),
+      setConnected: (v) => set({ connected: v }),
+      setStats: (s) => set({ stats: s }),
 
-  addCycle: (c) => {
-    const { cycles, portfolioHistory } = get();
-    const newCycles = [c, ...cycles].slice(0, 50);
-    const newHistory = [
-      ...portfolioHistory,
-      {
-        time: new Date(c.timestamp).toLocaleTimeString(),
-        value: c.portfolio.total_value_motes / 1e9,
+      addVaultTx: (tx) =>
+        set((s) => ({ vaultTxs: [tx, ...s.vaultTxs].slice(0, 10) })),
+
+      addDeposit: (motes) => {
+        const { depositedMotes, latestCycle, portfolioHistory } = get();
+        const newDeposited = depositedMotes + motes;
+        set({ depositedMotes: newDeposited });
+        if (latestCycle) {
+          const newValue = (latestCycle.portfolio.total_value_motes + newDeposited) / 1e9;
+          set({
+            portfolioHistory: [
+              ...portfolioHistory,
+              { time: new Date().toLocaleTimeString(), value: newValue },
+            ].slice(-30),
+          });
+        }
       },
-    ].slice(-30);
-    set({
-      latestCycle: c,
-      cycles: newCycles,
-      portfolioHistory: newHistory,
-    });
-  },
-}));
+
+      addCycle: (c) => {
+        const { cycles, portfolioHistory, depositedMotes } = get();
+        const newCycles = [c, ...cycles].slice(0, 50);
+        const displayValue = (c.portfolio.total_value_motes + depositedMotes) / 1e9;
+        const newHistory = [
+          ...portfolioHistory,
+          { time: new Date(c.timestamp).toLocaleTimeString(), value: displayValue },
+        ].slice(-30);
+        set({
+          latestCycle: c,
+          cycles: newCycles,
+          portfolioHistory: newHistory,
+        });
+      },
+    }),
+    {
+      name: "agent-casper-vault",
+      partialize: (s) => ({ vaultTxs: s.vaultTxs }),
+    }
+  )
+);

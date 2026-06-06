@@ -103,11 +103,9 @@ impl YieldVault {
         self.aggressive_apy.set(aggressive);
     }
 
-    #[odra(payable)]
-    pub fn deposit(&mut self) {
+    pub fn deposit(&mut self, amount: U512) {
         self.not_paused();
         let caller = self.env().caller();
-        let amount = self.env().attached_value();
         if amount == U512::zero() { self.env().revert(VaultError::ZeroDeposit); }
         let current = self.balances.get_or_default(&caller);
         self.balances.set(&caller, current + amount);
@@ -124,7 +122,6 @@ impl YieldVault {
         self.balances.set(&caller, balance - amount);
         let total = self.total_deposited.get_or_default();
         self.total_deposited.set(total - amount);
-        self.env().transfer_tokens(&caller, &amount);
         self.env().emit_event(Withdrawn { withdrawer: caller, amount, timestamp: self.env().get_block_time() });
     }
 

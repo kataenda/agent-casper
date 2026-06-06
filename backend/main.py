@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     cspr_cloud_api_key: str = ""
     cspr_cloud_base_url: str = "https://event-store-api-clarity-testnet.make.services"
     vault_contract_hash: str = "hash-demo"
+    vault_contract_version_hash: str = ""
     agent_account_hash: str = "account-hash-demo"
     agent_secret_key_path: str = "./agent_secret_key.pem"
     agent_poll_interval_seconds: int = 60
@@ -53,6 +54,12 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+# Propagate settings to os.environ so MCP subprocess and deployer get them
+os.environ.setdefault("CASPER_NODE_URL", settings.casper_node_url)
+os.environ.setdefault("CSPR_CLOUD_API_KEY", settings.cspr_cloud_api_key)
+os.environ.setdefault("CSPR_CLOUD_BASE_URL", settings.cspr_cloud_base_url)
+os.environ.setdefault("ANTHROPIC_API_KEY", settings.anthropic_api_key)
 
 # ── Global state ──────────────────────────────────────────────────────────────
 
@@ -82,7 +89,12 @@ async def lifespan(app: FastAPI):
         cloud_api_key=settings.cspr_cloud_api_key,
         cloud_base_url=settings.cspr_cloud_base_url,
     )
-    deployer    = CasperDeployer(node_url=settings.casper_node_url, chain_name="casper-test")
+    deployer    = CasperDeployer(
+        node_url=settings.casper_node_url,
+        chain_name="casper-test",
+        cloud_api_key=settings.cspr_cloud_api_key,
+        resolved_contract_hash=settings.vault_contract_version_hash or None,
+    )
     rwa_oracle  = RWAOracle()
     decision_engine = DecisionEngine(api_key=settings.anthropic_api_key)
     x402 = X402Handler(
@@ -213,10 +225,27 @@ class SetupContractRequest(BaseModel):
 
 @app.get("/admin/agent-address")
 async def get_agent_address():
-    """Return the agent's account hash (from PEM key file) so the frontend can use it."""
+    """Return the agent's account hash + public key so the frontend can register it and fund it."""
+    public_key = None
+    try:
+        from cryptography.hazmat.primitives.serialization import load_pem_private_key
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+        pem_path = settings.agent_secret_key_path
+        with open(pem_path, "rb") as f:
+            pem_bytes = f.read()
+        priv = load_pem_private_key(pem_bytes, password=None)
+        if isinstance(priv, Ed25519PrivateKey):
+            from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+            pub_bytes = priv.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+            public_key = "01" + pub_bytes.hex()
+    except Exception as exc:
+        logger.debug("Could not derive agent public key: %s", exc)
+
     return {
         "agent_account_hash": settings.agent_account_hash,
+        "agent_public_key": public_key,
         "agent_secret_key_path": settings.agent_secret_key_path,
+        "faucet_url": f"https://testnet.cspr.live/tools/faucet",
     }
 
 

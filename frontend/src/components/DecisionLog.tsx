@@ -27,8 +27,29 @@ function AllocBadge({ con, bal, agg }: { con: number; bal: number; agg: number }
   );
 }
 
+const EXPLORER = "https://testnet.cspr.live/deploy";
+
+function TxLink({ hash, label }: { hash: string; label?: string }) {
+  if (!hash) return null;
+  const isSim = hash.startsWith("sim-");
+  if (isSim) return (
+    <span className="font-mono text-[9px] px-1.5 py-0.5 rounded"
+          style={{ color: "#4B5563", background: "rgba(75,85,99,0.08)", border: "1px solid rgba(75,85,99,0.2)" }}>
+      {label ?? "SIM"}
+    </span>
+  );
+  return (
+    <a href={`${EXPLORER}/${hash}`} target="_blank" rel="noopener noreferrer"
+       className="font-mono text-[9px] px-1.5 py-0.5 rounded hover:opacity-75 transition-opacity"
+       style={{ color: "#00FF94", background: "rgba(0,255,148,0.08)", border: "1px solid rgba(0,255,148,0.2)" }}
+       title={hash}>
+      {label ?? "TX"}:{hash.slice(0, 10)}…↗
+    </a>
+  );
+}
+
 function CycleRow({ cycle, index }: { cycle: AgentCycle; index: number }) {
-  const { decision, timestamp, block_height, tx_hash } = cycle;
+  const { decision, timestamp, block_height, tx_hash, rwa_tx_hashes } = cycle;
   const time    = format(new Date(timestamp), "HH:mm:ss");
   const action  = ACTION_CFG[decision.action] ?? ACTION_CFG.HOLD;
   const risk    = RISK_CFG[decision.risk_level] ?? RISK_CFG.LOW;
@@ -83,15 +104,12 @@ function CycleRow({ cycle, index }: { cycle: AgentCycle; index: number }) {
           )}
         </div>
 
-        {tx_hash ? (
-          <span
-            className="font-mono text-[10px] px-2 py-0.5 rounded truncate max-w-[160px]"
-            style={{ color: "#00FF94", background: "rgba(0,255,148,0.08)", border: "1px solid rgba(0,255,148,0.2)" }}
-            title={tx_hash}
-          >
-            TX:{tx_hash.slice(0, 14)}…
-          </span>
-        ) : null}
+        <div className="flex items-center gap-1 flex-wrap">
+          {tx_hash && <TxLink hash={tx_hash} label="REBALANCE" />}
+          {rwa_tx_hashes && Object.entries(rwa_tx_hashes).map(([asset, hash]) =>
+            hash ? <TxLink key={asset} hash={hash} label={asset} /> : null
+          )}
+        </div>
       </div>
     </div>
   );

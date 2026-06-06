@@ -14,6 +14,8 @@ export function useAgentWebSocket() {
 
     ws.current.onopen = () => {
       setConnected(true);
+      // Clear stale chart history on fresh connection so chart starts clean
+      useAgentStore.setState({ portfolioHistory: [], cycles: [] });
     };
 
     ws.current.onmessage = (event) => {

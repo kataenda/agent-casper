@@ -90,16 +90,21 @@ class YieldAgent:
             self._last_rebalance_date = today
 
         block_height = await self.casper.get_block_height()
-        yield_rates  = await self.casper.fetch_simulated_yield_rates()
-        portfolio    = await self.casper.get_vault_portfolio(self.vault_contract_hash)
+        yield_rates  = await self.casper.fetch_yield_rates()
+        portfolio    = await self.casper.get_vault_portfolio(self.vault_contract_hash, agent_account_hash=self.agent_account)
         rwa_prices   = await self.rwa.fetch_rwa_prices()
 
-        # Claude autonomously queries blockchain + RWA data via MCP tools and decides
+        # Claude autonomously queries blockchain + RWA data via MCP tools and decides.
+        # Pre-gathered data is passed as fallback when MCP/Anthropic has transient issues.
         decision = await self.engine.analyze(
             vault_contract_hash=self.vault_contract_hash,
             agent_account_hash=self.agent_account,
             rebalance_count_today=self._rebalances_today,
             max_rebalances_per_day=self.max_rebalances,
+            yield_rates=yield_rates,
+            portfolio=portfolio,
+            rwa_prices=rwa_prices,
+            block_height=block_height,
         )
 
         logger.info(
