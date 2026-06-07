@@ -81,6 +81,48 @@ if not _key.startswith("sk-ant-") or _key in ("sk-ant-api03-...",):
         _key[:16] + "..." if len(_key) > 16 else _key,
     )
 
+# ── Startup connectivity check ────────────────────────────────────────────────
+
+def _check_anthropic_connectivity() -> None:
+    """Raw TCP + urllib test so we know exactly where connectivity breaks."""
+    import socket, urllib.request, json as _json
+
+    host, port = "api.anthropic.com", 443
+
+    # 1. Raw TCP
+    try:
+        s = socket.create_connection((host, port), timeout=5)
+        s.close()
+        logger.info("✓ TCP connectivity to %s:%d OK", host, port)
+    except Exception as exc:
+        logger.error(
+            "✗ TCP connectivity to %s:%d FAILED: %s — "
+            "Railway may be blocking outbound connections to Anthropic. "
+            "Fix: change Railway region (Settings → Region) or migrate to Render/Fly.io.",
+            host, port, exc,
+        )
+        return
+
+    # 2. HTTPS via stdlib urllib (independent of httpx)
+    try:
+        req = urllib.request.Request(
+            "https://api.anthropic.com/v1/models",
+            headers={
+                "x-api-key": settings.anthropic_api_key,
+                "anthropic-version": "2023-06-01",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            logger.info("✓ HTTPS to api.anthropic.com OK (status %d)", resp.status)
+    except urllib.error.HTTPError as exc:
+        # HTTP error means the connection works, just auth/endpoint issue
+        logger.info("✓ HTTPS to api.anthropic.com reachable (HTTP %d — API key or endpoint check)", exc.code)
+    except Exception as exc:
+        logger.error("✗ HTTPS to api.anthropic.com FAILED via urllib: %s", exc)
+
+
+_check_anthropic_connectivity()
+
 # ── Global state ──────────────────────────────────────────────────────────────
 
 agent: Optional[YieldAgent] = None
