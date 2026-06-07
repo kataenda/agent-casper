@@ -1,5 +1,5 @@
 """
-CasperYield AI — FastAPI server
+Agent Casper — FastAPI server
 Provides REST API + WebSocket for real-time agent monitoring.
 """
 
@@ -184,13 +184,13 @@ async def lifespan(app: FastAPI):
     )
 
     task = asyncio.create_task(agent.start())
-    logger.info("CasperYield AI agent started")
+    logger.info("Agent Casper agent started")
 
     yield
 
     agent.stop()
     task.cancel()
-    logger.info("CasperYield AI agent stopped")
+    logger.info("Agent Casper agent stopped")
 
 
 app = FastAPI(
