@@ -244,7 +244,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 @app.get("/")
 async def root():
-    return {"name": "CasperYield AI", "version": "1.0.0", "status": "running"}
+    return {"name": "Agent Casper", "version": "1.0.0", "status": "running"}
 
 
 @app.get("/agent/status")
