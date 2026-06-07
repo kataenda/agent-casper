@@ -504,20 +504,63 @@ class DecisionEngine:
             apy = d.get("apy_percent") or d.get("apy_bps", 0) / 100
             rates[d.get("strategy", "")] = apy
 
-        conservative = rates.get("conservative", 9.5)
-        aggressive   = rates.get("aggressive", 14.5)
+        conservative_apy = rates.get("conservative", 9.5)
+        aggressive_apy   = rates.get("aggressive", 14.5)
 
-        risk_free = 4.22
+        risk_free   = 4.22
+        paxg_change = 0.0
+        wti_change  = 0.0
         for a in (rwa_prices or []):
-            if a.get("asset_id") == "UST10Y" and a.get("yield_pct"):
+            asset_id = a.get("asset_id", "")
+            if asset_id == "UST10Y" and a.get("yield_pct"):
                 risk_free = a["yield_pct"]
-                break
+            elif asset_id == "PAXG":
+                paxg_change = a.get("change_pct") or 0.0
+            elif asset_id == "WTI":
+                wti_change = a.get("change_pct") or 0.0
 
-        premium = aggressive - risk_free
-        target_cons, target_bal, target_agg = 40, 45, 15
+        premium = aggressive_apy - risk_free
         can_rebalance = rebalance_count_today < max_rebalances_per_day
 
-        # Quota exhausted — be explicit about why we're holding
+        # ── Select target strategy based on RWA signals (mirrors system prompt) ──
+        # Rule 1: Gold rising >1% or Treasury >5% → flight-to-safety → Conservative
+        if paxg_change > 1.0 or risk_free > 5.0:
+            target_cons, target_bal, target_agg = 70, 20, 10
+            target_strategy = "conservative"
+            signal_reason = (
+                f"Flight-to-safety signal: PAXG +{paxg_change:.2f}% 24h | "
+                f"Treasury {risk_free:.2f}% {'(>5% threshold)' if risk_free > 5.0 else ''}."
+            )
+            risk_level = "LOW"
+        # Rule 2: Treasury <3.5% and strong DeFi premium → Aggressive
+        elif risk_free < 3.5 and premium > 10.0:
+            target_cons, target_bal, target_agg = 10, 20, 70
+            target_strategy = "aggressive"
+            signal_reason = (
+                f"Low risk-free rate {risk_free:.2f}% (<3.5%) with strong DeFi premium {premium:.1f}%. "
+                f"High yield opportunity warrants aggressive allocation."
+            )
+            risk_level = "HIGH"
+        # Rule 3: WTI surging >3% → inflation risk → raise conservative floor
+        elif wti_change > 3.0:
+            target_cons, target_bal, target_agg = 55, 35, 10
+            target_strategy = "conservative"
+            signal_reason = (
+                f"Inflation risk: WTI oil +{wti_change:.2f}% 24h. "
+                f"Raising conservative allocation to hedge inflation."
+            )
+            risk_level = "MEDIUM"
+        # Default: balanced
+        else:
+            target_cons, target_bal, target_agg = 40, 45, 15
+            target_strategy = "balanced"
+            signal_reason = (
+                f"Neutral market: Treasury {risk_free:.2f}% | PAXG {paxg_change:+.2f}% | WTI {wti_change:+.2f}%. "
+                f"Balanced allocation is optimal."
+            )
+            risk_level = "LOW"
+
+        # ── Quota exhausted ───────────────────────────────────────────────────
         if not can_rebalance:
             return RebalanceDecision(
                 action="HOLD",
@@ -527,64 +570,49 @@ class DecisionEngine:
                 aggressive_pct=target_agg,
                 reasoning=(
                     f"Daily rebalance quota exhausted ({rebalance_count_today}/{max_rebalances_per_day}). "
-                    f"Aggressive {aggressive:.1f}% APY | Conservative {conservative:.1f}% APY | "
-                    f"Risk-free {risk_free:.2f}%. Maintaining allocation until quota resets at midnight UTC."
+                    f"{signal_reason} Maintaining allocation until quota resets at midnight UTC."
                 ),
                 confidence=0.90,
-                risk_level="LOW",
+                risk_level=risk_level,
             )
 
-        if premium > 8.0 and conservative > 8.0:
-            # Check if portfolio is already at the target — no point rebalancing to the same allocation
-            if portfolio is not None:
-                curr = portfolio if isinstance(portfolio, dict) else portfolio.model_dump()
-                if (curr.get("conservative_pct") == target_cons
-                        and curr.get("balanced_pct") == target_bal
-                        and curr.get("aggressive_pct") == target_agg):
-                    return RebalanceDecision(
-                        action="HOLD",
-                        new_strategy=None,
-                        conservative_pct=target_cons,
-                        balanced_pct=target_bal,
-                        aggressive_pct=target_agg,
-                        reasoning=(
-                            f"Portfolio already at optimal {target_cons}/{target_bal}/{target_agg} allocation. "
-                            f"Aggressive {aggressive:.1f}% APY | Conservative {conservative:.1f}% APY | "
-                            f"Risk-free {risk_free:.2f}% ({premium:.1f}% premium). No rebalance needed."
-                        ),
-                        confidence=0.88,
-                        risk_level="LOW",
-                    )
+        # ── Check if portfolio is already at the target ───────────────────────
+        if portfolio is not None:
+            curr = portfolio if isinstance(portfolio, dict) else portfolio.model_dump()
+            if (curr.get("conservative_pct") == target_cons
+                    and curr.get("balanced_pct") == target_bal
+                    and curr.get("aggressive_pct") == target_agg):
+                return RebalanceDecision(
+                    action="HOLD",
+                    new_strategy=None,
+                    conservative_pct=target_cons,
+                    balanced_pct=target_bal,
+                    aggressive_pct=target_agg,
+                    reasoning=(
+                        f"Portfolio already at target {target_cons}/{target_bal}/{target_agg} ({target_strategy}). "
+                        f"{signal_reason}"
+                    ),
+                    confidence=0.88,
+                    risk_level=risk_level,
+                )
 
-            return RebalanceDecision(
-                action="REBALANCE",
-                new_strategy="balanced",
-                conservative_pct=target_cons,
-                balanced_pct=target_bal,
-                aggressive_pct=target_agg,
-                reasoning=(
-                    f"Quantitative analysis: Aggressive yield {aggressive:.1f}% vs risk-free {risk_free:.2f}% "
-                    f"({premium:.1f}% premium). Conservative floor {conservative:.1f}% provides downside protection. "
-                    f"Rebalancing to optimized {target_cons}/{target_bal}/{target_agg} allocation."
-                ),
-                confidence=0.78,
-                risk_level="LOW",
-            )
-
-        above_below = lambda v, t: "above" if v > t else "below"
+        # ── Rebalance to new target ───────────────────────────────────────────
+        curr_cons = portfolio.model_dump().get("conservative_pct", "?") if portfolio else "?"
+        curr_bal  = portfolio.model_dump().get("balanced_pct", "?") if portfolio else "?"
+        curr_agg  = portfolio.model_dump().get("aggressive_pct", "?") if portfolio else "?"
         return RebalanceDecision(
-            action="HOLD",
-            new_strategy=None,
+            action="REBALANCE",
+            new_strategy=target_strategy,
             conservative_pct=target_cons,
             balanced_pct=target_bal,
             aggressive_pct=target_agg,
             reasoning=(
-                f"Quantitative HOLD: premium {premium:.1f}% {above_below(premium, 8.0)} 8% threshold, "
-                f"conservative {conservative:.1f}% {above_below(conservative, 8.0)} 8% floor. "
-                f"Risk-free {risk_free:.2f}%. Maintaining conservative stance."
+                f"{signal_reason} "
+                f"Shifting from {curr_cons}/{curr_bal}/{curr_agg} → {target_cons}/{target_bal}/{target_agg} "
+                f"({target_strategy}). Aggressive {aggressive_apy:.1f}% APY | Risk-free {risk_free:.2f}%."
             ),
-            confidence=0.82,
-            risk_level="LOW",
+            confidence=0.78,
+            risk_level=risk_level,
         )
 
     @staticmethod
