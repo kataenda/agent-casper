@@ -13,3 +13,5 @@ aiosqlite==0.20.0
 pycspr==0.12.4
 # MCP — Model Context Protocol SDK for Casper blockchain tool server
 mcp>=1.0.0
+# requests used as fallback HTTP client when httpx fails on certain hosts (Railway)
+requests>=2.31.0

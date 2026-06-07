@@ -160,12 +160,11 @@ class DecisionEngine:
             timeout=_httpx.Timeout(60.0, connect=15.0),
             limits=_httpx.Limits(max_connections=5, max_keepalive_connections=2),
         )
-        self.client      = anthropic.AsyncAnthropic(api_key=api_key, http_client=_http_client, max_retries=0)
-        # Sync client used as fallback when async httpx fails on containerised hosts
-        # (Railway, etc.) where asyncio-level SSL/TCP behaves differently to thread sockets.
+        self.client       = anthropic.AsyncAnthropic(api_key=api_key, http_client=_http_client, max_retries=0)
         self._sync_client = anthropic.Anthropic(api_key=api_key, max_retries=0)
-        self.model  = model
-        self._demo_mode = api_key.strip() in _PLACEHOLDER_KEYS or not api_key.strip().startswith("sk-ant-")
+        self._api_key     = api_key
+        self.model        = model
+        self._demo_mode   = api_key.strip() in _PLACEHOLDER_KEYS or not api_key.strip().startswith("sk-ant-")
         if self._demo_mode:
             logger.warning(
                 "ANTHROPIC_API_KEY is not configured (got %r) — Claude AI disabled. "
@@ -179,15 +178,65 @@ class DecisionEngine:
         self._stdio_cm = None
         self._session_cm = None
 
+    def _requests_call(self, model, max_tokens, system, tools, messages, **_):
+        """Direct HTTP POST via `requests` (urllib3) — independent of httpx.
+        Used as last-resort fallback when both async and sync httpx fail on Railway."""
+        import requests as _req
+
+        resp = _req.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": self._api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={"model": model, "max_tokens": max_tokens,
+                  "system": system, "tools": tools, "messages": messages},
+            timeout=30,
+        )
+        if resp.status_code == 401:
+            raise anthropic.AuthenticationError("Invalid API key", response=None, body=None)
+        resp.raise_for_status()
+        data = resp.json()
+
+        # Minimal response shim — same interface the rest of the code expects
+        class _Block:
+            def __init__(self, d):
+                self.type  = d.get("type", "")
+                self.name  = d.get("name", "")
+                self.input = d.get("input", {})
+                self.id    = d.get("id", "")
+                self.text  = d.get("text", "")
+
+        class _Resp:
+            def __init__(self, d):
+                self.content     = [_Block(c) for c in d.get("content", [])]
+                self.stop_reason = d.get("stop_reason", "end_turn")
+
+        logger.info("requests fallback succeeded (HTTP %d)", resp.status_code)
+        return _Resp(data)
+
     async def _messages_create(self, **kwargs):
-        """Call Claude — async first, sync-in-thread as fallback for network environments
-        where asyncio httpx fails (e.g. Railway containers)."""
+        """Call Claude with three escalating fallbacks:
+        1. async httpx  2. sync httpx in thread  3. requests in thread"""
         import asyncio as _asyncio
+
+        # 1. async httpx
         try:
             return await self.client.messages.create(**kwargs)
-        except anthropic.APIConnectionError as exc:
-            logger.info("Async client connection failed (%s) — retrying with sync client in thread pool", exc)
+        except anthropic.APIConnectionError:
+            pass
+
+        # 2. sync httpx in thread
+        try:
+            logger.info("Async httpx failed — trying sync httpx in thread pool")
             return await _asyncio.to_thread(self._sync_client.messages.create, **kwargs)
+        except anthropic.APIConnectionError:
+            pass
+
+        # 3. requests (urllib3) in thread — different HTTP stack from httpx
+        logger.info("Sync httpx failed — trying requests library (urllib3) as final fallback")
+        return await _asyncio.to_thread(self._requests_call, **kwargs)
 
     async def _get_mcp_session(
         self, vault_contract_hash: str, agent_account_hash: str
