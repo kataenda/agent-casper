@@ -54,7 +54,10 @@ class CasperDeployer:
         ODRA deploys as a ContractPackage; entry points must target the version hash.
         """
         if self._resolved_contract_hash:
-            return self._resolved_contract_hash
+            return (self._resolved_contract_hash
+                    .removeprefix("hash-")
+                    .removeprefix("contract-")
+                    .removeprefix("package-"))
 
         raw_pkg = (package_hash
                    .removeprefix("hash-")
