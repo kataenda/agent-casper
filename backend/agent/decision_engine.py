@@ -154,7 +154,15 @@ _PLACEHOLDER_KEYS = {"demo-key", "", "sk-ant-api03-..."}
 
 class DecisionEngine:
     def __init__(self, api_key: str, model: str = "claude-haiku-4-5-20251001"):
-        self.client = anthropic.AsyncAnthropic(api_key=api_key)
+        import httpx as _httpx
+        # Disable HTTP/2 and set explicit timeouts — fixes APIConnectionError on some
+        # hosting providers (Railway, etc.) where HTTP/2 negotiation fails.
+        _http_client = _httpx.AsyncClient(
+            http2=False,
+            timeout=_httpx.Timeout(60.0, connect=15.0),
+            limits=_httpx.Limits(max_connections=5, max_keepalive_connections=2),
+        )
+        self.client = anthropic.AsyncAnthropic(api_key=api_key, http_client=_http_client, max_retries=1)
         self.model  = model
         self._demo_mode = api_key.strip() in _PLACEHOLDER_KEYS or not api_key.strip().startswith("sk-ant-")
         if self._demo_mode:
