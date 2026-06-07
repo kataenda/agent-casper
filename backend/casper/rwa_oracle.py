@@ -1,5 +1,5 @@
 """
-RWA Oracle — fetches Real-World Asset prices for the CasperYield AI agent.
+RWA Oracle — fetches Real-World Asset prices for the Agent Casper agent.
 
 Assets tracked:
   PAXG   — PAX Gold, an ERC-20 tokenized gold RWA (1 token = 1 troy oz of gold)
