@@ -6,7 +6,7 @@
 [![Smart Contract](https://img.shields.io/badge/Contract-hash--f6ba9dfa-00FF94)](https://testnet.cspr.live)
 [![License: MIT](https://img.shields.io/badge/License-MIT-BF5AF2.svg)](LICENSE)
 [![Demo Video](https://img.shields.io/badge/Demo-YouTube-FF0000)](https://youtu.be/cYOoYzr03gI)
-[![Live Demo](https://img.shields.io/badge/Live%20Demo-Vercel-000000)](https://agent-casper-git-master-soeclaw.vercel.app)
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-VPS-00F5FF)](https://casper.soenic.com)
 
 ---
 
@@ -14,10 +14,10 @@
 
 | | |
 |---|---|
-| **Live Dashboard** | https://agent-casper-git-master-soeclaw.vercel.app |
+| **Live Dashboard** | https://casper.soenic.com |
+| **Backend API** | https://agentcasper.soenic.com |
 | **Demo Video** | https://youtu.be/cYOoYzr03gI |
 | **Smart Contract** | https://testnet.cspr.live (hash-f6ba9dfa...) |
-| **Backend API** | Deployed on Railway (see guide below) |
 
 ---
 
@@ -223,7 +223,8 @@ npm install
 
 Create `.env.local`:
 ```env
-NEXT_PUBLIC_BACKEND_URL=http://localhost:8000
+NEXT_PUBLIC_API_URL=http://localhost:8000
+NEXT_PUBLIC_WS_URL=ws://localhost:8000
 ```
 
 Start the frontend:
@@ -235,76 +236,100 @@ Dashboard available at: `http://localhost:3000`
 
 ---
 
-## Deploying to Railway (Backend)
+## Deploying to VPS with Coolify
 
-Railway keeps the Python backend running continuously (24/7), which is required for the autonomous agent loop.
+Both backend and frontend are deployed on a self-hosted VPS using [Coolify](https://coolify.io) — a self-hostable Heroku/Netlify alternative. This gives full control over the environment and unrestricted outbound access to the Anthropic API.
 
-### Step 1 — Create a Railway Project
+### Prerequisites
 
-1. Go to [railway.com](https://railway.com) → **New Project**
-2. Select **Deploy from GitHub repo**
-3. Choose the `agent-casper` repository
-4. Railway will automatically detect it as a Python app
+- A VPS with at least 2 GB RAM (any provider: Hostinger, DigitalOcean, Hetzner, etc.)
+- Docker installed on the VPS
+- [Coolify installed](https://coolify.io/docs/installation) on the VPS
+- A domain pointed to your VPS IP (e.g. `agentcasper.yourdomain.com` for backend, `casper.yourdomain.com` for frontend)
 
-### Step 2 — Configure the Root Directory
+### Step 1 — Deploy the Backend
 
-In Railway → project → **Settings → Source**:
+1. In Coolify → **New Application** → **Public Repository**
+2. Fill in:
+   | Field | Value |
+   |---|---|
+   | **Repository URL** | `https://github.com/kataenda/agent-casper` |
+   | **Branch** | `master` |
+   | **Build Pack** | `Dockerfile` |
+   | **Base Directory** | `/backend` |
+   | **Ports Exposes** | `8000` |
+   | **Domain** | `https://agentcasper.yourdomain.com` |
 
-| Setting | Value |
-|---|---|
-| **Root Directory** | `backend` |
-| **Build Command** | `pip install -r requirements.txt` |
-| **Start Command** | `uvicorn main:app --host 0.0.0.0 --port $PORT` |
+3. In **Environment Variables**, add:
 
-### Step 3 — Set Environment Variables
+   | Variable | Value |
+   |---|---|
+   | `ANTHROPIC_API_KEY` | `sk-ant-api03-...` |
+   | `CASPER_NODE_URL` | `https://node.testnet.cspr.cloud/rpc` |
+   | `CSPR_CLOUD_API_KEY` | Your CSPR.cloud API key |
+   | `CSPR_CLOUD_BASE_URL` | `https://api.testnet.cspr.cloud` |
+   | `VAULT_CONTRACT_HASH` | `hash-xxxx...` |
+   | `VAULT_CONTRACT_VERSION_HASH` | 64-char hex (no `hash-` prefix) |
+   | `AGENT_ACCOUNT_HASH` | `account-hash-xxxx...` |
+   | `AGENT_SECRET_KEY_CONTENT` | PEM content with `\n` for newlines |
+   | `MAX_REBALANCES_PER_DAY` | `5` |
+   | `AGENT_POLL_INTERVAL_SECONDS` | `60` |
+   | `PORT` | `8000` |
+   | `DEBUG` | `false` |
 
-In Railway → project → **Variables**, add the following:
+   > **Tip for `AGENT_SECRET_KEY_CONTENT`:**
+   > PowerShell: `(Get-Content agent_secret_key.pem -Raw) -replace "\`r\`n","\n" -replace "\`n","\n"`
 
-| Variable | Value |
-|---|---|
-| `ANTHROPIC_API_KEY` | `sk-ant-api03-...` (from console.anthropic.com) |
-| `CASPER_NODE_URL` | `https://node.testnet.cspr.cloud/rpc` |
-| `CSPR_CLOUD_API_KEY` | Your CSPR.cloud API key |
-| `CSPR_CLOUD_BASE_URL` | `https://api.testnet.cspr.cloud` |
-| `VAULT_CONTRACT_HASH` | Contract hash (after deploying) |
-| `VAULT_CONTRACT_VERSION_HASH` | Contract version hash |
-| `AGENT_ACCOUNT_HASH` | `account-hash-xxxx...` |
-| `AGENT_SECRET_KEY_CONTENT` | Contents of your `.pem` file (newlines replaced with `\n`) |
-| `MAX_REBALANCES_PER_DAY` | `5` |
-| `AGENT_POLL_INTERVAL_SECONDS` | `60` |
-| `DEBUG` | `false` |
+4. Click **Deploy** — Coolify builds the Docker image and starts the container with HTTPS via Let's Encrypt.
 
-> **Tip for `AGENT_SECRET_KEY_CONTENT`:** Copy the entire contents of `agent_secret_key.pem`, then replace every newline with `\n` before pasting into Railway.
->
-> PowerShell:
-> ```powershell
-> (Get-Content agent_secret_key.pem -Raw) -replace "`r`n","\n" -replace "`n","\n"
-> ```
-> Linux/Mac:
-> ```bash
-> awk 'NR==1{printf $0} NR>1{printf "\\n" $0} END{print ""}' agent_secret_key.pem
-> ```
+### Step 2 — Deploy the Frontend
 
-### Step 4 — Deploy
+1. In Coolify → **New Application** → **Public Repository**
+2. Fill in:
+   | Field | Value |
+   |---|---|
+   | **Repository URL** | `https://github.com/kataenda/agent-casper` |
+   | **Branch** | `master` |
+   | **Build Pack** | `Nixpacks` |
+   | **Base Directory** | `/frontend` |
+   | **Ports Exposes** | `3000` |
+   | **Domain** | `https://casper.yourdomain.com` |
 
-Railway automatically builds and deploys on every push to the `master` branch.
+3. In **Environment Variables**, add:
 
-Check Railway logs to confirm success:
+   | Variable | Value |
+   |---|---|
+   | `NEXT_PUBLIC_API_URL` | `https://agentcasper.yourdomain.com` |
+   | `NEXT_PUBLIC_WS_URL` | `wss://agentcasper.yourdomain.com/ws` |
+
+4. Click **Deploy**.
+
+### Step 3 — DNS Setup
+
+Add two A records in your DNS panel:
+
+| Name | Type | Value |
+|---|---|---|
+| `agentcasper` | A | `<your VPS IP>` |
+| `casper` | A | `<your VPS IP>` |
+
+Coolify (via Traefik) will automatically obtain Let's Encrypt SSL certificates once DNS propagates.
+
+### Verifying Deployment
+
+```bash
+# Backend health check
+curl https://agentcasper.yourdomain.com/
+
+# Expected response:
+# {"name": "Agent Casper", "version": "1.0.0", "status": "running"}
+```
+
+Check Coolify → backend app → **Logs** to confirm:
 ```
 INFO  agent.yield_agent — YieldAgent started — polling every 60s
-INFO  agent.yield_agent — [Block 8,xxx,xxx] Decision: HOLD | Confidence: 0.88
+INFO  agent.yield_agent — [Block 8,xxx,xxx] Decision: REBALANCE | Confidence: 0.82
 ```
-
-### Step 5 — Connect Frontend to Railway Backend
-
-In Vercel → project → **Settings → Environment Variables**, add:
-
-| Variable | Value |
-|---|---|
-| `NEXT_PUBLIC_BACKEND_URL` | Your Railway URL, e.g. `https://agent-casper-production.up.railway.app` |
-| `ANTHROPIC_API_KEY` | `sk-ant-api03-...` (for the AI chat feature on Vercel) |
-
-Redeploy the frontend on Vercel after adding the variables.
 
 ---
 
@@ -344,7 +369,7 @@ Redeploy the frontend on Vercel after adding the variables.
 
 #### Step 2 — Open the Dashboard
 
-Go to: `https://agent-casper-git-master-soeclaw.vercel.app`
+Go to: `https://casper.soenic.com`
 
 Click the **wallet button** in the top right → **Connect Casper Wallet**
 
@@ -497,30 +522,30 @@ agent-casper/
 
 **Possible causes:**
 
-1. **`ANTHROPIC_API_KEY` not configured** — Check Railway/backend logs. If you see `⚠ ANTHROPIC_API_KEY is not set`, add the key to Railway or Vercel environment variables.
+1. **`ANTHROPIC_API_KEY` not configured** — Check Coolify backend logs. If you see `⚠ ANTHROPIC_API_KEY is not set`, add the key to Coolify Environment Variables and redeploy.
 
 2. **Portfolio already at optimal allocation** — If the reasoning says `"Portfolio already at optimal 40/45/15 allocation"`, the agent is correctly holding because no rebalance is needed.
 
 3. **Daily rebalance quota exhausted** — If the reasoning says `"Daily rebalance quota exhausted (5/5)"`, wait until midnight UTC for the counter to reset. You can increase the limit via `MAX_REBALANCES_PER_DAY`.
 
-4. **Market conditions not meeting threshold** — The AI only rebalances when the aggressive yield premium exceeds 8% above the risk-free rate AND conservative APY is above 8%. HOLD is the correct decision when conditions are not met.
+4. **Market conditions not meeting threshold** — The AI only rebalances when conditions warrant a change. HOLD is correct when the current allocation is already optimal.
 
 ### Backend cannot connect to Anthropic API
 
 ```
 WARNING agent.decision_engine — ANTHROPIC_API_KEY is not configured
 ```
-→ Set `ANTHROPIC_API_KEY=sk-ant-...` in Railway Variables.
+→ Set `ANTHROPIC_API_KEY=sk-ant-...` in Coolify → Environment Variables → redeploy.
 
 ```
 WARNING agent.decision_engine — Anthropic unexpected error: Connection error
 ```
-→ Check Railway network settings and ensure outbound connections to `api.anthropic.com` are not blocked.
+→ Verify port 443 is open on VPS (`ufw status`). VPS environments have unrestricted outbound access unlike some PaaS platforms.
 
 ### Frontend cannot connect to backend
 
-- Ensure `NEXT_PUBLIC_BACKEND_URL` in Vercel is set to the correct Railway URL
-- Check Railway: make sure the service is running (green status)
+- Ensure `NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_WS_URL` in Coolify frontend Environment Variables are correct
+- Verify both backend and frontend SSL certificates are valid (green padlock in browser)
 - CORS is allowed for all origins (`*`) by default
 
 ### Transaction failed (TX_FAILED)
