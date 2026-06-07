@@ -1,0 +1,45 @@
+services:
+  - type: web
+    name: agent-casper-backend
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    plan: free
+    region: singapore          # change to: oregon / frankfurt / ohio / virginia
+    healthCheckPath: /health
+
+    envVars:
+      # ── AI ──────────────────────────────────────────────────────────────────
+      - key: ANTHROPIC_API_KEY
+        sync: false            # set manually in Render dashboard
+
+      # ── Casper Network ──────────────────────────────────────────────────────
+      - key: CASPER_NODE_URL
+        value: https://node.testnet.cspr.cloud/rpc
+      - key: CSPR_CLOUD_API_KEY
+        sync: false            # set manually in Render dashboard
+      - key: CSPR_CLOUD_BASE_URL
+        value: https://api.testnet.cspr.cloud
+
+      # ── Vault & Agent ───────────────────────────────────────────────────────
+      - key: VAULT_CONTRACT_HASH
+        value: hash-f6ba9dfa2a236dcc253436c3350f06931465ca94290fad689dfc7c9058c559da
+      - key: VAULT_CONTRACT_VERSION_HASH
+        value: 935973a00ec682b291e21a1dbeafa3f34865650e8aa40ee43db71c564ec7f177
+      - key: AGENT_ACCOUNT_HASH
+        value: account-hash-88cb6d5e2b0a47b99688e0179a16f5c0c2a16f88c3294b6bf291d9020965843f
+      - key: AGENT_SECRET_KEY_CONTENT
+        sync: false            # paste PEM content (newlines → \n) in Render dashboard
+
+      # ── Agent Configuration ─────────────────────────────────────────────────
+      - key: AGENT_POLL_INTERVAL_SECONDS
+        value: "60"
+      - key: MAX_REBALANCES_PER_DAY
+        value: "5"
+
+      # ── App ────────────────────────────────────────────────────────────────
+      - key: DEBUG
+        value: "false"
+      - key: PORT
+        value: "8000"
