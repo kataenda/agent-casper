@@ -10,30 +10,33 @@
 
 ---
 
-## Tautan Penting
+## Quick Links
 
 | | |
 |---|---|
 | **Live Dashboard** | https://agent-casper-git-master-soeclaw.vercel.app |
 | **Demo Video** | https://youtu.be/cYOoYzr03gI |
 | **Smart Contract** | https://testnet.cspr.live (hash-f6ba9dfa...) |
-| **Backend API** | Deploy ke Railway (lihat panduan di bawah) |
+| **Backend API** | Deployed on Railway (see guide below) |
 
 ---
 
-## Gambaran Umum
+## Overview
 
-**AGENT-CASPER** adalah agen DeFi otonom yang berjalan di Casper Network. Setiap 60 detik, agen ini:
-1. Mengambil harga aset dunia nyata (PAXG/emas, UST10Y/obligasi AS, WTI/minyak)
-2. Mengambil data yield rates dari validator Casper via CSPR.cloud
-3. Mengirim semua data ke Claude AI untuk dianalisis
-4. Mengeksekusi transaksi on-chain secara otomatis jika perlu rebalancing
+**AGENT-CASPER** is a fully autonomous DeFi yield optimization agent running on the Casper Network. Every 60 seconds, the agent:
+
+1. Fetches real-world asset prices (PAXG/gold, UST10Y/T-bonds, WTI/oil)
+2. Fetches yield rates from Casper validators via CSPR.cloud
+3. Sends all data to Claude AI for analysis
+4. Autonomously executes on-chain rebalancing transactions when needed
+
+The system transforms a passive smart contract vault into a **self-driving portfolio manager**.
 
 > Built using the [Casper AI Toolkit](https://www.casper.network/ai) — MCP Servers, CSPR.cloud, Odra Framework, casper-js-sdk v5
 
 ---
 
-## Arsitektur
+## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -67,23 +70,23 @@
 
 ---
 
-## Casper AI Toolkit yang Digunakan
+## Casper AI Toolkit Used
 
-| Tool | Kegunaan |
+| Tool | Usage |
 |------|-------|
-| **CSPR.cloud** | Data block, deploy status, saldo akun |
-| **Odra Framework 2.7.2** | Smart contract YieldVault (Rust → WASM) |
-| **casper-js-sdk v5** | Frontend deploy signing, integrasi wallet |
-| **X402 Protocol** | Handler micropayment (dinonaktifkan by default, aktifkan via `X402_ENABLED=true`) |
-| **MCP Server** | Mengekspos state blockchain ke Claude via tool calls |
-| **Casper Wallet** | Autentikasi user dan penandatanganan transaksi |
-| **Claude AI** | Keputusan rebalancing otonom dengan konteks RWA |
+| **CSPR.cloud** | Block data, deploy status, account balances |
+| **Odra Framework 2.7.2** | YieldVault smart contract (Rust → WASM) |
+| **casper-js-sdk v5** | Frontend deploy signing, wallet integration |
+| **X402 Protocol** | Micropayment handler (disabled by default, enable via `X402_ENABLED=true`) |
+| **MCP Server** | Exposes blockchain state to Claude via tool calls |
+| **Casper Wallet** | User authentication and transaction signing |
+| **Claude AI** | Autonomous rebalancing decisions with RWA context |
 
 ---
 
 ## Smart Contract — YieldVault
 
-**Deploy di Casper Testnet:**
+**Deployed on Casper Testnet:**
 ```
 Contract Hash: hash-f6ba9dfa2a236dcc253436c3350f06931465ca94290fad689dfc7c9058c559da
 Network:       casper-test
@@ -92,21 +95,25 @@ Framework:     Odra 2.7.2 (Rust → WASM)
 
 ### Entry Points
 
-| Fungsi | Keterangan |
+| Function | Description |
 |----------|-------------|
-| `deposit()` | Payable — user deposit CSPR ke vault |
-| `withdraw(amount)` | User withdraw saldo CSPR |
-| `register_agent(agent)` | Owner daftarkan alamat AI agent |
-| `rebalance(strategy, pcts, reason)` | Agent eksekusi portfolio rebalance |
-| `update_rwa_price(asset, price, yield)` | Agent posting data RWA ke on-chain |
-| `get_portfolio()` | Mengembalikan TVL dan alokasi saat ini |
-| `emergency_pause()` | Kontrol keamanan oleh owner |
+| `deposit()` | Payable — users deposit CSPR into the vault |
+| `withdraw(amount)` | Users withdraw their CSPR balance |
+| `register_agent(agent)` | Owner registers the AI agent address |
+| `rebalance(strategy, pcts, reason)` | Agent executes a portfolio rebalance |
+| `update_rwa_price(asset, price, yield)` | Agent posts verified RWA data on-chain |
+| `get_portfolio()` | Returns current TVL and allocation |
+| `emergency_pause()` | Owner safety control |
+
+### Events Emitted
+
+`Deposited`, `Withdrawn`, `Rebalanced`, `AgentRegistered`, `RwaPriceUpdated`, `EmergencyPaused`
 
 ---
 
 ## Tech Stack
 
-| Layer | Teknologi |
+| Layer | Technology |
 |-------|-----------|
 | Smart Contract | Rust + Odra 2.7.2 → WASM (Casper 2.x) |
 | Backend | Python 3.11 + FastAPI + httpx |
@@ -118,36 +125,37 @@ Framework:     Odra 2.7.2 (Rust → WASM)
 
 ---
 
-## Referensi Semua Environment Variable
+## Environment Variables Reference
 
-File `.env` (salin dari `backend/.env.example`):
+Copy `backend/.env.example` to `backend/.env` and fill in all values:
 
 ```env
 # ── AI ──────────────────────────────────────────────────────────────────────
-# Daftar di https://console.anthropic.com → API Keys
+# Get your key at https://console.anthropic.com → API Keys
 ANTHROPIC_API_KEY=sk-ant-api03-...
 
 # ── Casper Network ────────────────────────────────────────────────────────
-# Gunakan endpoint resmi CSPR.cloud (https://www.casper.network/ai)
+# Official CSPR.cloud endpoints (https://www.casper.network/ai)
 CASPER_NODE_URL=https://node.testnet.cspr.cloud/rpc
-CSPR_CLOUD_API_KEY=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx   # Daftar di cspr.cloud
+CSPR_CLOUD_API_KEY=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx   # Register at cspr.cloud
 CSPR_CLOUD_BASE_URL=https://api.testnet.cspr.cloud
 
 # ── Vault & Agent ─────────────────────────────────────────────────────────
-# Diisi setelah deploy contract via dashboard
+# Filled in after deploying the contract via the dashboard
 VAULT_CONTRACT_HASH=hash-xxxx...
 VAULT_CONTRACT_VERSION_HASH=xxxx...
 AGENT_ACCOUNT_HASH=account-hash-xxxx...
 AGENT_SECRET_KEY_PATH=./agent_secret_key.pem
 
-# Untuk Railway / cloud deploy: isi konten PEM langsung di sini (ganti newline dengan \n)
+# For Railway / cloud deployments: paste the PEM content directly here
+# (replace newlines with \n)
 # AGENT_SECRET_KEY_CONTENT=-----BEGIN PRIVATE KEY-----\nxxxx\n-----END PRIVATE KEY-----
 
 # ── Agent Configuration ───────────────────────────────────────────────────
-AGENT_POLL_INTERVAL_SECONDS=60   # Interval polling (detik)
-MAX_REBALANCES_PER_DAY=5         # Maksimal rebalance per hari
+AGENT_POLL_INTERVAL_SECONDS=60   # How often the agent polls (seconds)
+MAX_REBALANCES_PER_DAY=5         # Maximum rebalances allowed per day
 
-# ── X402 Micropayment (opsional) ──────────────────────────────────────────
+# ── X402 Micropayment (optional) ──────────────────────────────────────────
 X402_ENABLED=false
 X402_PAYMENT_AMOUNT=1000000
 X402_FACILITATOR_URL=https://x402-facilitator.cspr.cloud
@@ -160,31 +168,31 @@ DEBUG=false
 
 ---
 
-## Panduan Setup Lokal (Development)
+## Local Development Setup
 
-### Prasyarat
+### Prerequisites
 
 - Python 3.11+
 - Node.js 18+
 - [Casper Wallet](https://www.casperwallet.io/) browser extension
-- Testnet CSPR dari [faucet](https://testnet.cspr.live/tools/faucet)
-- API Key Anthropic dari [console.anthropic.com](https://console.anthropic.com)
-- API Key CSPR.cloud dari [cspr.cloud](https://cspr.cloud)
+- Testnet CSPR from the [faucet](https://testnet.cspr.live/tools/faucet) (at least ~250 CSPR)
+- Anthropic API key from [console.anthropic.com](https://console.anthropic.com)
+- CSPR.cloud API key from [cspr.cloud](https://cspr.cloud)
 
-### 1. Clone Repository
+### 1. Clone the Repository
 
 ```bash
 git clone https://github.com/kataenda/agent-casper.git
 cd agent-casper
 ```
 
-### 2. Setup Backend
+### 2. Backend Setup
 
 ```bash
-# Buat virtual environment
+# Create virtual environment
 python -m venv .venv
 
-# Aktifkan venv
+# Activate venv
 .venv\Scripts\activate        # Windows
 # source .venv/bin/activate   # Linux/Mac
 
@@ -192,110 +200,117 @@ python -m venv .venv
 pip install -r backend/requirements.txt
 ```
 
-Buat file `.env`:
+Create the `.env` file:
 ```bash
 cp backend/.env.example backend/.env
-# Edit backend/.env, isi semua variabel yang dibutuhkan
+# Edit backend/.env and fill in all required variables
 ```
 
-Jalankan backend:
+Start the backend:
 ```bash
 python -m uvicorn main:app --app-dir backend --host 0.0.0.0 --port 8000 --reload
 ```
 
-Backend tersedia di: `http://localhost:8000`
+Backend available at: `http://localhost:8000`  
 Swagger API docs: `http://localhost:8000/docs`
 
-### 3. Setup Frontend
+### 3. Frontend Setup
 
 ```bash
 cd frontend
 npm install
 ```
 
-Buat file `.env.local`:
+Create `.env.local`:
 ```env
 NEXT_PUBLIC_BACKEND_URL=http://localhost:8000
 ```
 
-Jalankan frontend:
+Start the frontend:
 ```bash
 npm run dev
 ```
 
-Dashboard tersedia di: `http://localhost:3000`
+Dashboard available at: `http://localhost:3000`
 
 ---
 
-## Panduan Deploy ke Railway (Backend)
+## Deploying to Railway (Backend)
 
-Railway digunakan untuk menjalankan backend Python secara terus-menerus (24/7).
+Railway keeps the Python backend running continuously (24/7), which is required for the autonomous agent loop.
 
-### Langkah 1 — Buat Project di Railway
+### Step 1 — Create a Railway Project
 
-1. Buka [railway.com](https://railway.com) → **New Project**
-2. Pilih **Deploy from GitHub repo**
-3. Pilih repository `agent-casper`
-4. Railway akan otomatis mendeteksi Python app
+1. Go to [railway.com](https://railway.com) → **New Project**
+2. Select **Deploy from GitHub repo**
+3. Choose the `agent-casper` repository
+4. Railway will automatically detect it as a Python app
 
-### Langkah 2 — Konfigurasi Root Directory
+### Step 2 — Configure the Root Directory
 
-Di Railway Settings → **Source**:
-- **Root Directory**: `backend`
-- **Build Command**: `pip install -r requirements.txt`
-- **Start Command**: `uvicorn main:app --host 0.0.0.0 --port $PORT`
+In Railway → project → **Settings → Source**:
 
-### Langkah 3 — Set Environment Variables di Railway
-
-Di Railway → project → **Variables**, tambahkan semua variabel berikut:
-
-| Variable | Nilai |
+| Setting | Value |
 |---|---|
-| `ANTHROPIC_API_KEY` | `sk-ant-api03-...` (dari console.anthropic.com) |
+| **Root Directory** | `backend` |
+| **Build Command** | `pip install -r requirements.txt` |
+| **Start Command** | `uvicorn main:app --host 0.0.0.0 --port $PORT` |
+
+### Step 3 — Set Environment Variables
+
+In Railway → project → **Variables**, add the following:
+
+| Variable | Value |
+|---|---|
+| `ANTHROPIC_API_KEY` | `sk-ant-api03-...` (from console.anthropic.com) |
 | `CASPER_NODE_URL` | `https://node.testnet.cspr.cloud/rpc` |
-| `CSPR_CLOUD_API_KEY` | API key dari cspr.cloud |
+| `CSPR_CLOUD_API_KEY` | Your CSPR.cloud API key |
 | `CSPR_CLOUD_BASE_URL` | `https://api.testnet.cspr.cloud` |
-| `VAULT_CONTRACT_HASH` | hash contract (setelah deploy) |
-| `VAULT_CONTRACT_VERSION_HASH` | version hash contract |
+| `VAULT_CONTRACT_HASH` | Contract hash (after deploying) |
+| `VAULT_CONTRACT_VERSION_HASH` | Contract version hash |
 | `AGENT_ACCOUNT_HASH` | `account-hash-xxxx...` |
-| `AGENT_SECRET_KEY_CONTENT` | Isi file `.pem` (ganti newline jadi `\n`) |
+| `AGENT_SECRET_KEY_CONTENT` | Contents of your `.pem` file (newlines replaced with `\n`) |
 | `MAX_REBALANCES_PER_DAY` | `5` |
 | `AGENT_POLL_INTERVAL_SECONDS` | `60` |
 | `DEBUG` | `false` |
 
-> **Tips `AGENT_SECRET_KEY_CONTENT`:** Salin seluruh isi file `agent_secret_key.pem`, lalu ganti setiap baris baru dengan karakter `\n` sebelum paste ke Railway.
+> **Tip for `AGENT_SECRET_KEY_CONTENT`:** Copy the entire contents of `agent_secret_key.pem`, then replace every newline with `\n` before pasting into Railway.
 >
-> Contoh di PowerShell:
+> PowerShell:
 > ```powershell
 > (Get-Content agent_secret_key.pem -Raw) -replace "`r`n","\n" -replace "`n","\n"
 > ```
+> Linux/Mac:
+> ```bash
+> awk 'NR==1{printf $0} NR>1{printf "\\n" $0} END{print ""}' agent_secret_key.pem
+> ```
 
-### Langkah 4 — Deploy
+### Step 4 — Deploy
 
-Railway akan otomatis build dan deploy setiap kali ada push ke branch `master`.
+Railway automatically builds and deploys on every push to the `master` branch.
 
-Cek log Railway untuk memastikan berhasil:
+Check Railway logs to confirm success:
 ```
-INFO     agent.yield_agent — YieldAgent started — polling every 60s
-INFO     agent.yield_agent — [Block 8,xxx,xxx] Decision: HOLD | Confidence: 0.88
+INFO  agent.yield_agent — YieldAgent started — polling every 60s
+INFO  agent.yield_agent — [Block 8,xxx,xxx] Decision: HOLD | Confidence: 0.88
 ```
 
-### Langkah 5 — Hubungkan Frontend ke Railway Backend
+### Step 5 — Connect Frontend to Railway Backend
 
-Di Vercel → project `agent-casper` → **Settings → Environment Variables**:
+In Vercel → project → **Settings → Environment Variables**, add:
 
-| Variable | Nilai |
+| Variable | Value |
 |---|---|
-| `NEXT_PUBLIC_BACKEND_URL` | URL Railway kamu, misal `https://agent-casper-production.up.railway.app` |
-| `ANTHROPIC_API_KEY` | `sk-ant-api03-...` (untuk fitur AI chat di Vercel) |
+| `NEXT_PUBLIC_BACKEND_URL` | Your Railway URL, e.g. `https://agent-casper-production.up.railway.app` |
+| `ANTHROPIC_API_KEY` | `sk-ant-api03-...` (for the AI chat feature on Vercel) |
 
-Redeploy frontend di Vercel setelah menambahkan variabel.
+Redeploy the frontend on Vercel after adding the variables.
 
 ---
 
-## Panduan Penggunaan Dashboard
+## Using the Dashboard
 
-### Panel-Panel di Dashboard
+### Dashboard Layout
 
 ```
 ┌──────────────────┬──────────────────┬──────────────────┬──────────────────┐
@@ -304,94 +319,94 @@ Redeploy frontend di Vercel setelah menambahkan variabel.
 │  Strategy: Bal.  │   0 cycles       │   Confidence:82% │  Casper Testnet  │
 └──────────────────┴──────────────────┴──────────────────┴──────────────────┘
 ┌────────────────┬────────────────────────┬────────────────┬────────────────┐
-│  RWA ORACLE    │  PORTFOLIO TRAJECTORY  │  ON-CHAIN PROOF│ YIELD INTELL.  │
-│  PAXG (Gold)   │  Grafik portfolio      │  Contract Live │ Conservative:  │
-│  UST10Y (Bond) │  nilai dari waktu      │  Hash deploy   │  9.53% APY     │
-│  WTI (Oil)     │  ke waktu              │  TX terakhir   │ Aggressive:    │
+│  RWA ORACLE    │  PORTFOLIO TRAJECTORY  │  ON-CHAIN PROOF│ YIELD INTEL.   │
+│  PAXG (Gold)   │  Portfolio value       │  Contract Live │ Conservative:  │
+│  UST10Y (Bond) │  chart over time       │  Deploy hash   │  9.53% APY     │
+│  WTI (Oil)     │                        │  Last TX       │ Aggressive:    │
 ├────────────────┤                        │                │  14.50% APY    │
 │  ALLOC MATRIX  │                        │                │                │
 │  Donut chart   │                        │                │                │
 └────────────────┴────────────────────────┴────────────────┴────────────────┘
 ┌────────────────┬────────────────────────────────────────┬────────────────┐
 │  VAULT ACTIONS │  NEURAL DECISION LOG                   │  ASK AI AGENT  │
-│  Deposit CSPR  │  Histori semua keputusan AI            │  Chat dengan   │
+│  Deposit CSPR  │  Full AI decision history              │  Chat with     │
 │  TX History    │  HOLD / REBALANCE + reasoning          │  Claude AI     │
 └────────────────┴────────────────────────────────────────┴────────────────┘
 ```
 
-### Alur Penggunaan Pertama Kali
+### First-Time Setup Flow
 
-#### Langkah 1 — Siapkan Wallet
+#### Step 1 — Prepare Your Wallet
 
-1. Install [Casper Wallet](https://www.casperwallet.io/) di browser
-2. Buat atau import akun Casper
-3. Dapatkan testnet CSPR dari [faucet](https://testnet.cspr.live/tools/faucet) (butuh minimal ~250 CSPR)
+1. Install [Casper Wallet](https://www.casperwallet.io/) in your browser
+2. Create or import a Casper account
+3. Get testnet CSPR from the [faucet](https://testnet.cspr.live/tools/faucet) (minimum ~250 CSPR)
 
-#### Langkah 2 — Buka Dashboard
+#### Step 2 — Open the Dashboard
 
-Buka: `https://agent-casper-git-master-soeclaw.vercel.app`
+Go to: `https://agent-casper-git-master-soeclaw.vercel.app`
 
-Klik tombol **wallet** di pojok kanan atas → **Connect Casper Wallet**
+Click the **wallet button** in the top right → **Connect Casper Wallet**
 
-#### Langkah 3 — Deploy Smart Contract
+#### Step 3 — Deploy the Smart Contract
 
-> Lewati langkah ini jika contract sudah deploy (hash sudah ada di `.env`)
+> Skip this step if the contract is already deployed (hash is set in `.env`)
 
-1. Klik tombol **"Deploy Contract"** di panel Vault Actions
-2. Casper Wallet akan minta konfirmasi transaksi (~230 CSPR gas)
-3. Tunggu konfirmasi (~2 menit), Contract Hash akan muncul di On-Chain Proof panel
+1. Click **"Deploy Contract"** in the Vault Actions panel
+2. Casper Wallet will ask for confirmation (~230 CSPR gas)
+3. Wait for confirmation (~2 minutes) — the Contract Hash will appear in the On-Chain Proof panel
 
-#### Langkah 4 — Register Agent
+#### Step 4 — Register the Agent
 
-1. Klik **"Register Agent"**
-2. Konfirmasi di Casper Wallet
-3. Tunggu sampai status berubah jadi `AGENT REGISTERED` di panel On-Chain Proof
+1. Click **"Register Agent"**
+2. Confirm in Casper Wallet
+3. Wait until the status shows `AGENT REGISTERED` in the On-Chain Proof panel
 
-Ini memberi izin ke AI agent untuk mengeksekusi rebalance atas nama vault.
+This grants the AI agent permission to execute rebalances on behalf of the vault.
 
-#### Langkah 5 — Deposit CSPR
+#### Step 5 — Deposit CSPR
 
-1. Di panel **Vault Actions**, masukkan jumlah CSPR
-2. Klik **"Deposit to Vault"**
-3. Konfirmasi di Casper Wallet
-4. TVL (Total Value Locked) akan terupdate di Portfolio Value
+1. In the **Vault Actions** panel, enter the amount of CSPR
+2. Click **"Deposit to Vault"**
+3. Confirm in Casper Wallet
+4. The TVL (Total Value Locked) will update in the Portfolio Value card
 
-#### Langkah 6 — Pantau Agen Berjalan
+#### Step 6 — Monitor the Agent
 
-Setelah deposit, agen sudah aktif otomatis. Pantau:
+Once CSPR is deposited, the agent is active automatically. Watch:
 
-- **AI Decision** (pojok kanan atas kartu): HOLD / REBALANCE / ALERT
-- **Neural Decision Log**: lihat reasoning Claude AI tiap 60 detik
-- **Portfolio Trajectory**: grafik nilai portfolio dari waktu ke waktu
-- **Allocation Matrix**: donut chart alokasi CONS/BALA/AGGR saat ini
+- **AI Decision** card: HOLD / REBALANCE / ALERT
+- **Neural Decision Log**: Claude AI reasoning every 60 seconds
+- **Portfolio Trajectory**: value chart over time
+- **Allocation Matrix**: live donut chart of CONS/BALA/AGGR split
 
 ---
 
-## Tombol Kontrol Agent
+## Agent Control Buttons
 
-| Tombol | Fungsi |
+| Button | Action |
 |--------|--------|
-| **START AGENT** | Mulai loop agen (polling setiap 60 detik) |
-| **STOP AGENT** | Hentikan loop agen sementara |
-| **API** | Buka Swagger UI dokumentasi API backend |
+| **START AGENT** | Start the agent loop (polls every 60 seconds) |
+| **STOP AGENT** | Pause the agent loop |
+| **API** | Open Swagger UI for backend API documentation |
 
 ---
 
-## Perintah Chat (Ask AI Agent)
+## Chat Commands (Ask AI Agent)
 
-Ketik langsung di kotak **"Ask about portfolio..."** di pojok kanan bawah:
+Type directly in the **"Ask about portfolio..."** box in the bottom-right corner:
 
-| Perintah | Contoh | Efek |
+| Command | Example | Effect |
 |---------|---------|--------|
-| **start** | `start`, `resume`, `running` | Mulai agen loop |
-| **stop** | `pause`, `stop` | Hentikan agen loop |
-| **status** | `status`, `report` | Tampilkan status lengkap agen |
-| **rebalance** | `rebalance`, `rebalance conservative` | Paksa rebalance sekarang |
-| **Pertanyaan bebas** | `apa itu TVL?`, `strategi terbaik?` | Dijawab Claude AI |
+| **start** | `start`, `resume`, `running` | Start the agent loop |
+| **stop** | `pause`, `stop` | Stop the agent loop |
+| **status** | `status`, `report` | Show full agent status |
+| **rebalance** | `rebalance`, `rebalance conservative` | Force an immediate rebalance |
+| **Free Q&A** | `what is TVL?`, `best strategy?` | Answered by Claude AI |
 
-**Contoh output `status`:**
+**Example `status` output:**
 ```
-STATUS AGENT:
+AGENT STATUS:
 • Running: Yes
 • Rebalances today: 2/5
 • Total cycles: 24
@@ -402,7 +417,7 @@ STATUS AGENT:
 • Last decision: HOLD (88% confidence)
 ```
 
-**Contoh output `rebalance conservative`:**
+**Example `rebalance conservative` output:**
 ```
 REBALANCE EXECUTED!
 • Strategy: Conservative (CON=70% BAL=20% AGG=10%)
@@ -412,36 +427,36 @@ REBALANCE EXECUTED!
 
 ---
 
-## Memahami Keputusan AI
+## Understanding AI Decisions
 
-### Tiga Jenis Keputusan
+### Three Decision Types
 
-| Keputusan | Arti | Kapan terjadi |
-|-----------|------|---------------|
-| **HOLD** | Pertahankan alokasi saat ini | Portofolio sudah optimal, quota habis, atau kondisi pasar stabil |
-| **REBALANCE** | Ubah alokasi portofolio | AI menemukan komposisi yang lebih baik secara risk-adjusted |
-| **ALERT** | Kondisi anomali terdeteksi | APY spike >50%, TVL drop >30%, atau lonjakan risiko |
+| Decision | Meaning | When it happens |
+|----------|---------|-----------------|
+| **HOLD** | Keep current allocation | Portfolio already optimal, daily quota exhausted, or stable market conditions |
+| **REBALANCE** | Change portfolio allocation | AI finds a better risk-adjusted allocation |
+| **ALERT** | Anomalous conditions detected | APY spike >50%, TVL drop >30%, or risk surge |
 
-### Tiga Strategi Alokasi
+### Three Allocation Strategies
 
-| Strategi | CONS | BALA | AGGR | Risk | Cocok untuk |
-|----------|------|------|------|------|-------------|
-| **Conservative** | 70% | 20% | 10% | Rendah | Pasar tidak pasti, emas naik |
-| **Balanced** | 40% | 45% | 15% | Sedang | Kondisi normal |
-| **Aggressive** | 10% | 20% | 70% | Tinggi | Yield DeFi sangat tinggi |
+| Strategy | CONS | BALA | AGGR | Risk | Best for |
+|----------|------|------|------|------|----------|
+| **Conservative** | 70% | 20% | 10% | Low | Uncertain market, gold rising |
+| **Balanced** | 40% | 45% | 15% | Medium | Normal conditions |
+| **Aggressive** | 10% | 20% | 70% | High | Very high DeFi yields |
 
-### Indikator RWA yang Mempengaruhi Keputusan
+### RWA Signals and Their Effect on AI Decisions
 
-| Sinyal | Dampak ke AI |
+| Signal | Effect on AI |
 |--------|-------------|
-| PAXG (emas) naik >1% | Favoritkan alokasi Conservative (flight-to-safety) |
-| UST10Y (Treasury) >5% | Minta yield premium DeFi ≥3× Treasury rate |
-| UST10Y <3.5% | DeFi lebih menarik → Balanced/Aggressive acceptable |
-| WTI (minyak) naik tajam | Naikkan threshold risiko untuk posisi Aggressive |
+| PAXG (gold) rises >1% | Favor Conservative allocation (flight-to-safety) |
+| UST10Y (Treasury) >5% | Require DeFi yield premium ≥3× Treasury rate |
+| UST10Y <3.5% | DeFi more attractive → Balanced/Aggressive acceptable |
+| WTI (oil) surging | Raise risk threshold for Aggressive positions |
 
 ---
 
-## Struktur Proyek
+## Project Structure
 
 ```
 agent-casper/
@@ -451,24 +466,24 @@ agent-casper/
 │   ├── Dockerfile.build        # WASM compilation
 │   └── wasm/yield_vault.wasm   # Built by CI
 ├── backend/
-│   ├── main.py                 # FastAPI + WebSocket + lifecycle agen
-│   ├── .env.example            # Template konfigurasi
+│   ├── main.py                 # FastAPI + WebSocket + agent lifecycle
+│   ├── .env.example            # Configuration template
 │   ├── agent/
-│   │   ├── yield_agent.py      # Loop agen otonom 60 detik
-│   │   └── decision_engine.py  # Claude AI dengan MCP tools
+│   │   ├── yield_agent.py      # Autonomous 60-second agent loop
+│   │   └── decision_engine.py  # Claude AI with MCP tools
 │   └── casper/
 │       ├── client.py           # CSPR.cloud REST client
-│       ├── deployer.py         # Penandatanganan transaksi (pycspr)
-│       ├── rwa_oracle.py       # Harga PAXG / UST10Y / WTI
-│       ├── mcp_server.py       # MCP server — tool blockchain untuk Claude
+│       ├── deployer.py         # Transaction signing (pycspr)
+│       ├── rwa_oracle.py       # PAXG / UST10Y / WTI price feeds
+│       ├── mcp_server.py       # MCP server — blockchain tools for Claude
 │       └── x402.py             # X402 micropayment handler
 ├── frontend/src/
-│   ├── app/page.tsx            # Cyber dashboard utama
+│   ├── app/page.tsx            # Main cyber dashboard
 │   └── components/
-│       ├── DeployPanel.tsx     # Deploy contract
+│       ├── DeployPanel.tsx     # Contract deployment
 │       ├── VaultControls.tsx   # Register agent + deposit
-│       ├── RWAPanel.tsx        # Tampilan real-world asset
-│       ├── DecisionLog.tsx     # Histori keputusan AI
+│       ├── RWAPanel.tsx        # Real-world asset display
+│       ├── DecisionLog.tsx     # AI decision history
 │       └── ChatBox.tsx         # AI chat
 └── .github/workflows/
     └── deploy-contract.yml     # CI: auto-build WASM
@@ -478,92 +493,91 @@ agent-casper/
 
 ## Troubleshooting
 
-### Agent selalu HOLD
+### Agent always shows HOLD
 
-**Kemungkinan penyebab:**
+**Possible causes:**
 
-1. **`ANTHROPIC_API_KEY` belum dikonfigurasi** — Cek log Railway/backend. Jika ada pesan `⚠ ANTHROPIC_API_KEY is not set`, tambahkan key di environment variables Railway/Vercel.
+1. **`ANTHROPIC_API_KEY` not configured** — Check Railway/backend logs. If you see `⚠ ANTHROPIC_API_KEY is not set`, add the key to Railway or Vercel environment variables.
 
-2. **Portofolio sudah di alokasi optimal** — Jika reasoning berbunyi `"Portfolio already at optimal 40/45/15 allocation"`, agen memang benar HOLD karena tidak perlu rebalance.
+2. **Portfolio already at optimal allocation** — If the reasoning says `"Portfolio already at optimal 40/45/15 allocation"`, the agent is correctly holding because no rebalance is needed.
 
-3. **Quota rebalance habis** — Jika reasoning berbunyi `"Daily rebalance quota exhausted (5/5)"`, tunggu hingga tengah malam UTC untuk reset. Bisa dinaikkan via `MAX_REBALANCES_PER_DAY`.
+3. **Daily rebalance quota exhausted** — If the reasoning says `"Daily rebalance quota exhausted (5/5)"`, wait until midnight UTC for the counter to reset. You can increase the limit via `MAX_REBALANCES_PER_DAY`.
 
-4. **Kondisi pasar tidak memenuhi threshold** — AI hanya REBALANCE jika premium yield aggressive >8% di atas risk-free rate dan conservative >8% APY. Jika kondisi pasar tidak memenuhi, HOLD adalah keputusan yang benar.
+4. **Market conditions not meeting threshold** — The AI only rebalances when the aggressive yield premium exceeds 8% above the risk-free rate AND conservative APY is above 8%. HOLD is the correct decision when conditions are not met.
 
-### Backend tidak connect ke Anthropic API
+### Backend cannot connect to Anthropic API
 
-Cek log:
 ```
 WARNING agent.decision_engine — ANTHROPIC_API_KEY is not configured
 ```
-→ Set `ANTHROPIC_API_KEY=sk-ant-...` di Railway Variables.
+→ Set `ANTHROPIC_API_KEY=sk-ant-...` in Railway Variables.
 
 ```
 WARNING agent.decision_engine — Anthropic unexpected error: Connection error
 ```
-→ Cek koneksi network Railway, pastikan tidak ada firewall yang memblokir `api.anthropic.com`.
+→ Check Railway network settings and ensure outbound connections to `api.anthropic.com` are not blocked.
 
-### Frontend tidak connect ke backend
+### Frontend cannot connect to backend
 
-- Pastikan `NEXT_PUBLIC_BACKEND_URL` di Vercel sudah diisi dengan URL Railway yang benar
-- Cek Railway: pastikan service sudah running (status hijau)
-- Cek CORS: backend secara default mengizinkan semua origin (`*`)
+- Ensure `NEXT_PUBLIC_BACKEND_URL` in Vercel is set to the correct Railway URL
+- Check Railway: make sure the service is running (green status)
+- CORS is allowed for all origins (`*`) by default
 
-### Transaksi gagal (TX_FAILED)
+### Transaction failed (TX_FAILED)
 
-- Pastikan agent account punya saldo CSPR untuk gas (~5 CSPR per transaksi)
-- Cek `AGENT_SECRET_KEY_PATH` atau `AGENT_SECRET_KEY_CONTENT` sudah benar
-- Cek `VAULT_CONTRACT_HASH` sesuai dengan contract yang sudah deploy
+- Ensure the agent account has enough CSPR for gas (~5 CSPR per transaction)
+- Verify `AGENT_SECRET_KEY_PATH` or `AGENT_SECRET_KEY_CONTENT` is correct
+- Verify `VAULT_CONTRACT_HASH` matches the deployed contract
 
-### Port sudah dipakai (local dev)
+### Port already in use (local dev)
 
 ```bash
-# Cek proses yang pakai port 8000
+# Check which process is using port 8000
 netstat -ano | findstr :8000   # Windows
 lsof -i :8000                  # Linux/Mac
 ```
 
 ---
 
-## Catatan Penting Operasional
+## Important Operational Notes
 
-- Agent membutuhkan **saldo CSPR di akun agent** untuk membayar gas transaksi rebalance (~5 CSPR per eksekusi)
-- Maksimal **5 rebalance per hari** (dapat diubah via `MAX_REBALANCES_PER_DAY`)
-- Setelah 5 rebalance, agen terus memantau tapi tidak akan eksekusi sampai reset tengah malam UTC
-- Semua transaksi dapat dicek di [testnet.cspr.live](https://testnet.cspr.live)
-- Smart contract sudah live di Casper Testnet — **jangan gunakan CSPR mainnet**
+- The agent requires **CSPR balance in the agent account** to pay gas for rebalance transactions (~5 CSPR each)
+- Maximum **5 rebalances per day** (configurable via `MAX_REBALANCES_PER_DAY`)
+- After 5 rebalances, the agent keeps monitoring but will not execute until the quota resets at midnight UTC
+- All transactions are visible at [testnet.cspr.live](https://testnet.cspr.live)
+- The smart contract is live on Casper **Testnet** — do not use Mainnet CSPR
 
 ---
 
 ## Roadmap
 
 ### Phase 1 — Buildathon MVP ✅
-- YieldVault contract di Casper Testnet
-- Agen AI otonom (Claude) dengan loop keputusan 60 detik
+- YieldVault contract on Casper Testnet
+- Autonomous AI agent (Claude) with 60-second decision loop
 - RWA oracle on-chain posting (PAXG, UST10Y)
-- Real-time cyber dashboard dengan WebSocket
+- Real-time cyber dashboard with WebSocket
 
 ### Phase 2 — DeFi Integration (Q3 2026)
-- Integrasi protokol DeFi Casper yang sesungguhnya
-- Feed yield rate live dari sumber on-chain
-- Dukungan multi-vault strategy
-- Notifikasi mobile (Telegram bot)
+- Connect to real Casper DeFi protocols
+- Live yield rate feeds from on-chain sources
+- Multi-vault strategy support
+- Mobile notifications (Telegram bot)
 
 ### Phase 3 — Production Launch (Q4 2026)
-- Deploy ke Casper Mainnet
-- X402 fee-based API untuk akses institusional
-- DAO governance untuk parameter strategi
-- Smart contract yang sudah diaudit
+- Casper Mainnet deployment
+- X402 fee-based API for institutional access
+- DAO governance for strategy parameters
+- Audited smart contracts
 
 ---
 
-## Komunitas & Vote
+## Community Vote
 
-Jika project ini bermanfaat, tolong **vote untuk Agent Casper AI** di [CSPR.fans](https://cspr.fans) untuk membantu kami masuk Final Round Buildathon!
+If you find this project useful, please **vote for Agent Casper AI** on [CSPR.fans](https://cspr.fans) to help us advance to the Final Round of the Buildathon!
 
 ---
 
-## Lisensi
+## License
 
 MIT License — Copyright (c) 2026 Soesoe
 
