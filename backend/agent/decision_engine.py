@@ -155,14 +155,15 @@ _PLACEHOLDER_KEYS = {"demo-key", "", "sk-ant-api03-..."}
 class DecisionEngine:
     def __init__(self, api_key: str, model: str = "claude-haiku-4-5-20251001"):
         import httpx as _httpx
-        # Disable HTTP/2 and set explicit timeouts — fixes APIConnectionError on some
-        # hosting providers (Railway, etc.) where HTTP/2 negotiation fails.
         _http_client = _httpx.AsyncClient(
             http2=False,
             timeout=_httpx.Timeout(60.0, connect=15.0),
             limits=_httpx.Limits(max_connections=5, max_keepalive_connections=2),
         )
-        self.client = anthropic.AsyncAnthropic(api_key=api_key, http_client=_http_client, max_retries=1)
+        self.client      = anthropic.AsyncAnthropic(api_key=api_key, http_client=_http_client, max_retries=0)
+        # Sync client used as fallback when async httpx fails on containerised hosts
+        # (Railway, etc.) where asyncio-level SSL/TCP behaves differently to thread sockets.
+        self._sync_client = anthropic.Anthropic(api_key=api_key, max_retries=0)
         self.model  = model
         self._demo_mode = api_key.strip() in _PLACEHOLDER_KEYS or not api_key.strip().startswith("sk-ant-")
         if self._demo_mode:
@@ -177,6 +178,16 @@ class DecisionEngine:
         self._mcp_tools: list[dict] = []
         self._stdio_cm = None
         self._session_cm = None
+
+    async def _messages_create(self, **kwargs):
+        """Call Claude — async first, sync-in-thread as fallback for network environments
+        where asyncio httpx fails (e.g. Railway containers)."""
+        import asyncio as _asyncio
+        try:
+            return await self.client.messages.create(**kwargs)
+        except anthropic.APIConnectionError as exc:
+            logger.info("Async client connection failed (%s) — retrying with sync client in thread pool", exc)
+            return await _asyncio.to_thread(self._sync_client.messages.create, **kwargs)
 
     async def _get_mcp_session(
         self, vault_contract_hash: str, agent_account_hash: str
@@ -313,7 +324,7 @@ class DecisionEngine:
         # Agentic loop — Claude calls tools until it calls rebalance_decision
         for round_num in range(MAX_TOOL_ROUNDS):
             try:
-                response = await self.client.messages.create(
+                response = await self._messages_create(
                     model=self.model,
                     max_tokens=2048,
                     system=SYSTEM_PROMPT,
@@ -474,7 +485,7 @@ class DecisionEngine:
         )
 
         try:
-            response = await self.client.messages.create(
+            response = await self._messages_create(
                 model=self.model,
                 max_tokens=2048,
                 system=SYSTEM_PROMPT,
