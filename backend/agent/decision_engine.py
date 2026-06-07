@@ -150,10 +150,20 @@ REBALANCE_TOOL: dict[str, Any] = {
 
 # ── Engine ─────────────────────────────────────────────────────────────────────
 
+_PLACEHOLDER_KEYS = {"demo-key", "", "sk-ant-api03-..."}
+
 class DecisionEngine:
     def __init__(self, api_key: str, model: str = "claude-haiku-4-5-20251001"):
         self.client = anthropic.AsyncAnthropic(api_key=api_key)
         self.model  = model
+        self._demo_mode = api_key.strip() in _PLACEHOLDER_KEYS or not api_key.strip().startswith("sk-ant-")
+        if self._demo_mode:
+            logger.warning(
+                "ANTHROPIC_API_KEY is not configured (got %r) — Claude AI disabled. "
+                "Set ANTHROPIC_API_KEY in .env or Vercel environment variables. "
+                "Falling back to rule-based decisions.",
+                api_key[:12] + "..." if len(api_key) > 12 else api_key,
+            )
         # Persistent MCP session — reused across cycles to avoid subprocess cold-start overhead
         self._mcp_session: "ClientSession | None" = None
         self._mcp_tools: list[dict] = []
@@ -227,6 +237,12 @@ class DecisionEngine:
             logger.warning("MCP package not installed — running in demo fallback mode.")
             return self._demo_hold()
 
+        if self._demo_mode:
+            return self._rule_based_decide(
+                yield_rates or [], rwa_prices or [],
+                rebalance_count_today, max_rebalances_per_day, portfolio,
+            )
+
         session = await self._get_mcp_session(vault_contract_hash, agent_account_hash)
 
         if session is not None:
@@ -256,7 +272,7 @@ class DecisionEngine:
                 rebalance_count_today=rebalance_count_today,
                 max_rebalances_per_day=max_rebalances_per_day,
             )
-        return self._rule_based_decide(yield_rates or [], rwa_prices or [], rebalance_count_today, max_rebalances_per_day)
+        return self._rule_based_decide(yield_rates or [], rwa_prices or [], rebalance_count_today, max_rebalances_per_day, portfolio)
 
     async def _agentic_loop(
         self,
@@ -468,7 +484,7 @@ class DecisionEngine:
         except Exception as exc:
             logger.warning("Claude direct call failed: %s — using rule-based decision", exc)
 
-        return self._rule_based_decide(yield_rates, rwa_prices, rebalance_count_today, max_rebalances_per_day)
+        return self._rule_based_decide(yield_rates, rwa_prices, rebalance_count_today, max_rebalances_per_day, portfolio)
 
     @staticmethod
     def _rule_based_decide(
@@ -476,12 +492,12 @@ class DecisionEngine:
         rwa_prices: list,
         rebalance_count_today: int,
         max_rebalances_per_day: int,
+        portfolio=None,
     ) -> RebalanceDecision:
         """
         Rule-based fallback when Claude API is unreachable.
         Uses real yield_rates and rwa_prices data for a deterministic decision.
         """
-        # Parse yield rates
         rates = {}
         for r in (yield_rates or []):
             d = r.model_dump() if hasattr(r, "model_dump") else r
@@ -491,47 +507,82 @@ class DecisionEngine:
         conservative = rates.get("conservative", 9.5)
         aggressive   = rates.get("aggressive", 14.5)
 
-        # Risk-free rate from RWA prices (UST10Y)
         risk_free = 4.22
         for a in (rwa_prices or []):
             if a.get("asset_id") == "UST10Y" and a.get("yield_pct"):
                 risk_free = a["yield_pct"]
                 break
 
-        # Rule: if aggressive premium > 8% above risk-free, consider rebalance
         premium = aggressive - risk_free
+        target_cons, target_bal, target_agg = 40, 45, 15
         can_rebalance = rebalance_count_today < max_rebalances_per_day
 
-        if can_rebalance and premium > 8.0 and conservative > 8.0:
-            # Good DeFi yields with safe conservative floor — trigger rebalance
-            reasoning = (
-                f"Quantitative analysis: Aggressive yield {aggressive:.1f}% vs risk-free {risk_free:.2f}% "
-                f"({premium:.1f}% premium). Conservative floor {conservative:.1f}% provides strong downside protection. "
-                f"Rebalancing to optimized 40/45/15 allocation."
+        # Quota exhausted — be explicit about why we're holding
+        if not can_rebalance:
+            return RebalanceDecision(
+                action="HOLD",
+                new_strategy=None,
+                conservative_pct=target_cons,
+                balanced_pct=target_bal,
+                aggressive_pct=target_agg,
+                reasoning=(
+                    f"Daily rebalance quota exhausted ({rebalance_count_today}/{max_rebalances_per_day}). "
+                    f"Aggressive {aggressive:.1f}% APY | Conservative {conservative:.1f}% APY | "
+                    f"Risk-free {risk_free:.2f}%. Maintaining allocation until quota resets at midnight UTC."
+                ),
+                confidence=0.90,
+                risk_level="LOW",
             )
+
+        if premium > 8.0 and conservative > 8.0:
+            # Check if portfolio is already at the target — no point rebalancing to the same allocation
+            if portfolio is not None:
+                curr = portfolio if isinstance(portfolio, dict) else portfolio.model_dump()
+                if (curr.get("conservative_pct") == target_cons
+                        and curr.get("balanced_pct") == target_bal
+                        and curr.get("aggressive_pct") == target_agg):
+                    return RebalanceDecision(
+                        action="HOLD",
+                        new_strategy=None,
+                        conservative_pct=target_cons,
+                        balanced_pct=target_bal,
+                        aggressive_pct=target_agg,
+                        reasoning=(
+                            f"Portfolio already at optimal {target_cons}/{target_bal}/{target_agg} allocation. "
+                            f"Aggressive {aggressive:.1f}% APY | Conservative {conservative:.1f}% APY | "
+                            f"Risk-free {risk_free:.2f}% ({premium:.1f}% premium). No rebalance needed."
+                        ),
+                        confidence=0.88,
+                        risk_level="LOW",
+                    )
+
             return RebalanceDecision(
                 action="REBALANCE",
                 new_strategy="balanced",
-                conservative_pct=40,
-                balanced_pct=45,
-                aggressive_pct=15,
-                reasoning=reasoning,
+                conservative_pct=target_cons,
+                balanced_pct=target_bal,
+                aggressive_pct=target_agg,
+                reasoning=(
+                    f"Quantitative analysis: Aggressive yield {aggressive:.1f}% vs risk-free {risk_free:.2f}% "
+                    f"({premium:.1f}% premium). Conservative floor {conservative:.1f}% provides downside protection. "
+                    f"Rebalancing to optimized {target_cons}/{target_bal}/{target_agg} allocation."
+                ),
                 confidence=0.78,
                 risk_level="LOW",
             )
 
-        reasoning = (
-            f"Quantitative HOLD: Aggressive {aggressive:.1f}% APY | Conservative {conservative:.1f}% APY | "
-            f"Risk-free {risk_free:.2f}%. Yield premium {premium:.1f}% below rebalance threshold. "
-            f"Maintaining conservative stance to preserve capital."
-        )
+        above_below = lambda v, t: "above" if v > t else "below"
         return RebalanceDecision(
             action="HOLD",
             new_strategy=None,
-            conservative_pct=40,
-            balanced_pct=50,
-            aggressive_pct=10,
-            reasoning=reasoning,
+            conservative_pct=target_cons,
+            balanced_pct=target_bal,
+            aggressive_pct=target_agg,
+            reasoning=(
+                f"Quantitative HOLD: premium {premium:.1f}% {above_below(premium, 8.0)} 8% threshold, "
+                f"conservative {conservative:.1f}% {above_below(conservative, 8.0)} 8% floor. "
+                f"Risk-free {risk_free:.2f}%. Maintaining conservative stance."
+            ),
             confidence=0.82,
             risk_level="LOW",
         )
