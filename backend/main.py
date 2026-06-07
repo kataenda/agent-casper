@@ -72,6 +72,15 @@ os.environ.setdefault("CSPR_CLOUD_API_KEY", settings.cspr_cloud_api_key)
 os.environ.setdefault("CSPR_CLOUD_BASE_URL", settings.cspr_cloud_base_url)
 os.environ.setdefault("ANTHROPIC_API_KEY", settings.anthropic_api_key)
 
+_key = settings.anthropic_api_key
+if not _key.startswith("sk-ant-") or _key in ("sk-ant-api03-...",):
+    logger.warning(
+        "⚠  ANTHROPIC_API_KEY is not set or uses a placeholder value (%r). "
+        "Claude AI will be disabled — agent runs on rule-based fallback only. "
+        "Fix: add ANTHROPIC_API_KEY=sk-ant-... to your .env file or Vercel environment variables.",
+        _key[:16] + "..." if len(_key) > 16 else _key,
+    )
+
 # ── Global state ──────────────────────────────────────────────────────────────
 
 agent: Optional[YieldAgent] = None
