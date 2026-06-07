@@ -32,10 +32,10 @@ _YF_HEADERS      = {
     "Accept-Language": "en-US,en;q=0.9",
 }
 
-# Fallback values used only when all APIs are unreachable
-_BASELINE_GOLD_USD     = 2_080.00
-_BASELINE_TREASURY_10Y = 4.22
-_BASELINE_WTI          = 78.40
+# Fallback values used only when all APIs are unreachable (updated June 2026)
+_BASELINE_GOLD_USD     = 4_300.00
+_BASELINE_TREASURY_10Y = 4.50
+_BASELINE_WTI          = 90.00
 
 
 @dataclass

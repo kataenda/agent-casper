@@ -471,18 +471,11 @@ class DecisionEngine:
         except Exception as exc:
             logger.debug("CSPR.trade REST API unreachable: %s", exc)
 
-        # Simulated DEX data when CSPR.trade MCP is unreachable
+        # DEX unavailable — return empty so Claude bases decisions on real validator data only
         return json.dumps({
-            "source": "CSPR.trade DEX (simulated — connect to https://mcp.cspr.trade for live data)",
-            "pools": [
-                {"pair": "CSPR/USDT", "apy_pct": round(12.5 + _r.uniform(-2, 4), 2),
-                 "tvl_usd": 850_000, "volume_24h_usd": 120_000, "risk": "HIGH"},
-                {"pair": "CSPR/WETH", "apy_pct": round(9.8 + _r.uniform(-1, 3), 2),
-                 "tvl_usd": 420_000, "volume_24h_usd": 65_000, "risk": "HIGH"},
-                {"pair": "CSPR/USDC", "apy_pct": round(7.2 + _r.uniform(-0.5, 1.5), 2),
-                 "tvl_usd": 1_100_000, "volume_24h_usd": 200_000, "risk": "MEDIUM"},
-            ],
-            "note": "LP pools — impermanent loss risk; higher APY vs validator staking",
+            "source": "CSPR.trade DEX (unavailable)",
+            "pools": [],
+            "note": "DEX pool data currently unavailable. Base decision on validator staking yields and RWA signals only.",
         })
 
     async def _direct_claude_decide(
