@@ -18,6 +18,8 @@
 | **Backend API** | https://agentcasper.soenic.com |
 | **Demo Video** | https://youtu.be/cYOoYzr03gI |
 | **Smart Contract** | https://testnet.cspr.live (hash-f6ba9dfa...) |
+| **X / Twitter** | https://x.com/kata_enda |
+| **GitHub** | https://github.com/kataenda |
 
 ---
 
@@ -648,7 +650,15 @@ lsof -i :8000                  # Linux/Mac
 
 ---
 
-## Community Vote
+## Community & Socials
+
+Follow the project and reach out:
+
+| Channel | Link |
+|---|---|
+| X / Twitter | [@kata_enda](https://x.com/kata_enda) |
+| GitHub | [kataenda/agent-casper](https://github.com/kataenda) |
+| Community Vote | [Vote on CSPR.fans](https://cspr.fans) |
 
 If you find this project useful, please **vote for Agent Casper AI** on [CSPR.fans](https://cspr.fans) to help us advance to the Final Round of the Buildathon!
 

@@ -5,6 +5,7 @@ Polls market data, calls Claude AI, and executes on-chain transactions.
 
 import asyncio
 import logging
+import time
 from datetime import datetime, date
 from typing import Callable, Optional
 
@@ -45,6 +46,8 @@ class YieldAgent:
         agent_secret_key_path: str,
         poll_interval_seconds: int = 60,
         max_rebalances_per_day: int = 5,
+        rwa_onchain_enabled: bool = True,
+        rwa_post_interval_seconds: int = 3600,
         on_cycle_complete: Optional[Callable] = None,
     ):
         self.casper = casper_client
@@ -57,12 +60,15 @@ class YieldAgent:
         self.agent_key_path = agent_secret_key_path
         self.poll_interval = poll_interval_seconds
         self.max_rebalances = max_rebalances_per_day
+        self.rwa_onchain_enabled = rwa_onchain_enabled
+        self.rwa_post_interval = rwa_post_interval_seconds
         self.on_cycle_complete = on_cycle_complete
 
         self._running = False
         self.paused = False           # set True to freeze rebalancing without stopping loop
         self._rebalances_today = 0
         self._last_rebalance_date: Optional[date] = None
+        self._last_rwa_post_ts: float = 0.0
         self._cycle_history: list[AgentCycleResult] = []
 
     async def start(self):
@@ -169,14 +175,26 @@ class YieldAgent:
             error=cycle_error,
         )
 
+    # Key RWA indicators posted on-chain via YieldVault.update_rwa_price()
+    RWA_ASSETS_TO_POST: set[str] = {"PAXG", "UST10Y"}
+
     async def _post_rwa_prices_onchain(self, rwa_prices: list[dict]) -> dict[str, str]:
         """
-        Post verified RWA prices to the YieldVault contract on Casper.
-        Returns dict of asset_id → deploy_hash for each asset posted.
-        Only posts PAXG and UST10Y — the key RWA indicators.
+        Post verified RWA prices to the YieldVault contract on Casper, creating an
+        auditable on-chain oracle trail (emits RwaPriceUpdated events).
+        Posts PAXG + UST10Y, rate-limited to once per `rwa_post_interval` seconds
+        to conserve agent gas. Returns dict of asset_id → deploy_hash.
         """
-        ASSETS_TO_POST: set[str] = set()  # disabled to conserve CSPR.cloud RPC quota
         results: dict[str, str] = {}
+        if not self.rwa_onchain_enabled:
+            return results
+
+        now = time.time()
+        if (now - self._last_rwa_post_ts) < self.rwa_post_interval:
+            return results  # within rate-limit window — skip this cycle
+        self._last_rwa_post_ts = now
+
+        ASSETS_TO_POST = self.RWA_ASSETS_TO_POST
 
         for asset in rwa_prices:
             asset_id = asset.get("asset_id", "")

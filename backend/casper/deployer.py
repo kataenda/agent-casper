@@ -17,8 +17,9 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-# 5 CSPR — enough gas for a contract call on testnet
+# 5 CSPR — enough gas for a contract call on testnet (Casper 2.x rejects lower)
 REBALANCE_PAYMENT_MOTES = 5_000_000_000
+RWA_PRICE_PAYMENT_MOTES = 5_000_000_000
 
 # Casper Odra enum indices — must match Strategy order in yield_vault.rs
 STRATEGY_INDEX = {"conservative": 0, "balanced": 1, "aggressive": 2}
@@ -234,7 +235,7 @@ class CasperDeployer:
         hash_hex = await self._resolve_contract_hash(contract_hash)
 
         deploy_params = pycspr.create_deploy_parameters(account=keypair, chain_name=self.chain_name)
-        payment       = pycspr.create_standard_payment(2_000_000_000)
+        payment       = pycspr.create_standard_payment(RWA_PRICE_PAYMENT_MOTES)
         session       = StoredContractByHash(
             args={
                 "asset_id":        CL_String(asset_id),

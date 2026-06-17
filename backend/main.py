@@ -45,6 +45,8 @@ class Settings(BaseSettings):
     agent_secret_key_content: str = ""
     agent_poll_interval_seconds: int = 60
     max_rebalances_per_day: int = 5
+    rwa_onchain_enabled: bool = True
+    rwa_post_interval_seconds: int = 3600
     x402_enabled: bool = False
     x402_payment_amount: int = 1_000_000
     x402_facilitator_url: str = "https://x402-facilitator.cspr.cloud"
@@ -188,6 +190,8 @@ async def lifespan(app: FastAPI):
         agent_secret_key_path=settings.agent_secret_key_path,
         poll_interval_seconds=settings.agent_poll_interval_seconds,
         max_rebalances_per_day=settings.max_rebalances_per_day,
+        rwa_onchain_enabled=settings.rwa_onchain_enabled,
+        rwa_post_interval_seconds=settings.rwa_post_interval_seconds,
         on_cycle_complete=on_cycle,
     )
 
