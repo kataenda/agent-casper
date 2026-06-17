@@ -38,6 +38,7 @@ All transactions are verifiable on Casper Testnet Explorer.
 | Contract deploy (package) | `f6ba9dfa2a236dcc253436c3350f06931465ca94290fad689dfc7c9058c559da` | [View on cspr.live](https://testnet.cspr.live/contract-package/f6ba9dfa2a236dcc253436c3350f06931465ca94290fad689dfc7c9058c559da) |
 | `register_agent` call | `7c3c0da82f682eab1f8be8131f11b2b0319b86a7f618d589c2fa7230e4b24380` | [View on cspr.live](https://testnet.cspr.live/deploy/7c3c0da82f682eab1f8be8131f11b2b0319b86a7f618d589c2fa7230e4b24380) |
 | First AI `rebalance` tx | `dd0c391f1d69d5fe55a3b72fd6fd1d617a354812c80de67b9d12ddc9233ec29e` | [View on cspr.live](https://testnet.cspr.live/deploy/dd0c391f1d69d5fe55a3b72fd6fd1d617a354812c80de67b9d12ddc9233ec29e) |
+| x402 micropayment settlement | `6f67d64987b67ecd2b9f740b5622e9f868096c7b59c076aacc116550acd1b642` | [View on cspr.live](https://testnet.cspr.live/deploy/6f67d64987b67ecd2b9f740b5622e9f868096c7b59c076aacc116550acd1b642) |
 
 ---
 
@@ -48,7 +49,7 @@ All transactions are verifiable on Casper Testnet Explorer.
 | **Odra Framework 2.7.2** | YieldVault smart contract (Rust → WASM) |
 | **CSPR.cloud APIs** | Block data, deploy status, account balances, on-chain portfolio state |
 | **casper-js-sdk v5** | Frontend deploy signing, wallet integration |
-| **X402 Protocol** | Pluggable micropayment handler (`X402_ENABLED=true` in .env) |
+| **x402 Protocol** | HTTP-native pay-per-request: ed25519-signed payment proof, real on-chain CSPR settlement, official CSPR.cloud facilitator integration (`X402_ENABLED=true`) |
 | **MCP Server** | Exposes Casper blockchain state to Claude AI via tool calls |
 | **Casper Wallet** | User authentication and transaction signing |
 | **Claude AI (Anthropic)** | Autonomous rebalancing decisions with RWA market context |

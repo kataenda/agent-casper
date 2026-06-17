@@ -1,22 +1,38 @@
 """
-x402 Micropayment Protocol handler.
-Official Casper AI Toolkit component — https://www.casper.network/ai
-Facilitator: https://x402-facilitator.cspr.cloud
-Spec: https://github.com/make-software/casper-x402/blob/master/docs/user-guide.md
+x402 Micropayment Protocol — real implementation for Agent Casper.
 
-Flow (per x402 spec):
-  1. Agent requests a paid resource (HTTP call)
-  2. Server returns 402 Payment Required + payment requirements
-  3. Agent builds signed payment payload (EIP-712 / CEP-18 token approval)
-  4. Agent attaches X-PAYMENT header and retries
-  5. Resource server forwards to facilitator /verify then /settle
-  6. Facilitator settles on-chain; resource server delivers response
+Implements the HTTP-native x402 v2 "pay-per-request" flow on Casper Network:
+
+  1. Client requests a protected resource.
+  2. Server replies `402 Payment Required` + PaymentRequirements.
+  3. Client builds a payment authorization, signs it with its ed25519
+     private key (real cryptographic proof), and retries with `X-PAYMENT`.
+  4. Server cryptographically verifies the signature, checks expiry + nonce,
+     then settles the micropayment.
+
+Cryptographic proof
+    A real ed25519 signature (pycspr) over the canonical authorization digest.
+    Only the holder of the agent's private key can produce it; anyone with the
+    public key can verify it. (The previous version used a plain SHA-256 hash of
+    public data, which is forgeable — that has been replaced.)
+
+Settlement
+    A real native CSPR transfer submitted on-chain via pycspr, returning a
+    Casper deploy hash. Best-effort integration with the official CSPR.cloud
+    facilitator (https://x402-facilitator.cspr.cloud) is attempted first via its
+    `/settle` endpoint; on any failure we fall back to a direct on-chain transfer
+    so a verifiable payment transaction is always produced.
+
+Spec: https://github.com/make-software/casper-x402
+Facilitator: https://x402-facilitator.cspr.cloud
 """
 
+import base64
 import hashlib
-import time
 import json
 import logging
+import secrets
+import time
 from typing import Optional
 
 import httpx
@@ -30,77 +46,275 @@ FACILITATOR_URL = "https://x402-facilitator.cspr.cloud"
 CHAIN_TESTNET = "casper:casper-test"
 CHAIN_MAINNET = "casper:casper"
 
+X402_VERSION = 2
+SCHEME_EXACT = "exact"
 
-class X402PaymentProof:
-    def __init__(self, payer: str, recipient: str, amount_motes: int, nonce: str):
-        self.payer = payer
-        self.recipient = recipient
-        self.amount_motes = amount_motes
-        self.nonce = nonce
-        self.timestamp = int(time.time())
+# Casper enforces a 2.5 CSPR floor on native transfers. Sub-CSPR "micropayments"
+# require a CEP-18 token (what the official facilitator uses); for self-contained
+# on-chain settlement we use native transfers at the network minimum.
+MIN_NATIVE_TRANSFER_MOTES = 2_500_000_000  # 2.5 CSPR
 
-    def to_header(self) -> str:
-        payload = {
-            "payer": self.payer,
-            "recipient": self.recipient,
-            "amount": self.amount_motes,
-            "nonce": self.nonce,
-            "ts": self.timestamp,
-        }
-        # Production: sign with agent's private key using EIP-712 typed-data
-        # See: https://github.com/casper-ecosystem/casper-eip-712
-        proof_hash = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
-        payload["proof"] = proof_hash
-        return json.dumps(payload)
 
+# ── Canonicalisation + digest ───────────────────────────────────────────────
+
+def _canonical(obj: dict) -> str:
+    """Deterministic JSON encoding (sorted keys, no whitespace) for signing."""
+    return json.dumps(obj, sort_keys=True, separators=(",", ":"))
+
+
+def _authorization_digest(authorization: dict) -> bytes:
+    """blake2b-256 digest of the canonical authorization — the bytes that get signed."""
+    return hashlib.blake2b(_canonical(authorization).encode(), digest_size=32).digest()
+
+
+# ── Handler ──────────────────────────────────────────────────────────────────
 
 class X402Handler:
     """
-    Attaches x402 payment headers to outbound HTTP requests.
-    Uses CSPR.cloud official facilitator for on-chain settlement.
+    Real x402 v2 handler.
+
+    Client side : `build_payment`, `payment_header`, `pay`
+    Server side : `requirements`, `verify_payment`
+    Settlement  : `settle_onchain` (native CSPR transfer) + `facilitator_settle`
     """
 
     def __init__(
         self,
         agent_account: str,
-        payment_amount_motes: int = 1_000_000,  # 0.001 CSPR
+        key_path: str = "",
+        node_url: str = "",
+        cloud_api_key: str = "",
+        payment_amount_motes: int = MIN_NATIVE_TRANSFER_MOTES,  # 2.5 CSPR (native-transfer floor)
         enabled: bool = False,
         facilitator_url: str = FACILITATOR_URL,
         chain: str = CHAIN_TESTNET,
+        pay_to: str = "",
+        min_settle_interval_seconds: int = 3600,
     ):
         self.agent_account = agent_account
+        self.key_path = key_path
+        self.node_url = node_url
+        self.cloud_api_key = cloud_api_key
         self.payment_amount = payment_amount_motes
         self.enabled = enabled
         self.facilitator_url = facilitator_url.rstrip("/")
         self.chain = chain
-        self._nonce_counter = 0
+        self.pay_to = pay_to
+        self.min_settle_interval = min_settle_interval_seconds
 
-    def _next_nonce(self) -> str:
-        self._nonce_counter += 1
-        return f"{int(time.time())}-{self._nonce_counter}"
+        self._kp = None
+        self._used_nonces: set[str] = set()
+        self._last_settle_ts: float = 0.0
 
-    def payment_headers(self, recipient: str) -> dict:
+    # ── Keypair ────────────────────────────────────────────────────────────
+
+    def _keypair(self):
+        if self._kp is None:
+            import pathlib
+            import pycspr
+            self._kp = pycspr.parse_private_key(pathlib.Path(self.key_path))
+        return self._kp
+
+    @property
+    def public_key_hex(self) -> str:
+        try:
+            return self._keypair().account_key.hex()
+        except Exception:
+            return ""
+
+    def _chain_name(self) -> str:
+        return "casper-test" if "casper-test" in self.chain else "casper"
+
+    async def _ensure_pay_to(self) -> None:
+        """Resolve a valid payee. If unset, use the facilitator's on-chain feePayer
+        for this network (a real, existing account — native self-transfers are
+        rejected by the node with 'Invalid purse')."""
+        if self.pay_to:
+            return
+        supported = await self.get_supported_schemes()
+        for kind in (supported or {}).get("kinds", []):
+            if kind.get("network") == self.chain:
+                fee_payer = kind.get("extra", {}).get("feePayer", "")
+                if fee_payer:
+                    # facilitator publishes the raw 32-byte ed25519 key — add the 01 algo tag
+                    self.pay_to = ("01" + fee_payer) if len(fee_payer) == 64 else fee_payer
+                    logger.info("x402: pay_to resolved from facilitator feePayer %s", self.pay_to[:18])
+                    return
+
+    # ── Server side: 402 requirements ───────────────────────────────────────
+
+    def requirements(self, resource: str) -> dict:
+        """Build the PaymentRequirements object returned in a 402 response."""
+        pay_to = self.pay_to or self.public_key_hex
+        return {
+            "scheme": SCHEME_EXACT,
+            "network": self.chain,
+            "payTo": pay_to,
+            "amount": str(self.payment_amount),
+            "asset": "CSPR",
+            "resource": resource,
+            "maxTimeoutSeconds": 900,
+            "description": "Agent Casper premium analytics — x402 micropayment",
+        }
+
+    # ── Client side: build + sign payment ───────────────────────────────────
+
+    def build_payment(self, requirements: dict) -> dict:
+        """Build and ed25519-sign an x402 v2 payment payload for `requirements`."""
+        kp = self._keypair()
+        now = int(time.time())
+        valid_before = now + int(requirements.get("maxTimeoutSeconds", 900))
+        pay_to = requirements.get("payTo") or self.pay_to or kp.account_key.hex()
+
+        authorization = {
+            "from": kp.account_key.hex(),
+            "to": pay_to,
+            "value": str(requirements.get("amount", self.payment_amount)),
+            "validAfter": str(now),
+            "validBefore": str(valid_before),
+            "nonce": secrets.token_hex(32),
+        }
+        signature = kp.get_signature(_authorization_digest(authorization))  # 64-byte ed25519
+
+        return {
+            "x402Version": X402_VERSION,
+            "scheme": SCHEME_EXACT,
+            "network": self.chain,
+            "payload": {
+                # Casper signature = 1-byte algo tag (01 = ed25519) + 64-byte sig
+                "signature": "01" + signature.hex(),
+                "publicKey": kp.account_key.hex(),
+                "authorization": authorization,
+            },
+        }
+
+    @staticmethod
+    def encode_header(payload: dict) -> str:
+        """base64-encode a payment payload for the X-PAYMENT header."""
+        return base64.b64encode(_canonical(payload).encode()).decode()
+
+    def payment_header(self, requirements: dict) -> dict:
+        """Return the HTTP headers a client attaches to a paid request."""
         if not self.enabled:
             return {}
-
-        proof = X402PaymentProof(
-            payer=self.agent_account,
-            recipient=recipient,
-            amount_motes=self.payment_amount,
-            nonce=self._next_nonce(),
-        )
         return {
-            "X-PAYMENT": proof.to_header(),
+            "X-PAYMENT": self.encode_header(self.build_payment(requirements)),
             "X-402-Network": self.chain,
         }
 
-    async def get_supported_schemes(self) -> Optional[dict]:
+    # ── Server side: verify proof ────────────────────────────────────────────
+
+    def verify_payment(self, header_value: str) -> Optional[dict]:
         """
-        GET /supported — Returns payment schemes and networks supported by the facilitator.
-        https://x402-facilitator.cspr.cloud/supported
+        Cryptographically verify an incoming X-PAYMENT header.
+        Returns the verified authorization dict, or None if the signature is
+        invalid, the authorization is expired, or the nonce was already used.
         """
         try:
-            async with httpx.AsyncClient(timeout=8) as client:
+            from pycspr import crypto
+
+            payload = json.loads(base64.b64decode(header_value))
+            inner = payload["payload"]
+            auth = inner["authorization"]
+            pub = bytes.fromhex(inner["publicKey"])
+            sig = bytes.fromhex(inner["signature"])
+
+            # 1. Time window
+            now = int(time.time())
+            if not (int(auth["validAfter"]) <= now <= int(auth["validBefore"])):
+                logger.warning("x402: payment authorization expired or not yet valid")
+                return None
+
+            # 2. Replay protection
+            nonce = auth["nonce"]
+            if nonce in self._used_nonces:
+                logger.warning("x402: nonce replay rejected")
+                return None
+
+            # 3. ed25519 signature over the authorization digest
+            vk = pub[1:] if len(pub) == 33 else pub          # strip 01 algo tag
+            raw_sig = sig[1:] if len(sig) == 65 else sig      # strip 01 algo tag
+            algo = (crypto.KeyAlgorithm.ED25519 if pub[:1] == b"\x01"
+                    else crypto.KeyAlgorithm.SECP256K1)
+            if not crypto.is_signature_valid(_authorization_digest(auth), raw_sig, vk, algo):
+                logger.warning("x402: signature verification failed")
+                return None
+
+            self._used_nonces.add(nonce)
+            logger.info("x402: payment proof verified for payer %s", auth["from"][:16])
+            return auth
+        except Exception as exc:
+            logger.warning("x402: verify error: %s", exc)
+            return None
+
+    # ── Settlement ───────────────────────────────────────────────────────────
+
+    async def facilitator_settle(self, payload: dict, requirements: dict) -> Optional[dict]:
+        """Best-effort settlement via the official CSPR.cloud facilitator /settle."""
+        try:
+            headers = {"Authorization": self.cloud_api_key} if self.cloud_api_key else {}
+            async with httpx.AsyncClient(timeout=20, headers=headers) as client:
+                resp = await client.post(
+                    f"{self.facilitator_url}/settle",
+                    json={"paymentPayload": payload, "paymentRequirements": requirements},
+                )
+                if resp.status_code == 200:
+                    return resp.json()
+                logger.debug("x402 facilitator /settle HTTP %s: %s", resp.status_code, resp.text[:200])
+        except Exception as exc:
+            logger.debug("x402 facilitator /settle unreachable: %s", exc)
+        return None
+
+    async def settle_onchain(self, authorization: dict) -> Optional[str]:
+        """Submit a real native CSPR transfer for the authorized amount.
+        Returns the Casper deploy hash on success."""
+        try:
+            import pycspr
+
+            kp = self._keypair()
+            target_hex = authorization.get("to") or self.pay_to or kp.account_key.hex()
+            # Native transfers below the 2.5 CSPR floor are rejected by the node.
+            amount = max(int(authorization.get("value", self.payment_amount)), MIN_NATIVE_TRANSFER_MOTES)
+
+            params = pycspr.create_deploy_parameters(account=kp, chain_name=self._chain_name())
+            deploy = pycspr.create_transfer(
+                params,
+                amount=amount,
+                target=bytes.fromhex(target_hex),
+                correlation_id=int(time.time()),
+            )
+            deploy.approve(kp)
+            deploy_hash = await self._put_deploy(pycspr.to_json(deploy))
+            logger.info("x402: settled on-chain — %d motes → %s (deploy %s)",
+                        amount, target_hex[:16], deploy_hash[:16])
+            return deploy_hash
+        except Exception as exc:
+            logger.warning("x402: on-chain settle failed: %s", exc)
+            return None
+
+    async def _put_deploy(self, deploy_dict: dict) -> str:
+        headers = {"Content-Type": "application/json"}
+        if self.cloud_api_key:
+            headers["Authorization"] = self.cloud_api_key
+        async with httpx.AsyncClient(timeout=30, headers=headers) as client:
+            resp = await client.post(self.node_url, json={
+                "id": 1, "jsonrpc": "2.0",
+                "method": "account_put_deploy",
+                "params": {"deploy": deploy_dict},
+            })
+            resp.raise_for_status()
+            data = resp.json()
+            if "error" in data:
+                raise RuntimeError(data["error"].get("message", str(data["error"])))
+            return data["result"]["deploy_hash"]
+
+    # ── Facilitator discovery ────────────────────────────────────────────────
+
+    async def get_supported_schemes(self) -> Optional[dict]:
+        """GET /supported — payment schemes/networks the facilitator supports."""
+        try:
+            headers = {"Authorization": self.cloud_api_key} if self.cloud_api_key else {}
+            async with httpx.AsyncClient(timeout=8, headers=headers) as client:
                 resp = await client.get(f"{self.facilitator_url}/supported")
                 resp.raise_for_status()
                 return resp.json()
@@ -108,54 +322,52 @@ class X402Handler:
             logger.debug("x402 /supported failed: %s", exc)
             return None
 
-    async def verify_payment(self, payment_payload: str) -> Optional[dict]:
-        """
-        POST /verify — Validates a payment payload without on-chain settlement.
-        Use to pre-check before /settle.
-        """
-        try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                resp = await client.post(
-                    f"{self.facilitator_url}/verify",
-                    json={"payment": payment_payload, "chain": self.chain},
-                )
-                resp.raise_for_status()
-                return resp.json()
-        except Exception as exc:
-            logger.warning("x402 /verify failed: %s", exc)
-            return None
+    # ── High-level flow used by the agent ────────────────────────────────────
 
-    async def settle_payment(self, payment_payload: str) -> Optional[dict]:
+    async def pay(self, resource: str, settle: bool = True) -> dict:
         """
-        POST /settle — Validates and settles payment on Casper Network.
-        Returns deploy hash on success.
-        """
-        try:
-            async with httpx.AsyncClient(timeout=30) as client:
-                resp = await client.post(
-                    f"{self.facilitator_url}/settle",
-                    json={"payment": payment_payload, "chain": self.chain},
-                )
-                resp.raise_for_status()
-                result = resp.json()
-                logger.info("x402 settled: deploy_hash=%s", result.get("deploy_hash"))
-                return result
-        except Exception as exc:
-            logger.warning("x402 /settle failed: %s", exc)
-            return None
+        Full client-side x402 flow for one paid resource request:
+          build requirements → sign payment → verify proof → (rate-limited) settle.
 
-    def verify_incoming_payment(self, header_value: str) -> Optional[dict]:
-        """Verifies an incoming x402 payment proof (for API providers)."""
-        try:
-            payload = json.loads(header_value)
-            expected_hash = hashlib.sha256(
-                json.dumps(
-                    {k: v for k, v in payload.items() if k != "proof"},
-                    sort_keys=True,
-                ).encode()
-            ).hexdigest()
-            if payload.get("proof") == expected_hash:
-                return payload
-        except Exception:
-            pass
-        return None
+        On-chain settlement is rate-limited to one transfer per
+        `min_settle_interval` seconds to conserve agent funds; the cryptographic
+        proof is still produced every call (the HTTP-native part is free).
+        Returns a record describing the payment.
+        """
+        if not self.enabled:
+            return {"enabled": False}
+
+        await self._ensure_pay_to()
+        requirements = self.requirements(resource)
+        payload = self.build_payment(requirements)
+        verified = self.verify_payment(self.encode_header(payload))
+
+        record = {
+            "enabled": True,
+            "resource": resource,
+            "scheme": SCHEME_EXACT,
+            "network": self.chain,
+            "amount_motes": int(requirements["amount"]),
+            "payer": payload["payload"]["publicKey"],
+            "pay_to": requirements["payTo"],
+            "proof_valid": verified is not None,
+            "signature": payload["payload"]["signature"][:26] + "…",
+            "settled": False,
+            "tx_hash": None,
+            "settlement": "proof_only",
+        }
+        if not verified:
+            return record
+
+        now = time.time()
+        if settle and (now - self._last_settle_ts) >= self.min_settle_interval:
+            fac = await self.facilitator_settle(payload, requirements)
+            if fac and fac.get("transaction"):
+                record.update(settled=True, tx_hash=fac["transaction"], settlement="facilitator")
+            else:
+                tx = await self.settle_onchain(verified)
+                if tx:
+                    record.update(settled=True, tx_hash=tx, settlement="onchain_transfer")
+            if record["settled"]:
+                self._last_settle_ts = now
+        return record

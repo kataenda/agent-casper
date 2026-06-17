@@ -22,7 +22,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from casper.client import CasperClient
 from casper.deployer import CasperDeployer
 from casper.rwa_oracle import RWAOracle
-from casper.x402 import X402Handler
+from casper.x402 import X402Handler, CHAIN_TESTNET
 from agent.decision_engine import DecisionEngine
 from agent.yield_agent import YieldAgent, AgentCycleResult
 
@@ -48,6 +48,8 @@ class Settings(BaseSettings):
     x402_enabled: bool = False
     x402_payment_amount: int = 1_000_000
     x402_facilitator_url: str = "https://x402-facilitator.cspr.cloud"
+    x402_pay_to: str = ""  # recipient public-key hex; defaults to the agent (self-settlement)
+    x402_settle_interval_seconds: int = 3600  # rate-limit on-chain settlement
     app_host: str = "0.0.0.0"
     app_port: int = 8000
     debug: bool = True
@@ -161,9 +163,15 @@ async def lifespan(app: FastAPI):
     decision_engine = DecisionEngine(api_key=settings.anthropic_api_key)
     x402 = X402Handler(
         agent_account=settings.agent_account_hash,
+        key_path=settings.agent_secret_key_path,
+        node_url=settings.casper_node_url,
+        cloud_api_key=settings.cspr_cloud_api_key,
         payment_amount_motes=settings.x402_payment_amount,
         enabled=settings.x402_enabled,
         facilitator_url=settings.x402_facilitator_url,
+        chain=CHAIN_TESTNET,
+        pay_to=settings.x402_pay_to,
+        min_settle_interval_seconds=settings.x402_settle_interval_seconds,
     )
 
     async def on_cycle(result: AgentCycleResult):
@@ -295,6 +303,102 @@ async def get_decisions(limit: int = 10):
         }
         for c in history
     ]
+
+
+# ── x402 Micropayment endpoints ────────────────────────────────────────────────
+
+@app.get("/x402/info")
+async def x402_info():
+    """x402 configuration + the agent's payer public key + facilitator support."""
+    if not agent:
+        raise HTTPException(503, "Agent not initialized")
+    x402 = agent.x402
+    supported = await x402.get_supported_schemes()
+    return {
+        "enabled": x402.enabled,
+        "scheme": "exact",
+        "network": x402.chain,
+        "payer_public_key": x402.public_key_hex,
+        "pay_to": x402.pay_to or x402.public_key_hex,
+        "payment_amount_motes": x402.payment_amount,
+        "payment_amount_cspr": round(x402.payment_amount / 1e9, 6),
+        "facilitator_url": x402.facilitator_url,
+        "facilitator_supported": supported,
+        "protected_resources": ["/premium/yield-forecast"],
+        "proof": "ed25519 signature over blake2b-256 authorization digest",
+    }
+
+
+@app.get("/x402/supported")
+async def x402_supported():
+    """Proxy the official CSPR.cloud facilitator /supported schemes."""
+    if not agent:
+        raise HTTPException(503, "Agent not initialized")
+    supported = await agent.x402.get_supported_schemes()
+    if supported is None:
+        raise HTTPException(502, "Facilitator unreachable")
+    return supported
+
+
+@app.api_route("/premium/yield-forecast", methods=["GET", "POST"])
+async def premium_yield_forecast(request: Request):
+    """
+    x402-protected premium resource. Without a valid X-PAYMENT header this
+    returns HTTP 402 + PaymentRequirements; with a cryptographically valid
+    payment it verifies the ed25519 proof, settles the micropayment on-chain
+    (unless ?settle=false), and returns the premium forecast.
+    """
+    if not agent:
+        raise HTTPException(503, "Agent not initialized")
+    x402 = agent.x402
+    resource = "/premium/yield-forecast"
+    await x402._ensure_pay_to()
+
+    header = request.headers.get("X-PAYMENT")
+    if not header:
+        return JSONResponse(
+            status_code=402,
+            content={
+                "x402Version": 2,
+                "error": "X-PAYMENT header required",
+                "accepts": [x402.requirements(resource)],
+            },
+            headers={"Access-Control-Expose-Headers": "X-PAYMENT"},
+        )
+
+    auth = x402.verify_payment(header)
+    if not auth:
+        return JSONResponse(
+            status_code=402,
+            content={
+                "x402Version": 2,
+                "error": "Payment proof invalid, expired, or replayed",
+                "accepts": [x402.requirements(resource)],
+            },
+        )
+
+    settle = request.query_params.get("settle", "true").lower() != "false"
+    settlement_tx = await x402.settle_onchain(auth) if settle else None
+
+    history = agent.get_history(1)
+    latest = history[0] if history else None
+    forecast = {
+        "block_height": latest.block_height if latest else 0,
+        "current_strategy": latest.portfolio.get("current_strategy") if latest else "N/A",
+        "yield_rates": latest.yield_rates if latest else [],
+        "next_decision": latest.decision if latest else {},
+        "note": "Premium analytics unlocked via x402 micropayment",
+    }
+    return {
+        "resource": resource,
+        "paid": True,
+        "payer": auth["from"],
+        "amount_motes": int(auth["value"]),
+        "settlement": "onchain_transfer" if settlement_tx else ("skipped" if not settle else "failed"),
+        "settlement_tx": settlement_tx,
+        "explorer_url": f"https://testnet.cspr.live/deploy/{settlement_tx}" if settlement_tx else None,
+        "premium_data": forecast,
+    }
 
 
 class SetupContractRequest(BaseModel):

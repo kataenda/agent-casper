@@ -28,6 +28,7 @@ class AgentCycleResult(BaseModel):
     rwa_prices: list[dict] = []
     rwa_tx_hashes: dict[str, str] = {}   # asset_id → deploy hash
     tx_hash: Optional[str] = None
+    x402_payment: dict = {}              # x402 micropayment record for this cycle
     error: Optional[str] = None
 
 
@@ -144,6 +145,17 @@ class YieldAgent:
         # Post verified RWA prices on-chain — creates auditable oracle trail on Casper
         rwa_tx_hashes = await self._post_rwa_prices_onchain(rwa_prices)
 
+        # x402 micropayment — agent pays per request for the premium RWA risk feed.
+        # A real ed25519-signed payment proof is produced every cycle; on-chain
+        # settlement is rate-limited inside the handler to conserve agent funds.
+        x402_payment: dict = {}
+        try:
+            x402_payment = await self.x402.pay(resource="rwa-risk-feed")
+            if x402_payment.get("tx_hash"):
+                logger.info("x402 micropayment settled on-chain — %s", x402_payment["tx_hash"][:16])
+        except Exception as exc:
+            logger.warning("x402 payment error: %s", exc)
+
         return AgentCycleResult(
             timestamp=datetime.utcnow().isoformat(),
             block_height=block_height,
@@ -153,6 +165,7 @@ class YieldAgent:
             rwa_prices=rwa_prices,
             rwa_tx_hashes=rwa_tx_hashes,
             tx_hash=tx_hash,
+            x402_payment=x402_payment,
             error=cycle_error,
         )
 

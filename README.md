@@ -77,7 +77,7 @@ The system transforms a passive smart contract vault into a **self-driving portf
 | **CSPR.cloud** | Block data, deploy status, account balances |
 | **Odra Framework 2.7.2** | YieldVault smart contract (Rust → WASM) |
 | **casper-js-sdk v5** | Frontend deploy signing, wallet integration |
-| **X402 Protocol** | Micropayment handler (disabled by default, enable via `X402_ENABLED=true`) |
+| **x402 Protocol** | HTTP-native pay-per-request micropayments: ed25519-signed payment proof + real on-chain CSPR settlement + CSPR.cloud facilitator. Enable via `X402_ENABLED=true` |
 | **MCP Server** | Exposes blockchain state to Claude via tool calls |
 | **Casper Wallet** | User authentication and transaction signing |
 | **Claude AI** | Autonomous rebalancing decisions with RWA context |
@@ -108,6 +108,55 @@ Framework:     Odra 2.7.2 (Rust → WASM)
 ### Events Emitted
 
 `Deposited`, `Withdrawn`, `Rebalanced`, `AgentRegistered`, `RwaPriceUpdated`, `EmergencyPaused`
+
+---
+
+## x402 Micropayments
+
+Agent Casper implements the **x402 v2 HTTP-native pay-per-request** protocol so the
+agent pays for premium data per API call, with a cryptographic proof and real
+on-chain settlement on Casper Testnet.
+
+**Flow** (`backend/casper/x402.py`):
+
+1. Client requests a protected resource (`GET /premium/yield-forecast`).
+2. Server replies **HTTP 402 Payment Required** + `PaymentRequirements` (scheme `exact`, network `casper:casper-test`).
+3. Client builds a payment authorization and **signs it with its ed25519 private key** (pycspr) — a real cryptographic proof over a blake2b-256 digest. Only the agent's key can produce it; the public key verifies it.
+4. Client retries with the base64 `X-PAYMENT` header.
+5. Server **cryptographically verifies** the signature, checks expiry + nonce (replay protection), then **settles a real native CSPR transfer on-chain** and returns the resource + Casper deploy hash.
+
+Best-effort integration with the official **CSPR.cloud facilitator**
+(`https://x402-facilitator.cspr.cloud`) is attempted first (`/supported`, `/settle`);
+on any failure the agent falls back to a direct on-chain transfer so a verifiable
+payment transaction is always produced.
+
+> **Note on amounts:** Casper enforces a **2.5 CSPR floor on native transfers**, so
+> on-chain settlement uses 2.5 CSPR (sub-CSPR micropayments require a CEP-18 token,
+> which is what the official facilitator's `exact` scheme uses). On-chain settlement
+> is rate-limited (`X402_SETTLE_INTERVAL_SECONDS`) to conserve agent funds; the
+> cryptographic proof is produced on every request.
+
+**Endpoints:**
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /premium/yield-forecast` | x402-protected resource — 402 without payment, premium data with valid `X-PAYMENT` |
+| `GET /x402/info` | x402 config, payer public key, facilitator support |
+| `GET /x402/supported` | Proxies the facilitator's supported schemes/networks |
+
+**Try it:**
+
+```bash
+# 1. Request without payment → HTTP 402 + PaymentRequirements
+curl -i http://localhost:8000/premium/yield-forecast
+
+# 2. Inspect config and the live facilitator schemes
+curl http://localhost:8000/x402/info
+```
+
+When `X402_ENABLED=true`, the agent also performs an x402 micropayment each cycle for
+its "RWA risk feed"; the payment record (proof + settlement deploy hash) is included in
+every cycle result broadcast over the WebSocket.
 
 ---
 
@@ -155,10 +204,13 @@ AGENT_SECRET_KEY_PATH=./agent_secret_key.pem
 AGENT_POLL_INTERVAL_SECONDS=60   # How often the agent polls (seconds)
 MAX_REBALANCES_PER_DAY=5         # Maximum rebalances allowed per day
 
-# ── X402 Micropayment (optional) ──────────────────────────────────────────
+# ── x402 Micropayment (optional) ──────────────────────────────────────────
 X402_ENABLED=false
-X402_PAYMENT_AMOUNT=1000000
+X402_PAYMENT_AMOUNT=2500000000   # 2.5 CSPR — Casper native-transfer floor
 X402_FACILITATOR_URL=https://x402-facilitator.cspr.cloud
+# Recipient public-key hex. If unset, auto-resolves to the facilitator feePayer.
+X402_PAY_TO=0181d557c9dcaadea97c34d79bf7b6af07aa9d760e5dd1aabf78a45fb39e072c3a
+X402_SETTLE_INTERVAL_SECONDS=3600   # rate-limit on-chain settlement
 
 # ── App ───────────────────────────────────────────────────────────────────
 APP_HOST=0.0.0.0
