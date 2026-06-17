@@ -29,12 +29,13 @@
 
 1. Fetches real-world asset prices (PAXG/gold, UST10Y/T-bonds, WTI/oil)
 2. Fetches yield rates from Casper validators via CSPR.cloud
-3. Sends all data to Claude AI for analysis
+3. Lets **Claude AI autonomously query** on-chain + RWA data via MCP tools and decide
 4. Autonomously executes on-chain rebalancing transactions when needed
+5. Posts verified RWA prices on-chain (auditable oracle trail) and pays for premium data via **x402** micropayments
 
-The system transforms a passive smart contract vault into a **self-driving portfolio manager**.
+The system transforms a passive smart contract vault into a **self-driving portfolio manager**, uniting the three pillars of the Casper Innovation Track — **Agentic AI · DeFi · RWA**.
 
-> Built using the [Casper AI Toolkit](https://www.casper.network/ai) — MCP Servers, CSPR.cloud, Odra Framework, casper-js-sdk v5
+> Built using the [Casper AI Toolkit](https://www.casper.network/ai) — MCP Servers, CSPR.cloud, Odra Framework, x402, casper-js-sdk v5
 
 ---
 
@@ -56,7 +57,7 @@ The system transforms a passive smart contract vault into a **self-driving portf
 │  │          FastAPI Backend (Python)                         │  │
 │  │  • Yield Agent loop (every 60s)                           │  │
 │  │  • CSPR.cloud middleware                                  │  │
-│  │  • X402 micropayment handler                              │  │
+│  │  • x402 micropayment handler                              │  │
 │  │  • WebSocket broadcast                                    │  │
 │  └────────────────────────────────────────────────────────────┘  │
 │                            │                                    │
@@ -80,9 +81,10 @@ The system transforms a passive smart contract vault into a **self-driving portf
 | **Odra Framework 2.7.2** | YieldVault smart contract (Rust → WASM) |
 | **casper-js-sdk v5** | Frontend deploy signing, wallet integration |
 | **x402 Protocol** | HTTP-native pay-per-request micropayments: ed25519-signed payment proof + real on-chain CSPR settlement + CSPR.cloud facilitator. Enable via `X402_ENABLED=true` |
-| **MCP Server** | Exposes blockchain state to Claude via tool calls |
+| **MCP Server** | Custom Casper MCP server exposes 5 blockchain tools to Claude (block height, yield rates, vault portfolio, RWA prices, account balance) |
+| **CSPR.trade MCP** | DEX pool / liquidity data tool for the aggressive strategy |
 | **Casper Wallet** | User authentication and transaction signing |
-| **Claude AI** | Autonomous rebalancing decisions with RWA context |
+| **Claude AI** | Autonomous rebalancing decisions with RWA context (claude-haiku-4-5) |
 
 ---
 
@@ -162,6 +164,22 @@ every cycle result broadcast over the WebSocket.
 
 ---
 
+## On-Chain Proof
+
+All activity is verifiable on the [Casper Testnet explorer](https://testnet.cspr.live). Example transactions produced autonomously by the agent:
+
+| Action | Entry point | Example deploy hash |
+|--------|-------------|---------------------|
+| Smart contract (package) | — | [`f6ba9dfa…`](https://testnet.cspr.live/contract-package/f6ba9dfa2a236dcc253436c3350f06931465ca94290fad689dfc7c9058c559da) |
+| Autonomous rebalance | `rebalance` | [`f0352e2b…`](https://testnet.cspr.live/deploy/f0352e2b0d19a086b2b237494d23cfeb8377da3053d5c0cd074af53353428162) |
+| RWA price on-chain (gold) | `update_rwa_price` | [`b9f33ec3…`](https://testnet.cspr.live/deploy/b9f33ec3e9e1091912796beaa98b95d1b85887fd9df692067c7767bf37150d4e) |
+| RWA price on-chain (treasury) | `update_rwa_price` | [`0700586b…`](https://testnet.cspr.live/deploy/0700586b8e302123887f4f759fb2ac90156cb2f8daad6d8f9e09db2aaf7f730b) |
+| x402 micropayment settlement | native transfer | [`ba8fb27e…`](https://testnet.cspr.live/deploy/ba8fb27e71acc2c0cba50a72a0bd3820028dc6ceb8791ac51b79b0614148f32d) |
+
+> The agent account has produced 130+ processed transactions on Testnet to date.
+
+---
+
 ## Tech Stack
 
 | Layer | Technology |
@@ -205,6 +223,10 @@ AGENT_SECRET_KEY_PATH=./agent_secret_key.pem
 # ── Agent Configuration ───────────────────────────────────────────────────
 AGENT_POLL_INTERVAL_SECONDS=60   # How often the agent polls (seconds)
 MAX_REBALANCES_PER_DAY=5         # Maximum rebalances allowed per day
+
+# Post verified RWA prices (PAXG, UST10Y) on-chain via update_rwa_price().
+RWA_ONCHAIN_ENABLED=true         # Set false to disable on-chain RWA posting
+RWA_POST_INTERVAL_SECONDS=3600   # Rate-limit: post at most once per interval
 
 # ── x402 Micropayment (optional) ──────────────────────────────────────────
 X402_ENABLED=false
@@ -555,7 +577,7 @@ agent-casper/
 │       ├── deployer.py         # Transaction signing (pycspr)
 │       ├── rwa_oracle.py       # PAXG / UST10Y / WTI price feeds
 │       ├── mcp_server.py       # MCP server — blockchain tools for Claude
-│       └── x402.py             # X402 micropayment handler
+│       └── x402.py             # x402 micropayment handler
 ├── frontend/src/
 │   ├── app/page.tsx            # Main cyber dashboard
 │   └── components/
@@ -632,8 +654,9 @@ lsof -i :8000                  # Linux/Mac
 
 ### Phase 1 — Buildathon MVP ✅
 - YieldVault contract on Casper Testnet
-- Autonomous AI agent (Claude) with 60-second decision loop
+- Autonomous AI agent (Claude) with 60-second decision loop via MCP tools
 - RWA oracle on-chain posting (PAXG, UST10Y)
+- x402 micropayments (HTTP-native, ed25519 proof, on-chain settlement)
 - Real-time cyber dashboard with WebSocket
 
 ### Phase 2 — DeFi Integration (Q3 2026)
@@ -644,7 +667,7 @@ lsof -i :8000                  # Linux/Mac
 
 ### Phase 3 — Production Launch (Q4 2026)
 - Casper Mainnet deployment
-- X402 fee-based API for institutional access
+- x402 fee-based API for institutional access (CEP-18 stablecoin micropayments)
 - DAO governance for strategy parameters
 - Audited smart contracts
 
