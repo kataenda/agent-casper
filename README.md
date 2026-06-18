@@ -148,15 +148,25 @@ payment transaction is always produced.
 | `GET /x402/info` | x402 config, payer public key, facilitator support |
 | `GET /x402/supported` | Proxies the facilitator's supported schemes/networks |
 
-**Try it:**
+**Try it** (against the live production backend):
 
 ```bash
 # 1. Request without payment → HTTP 402 + PaymentRequirements
-curl -i http://localhost:8000/premium/yield-forecast
+#    (open this URL in a browser too — it shows the raw 402 challenge)
+curl -i https://agentcasper.soenic.com/premium/yield-forecast
 
-# 2. Inspect config and the live facilitator schemes
-curl http://localhost:8000/x402/info
+# 2. Inspect config, payer public key, and the live facilitator schemes
+curl https://agentcasper.soenic.com/x402/info
+
+# 3. Full end-to-end paid flow: 402 → ed25519-signed proof → HTTP 200 + premium data
+#    (run from the repo root; reads the agent key from backend/agent_secret_key.pem)
+python demo_x402.py            # proof only — no CSPR spent
+python demo_x402.py --settle   # also settles a real on-chain CSPR transfer
 ```
+
+> Replace the URL with `http://localhost:8000` to try it against a local backend.
+> The `demo_x402.py` client runs the exact `X402Handler` flow the agent uses, signing
+> the payment proof locally and submitting `X-PAYMENT` to the server.
 
 When `X402_ENABLED=true`, the agent also performs an x402 micropayment each cycle for
 its "RWA risk feed"; the payment record (proof + settlement deploy hash) is included in
