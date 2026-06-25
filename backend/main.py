@@ -783,27 +783,54 @@ async def manual_rebalance(req: ManualRebalanceRequest):
 
 @app.post("/rpc")
 async def rpc_proxy(request: Request):
-    """Proxy Casper node RPC calls to avoid browser CORS restrictions."""
+    """
+    Proxy Casper node RPC calls to avoid browser CORS restrictions.
+
+    CSPR.cloud rate-limits aggressively; a raw 429 here breaks user actions like
+    Register Agent (whose deploy submission goes through this proxy). So we retry
+    with backoff on 429/5xx and try BOTH authenticated and anonymous requests —
+    they hit different rate buckets, so one often succeeds when the other is
+    throttled. Only genuinely-bad requests (4xx other than 429) fail fast.
+    """
+    import httpx
     body = await request.json()
-    headers = {"Content-Type": "application/json"}
+    node_url = settings.casper_node_url
+
+    # Header variants → different CSPR.cloud rate buckets. Anonymous first: it's
+    # the per-IP bucket and is usually less contended than the shared org key.
+    variants = [{"Content-Type": "application/json"}]
     if settings.cspr_cloud_api_key:
-        headers["Authorization"] = settings.cspr_cloud_api_key
-    logger.info("RPC proxy → %s (api_key set: %s)", settings.casper_node_url, bool(settings.cspr_cloud_api_key))
-    try:
-        async with __import__("httpx").AsyncClient(timeout=30) as client:
-            resp = await client.post(settings.casper_node_url, json=body, headers=headers)
-        logger.info("RPC proxy ← %s %s", resp.status_code, resp.text[:200])
-        if resp.status_code != 200:
-            raise HTTPException(status_code=resp.status_code, detail=resp.text[:500])
-        try:
-            return resp.json()
-        except Exception:
-            raise HTTPException(status_code=502, detail="Upstream returned non-JSON response")
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.error("RPC proxy exception: %s", exc, exc_info=True)
-        raise HTTPException(status_code=502, detail=f"RPC proxy error: {exc}")
+        variants.append({"Content-Type": "application/json", "Authorization": settings.cspr_cloud_api_key})
+
+    last_detail = "no attempt made"
+    last_status = 502
+    async with httpx.AsyncClient(timeout=30) as client:
+        for attempt in range(3):
+            for headers in variants:
+                try:
+                    resp = await client.post(node_url, json=body, headers=headers)
+                except Exception as exc:
+                    last_detail, last_status = f"connection error: {exc}", 502
+                    continue
+                if resp.status_code == 200:
+                    try:
+                        return resp.json()
+                    except Exception:
+                        raise HTTPException(502, "Upstream returned non-JSON response")
+                last_detail, last_status = resp.text[:300], resp.status_code
+                # Non-retryable client error (bad deploy, bad params) — fail fast.
+                if resp.status_code not in (429, 500, 502, 503, 529):
+                    raise HTTPException(resp.status_code, resp.text[:500])
+            # Every variant was throttled/5xx this round — back off and retry.
+            retry_after = 0.0
+            try:
+                retry_after = float(resp.headers.get("retry-after", "0"))
+            except Exception:
+                pass
+            await asyncio.sleep(min(max(retry_after, 0.6 * (2 ** attempt)), 4.0))
+
+    logger.warning("RPC proxy exhausted retries (last %s): %s", last_status, last_detail[:120])
+    raise HTTPException(last_status, f"Casper node busy (rate-limited). Try again. — {last_detail}")
 
 
 @app.post("/deploy")
