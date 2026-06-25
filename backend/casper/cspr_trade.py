@@ -188,24 +188,31 @@ class CsprTradeMCP:
         signed["approvals"] = [approval]
         return signed
 
-    async def _submit_via_node(self, signed_deploy: dict) -> str:
-        """Broadcast the signed deploy straight to a Casper mainnet node (account_put_deploy)."""
+    async def _submit_via_node(self, signed_tx: dict) -> str:
+        """Broadcast the signed transaction straight to a Casper mainnet node.
+
+        build_swap returns a Casper 2.x **TransactionV1** ({hash, payload, approvals}),
+        not a legacy Deploy — so we call account_put_transaction (wrapping it as
+        {"Version1": ...}), not account_put_deploy."""
         headers = {"Content-Type": "application/json"}
         if self.node_auth:
             headers["Authorization"] = self.node_auth
         async with httpx.AsyncClient(timeout=40) as client:
             resp = await client.post(self.node_rpc, headers=headers,
-                                     json={"id": 1, "jsonrpc": "2.0", "method": "account_put_deploy",
-                                           "params": {"deploy": signed_deploy}})
+                                     json={"id": 1, "jsonrpc": "2.0", "method": "account_put_transaction",
+                                           "params": {"transaction": {"Version1": signed_tx}}})
             if resp.status_code != 200:
                 raise CsprTradeError(f"node HTTP {resp.status_code}: {resp.text[:160]}")
             data = resp.json()
             if "error" in data:
                 raise CsprTradeError(f"node: {data['error'].get('message', data['error'])}")
-            h = data.get("result", {}).get("deploy_hash")
-            if not h:
-                raise CsprTradeError(f"node: no deploy_hash ({str(data)[:140]})")
-            return h
+            res = data.get("result", {})
+            th = res.get("transaction_hash") or res.get("deploy_hash")
+            if isinstance(th, dict):  # {"Version1": "hash"} on Casper 2.x
+                th = th.get("Version1") or th.get("Deploy") or next(iter(th.values()), None)
+            if not th:
+                raise CsprTradeError(f"node: no transaction_hash ({str(data)[:140]})")
+            return th
 
     async def submit_transaction(self, signed_deploy: dict) -> dict:
         """Broadcast: direct mainnet node first (handles ~100KB swap deploys that
@@ -303,7 +310,7 @@ class CsprTradeMCP:
             tx = (sub.get("deploy_hash") or sub.get("transaction_hash")
                   or sub.get("hash") or deploy.get("hash"))
             record.update(executed=True, tx_hash=tx, settlement="submitted",
-                          explorer_url=f"https://cspr.live/deploy/{tx}" if tx else None,
+                          explorer_url=f"https://cspr.live/transaction/{tx}" if tx else None,
                           submit_result=sub)
         except Exception as exc:
             record.update(settlement="submit_failed", note=str(exc)[:300])
