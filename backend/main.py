@@ -60,7 +60,8 @@ class Settings(BaseSettings):
     cspr_trade_max_amount_cspr: float = 25.0
     cspr_trade_max_price_impact_pct: float = 2.0
     # Mainnet node used to broadcast swap deploys (they're too large for the MCP).
-    cspr_mainnet_node_url: str = "https://node.mainnet.cspr.cloud/rpc"
+    # cspr.cloud convention: mainnet is the BARE domain (testnet has the .testnet. prefix).
+    cspr_mainnet_node_url: str = "https://node.cspr.cloud/rpc"
     app_host: str = "0.0.0.0"
     app_port: int = 8000
     debug: bool = True

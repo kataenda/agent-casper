@@ -213,7 +213,9 @@ class CsprTradeMCP:
         try:
             return {"deploy_hash": await self._submit_via_node(signed_deploy), "via": "node"}
         except Exception as node_exc:
-            logger.info("direct-node submit failed (%s) — trying MCP", node_exc)
+            node_err = str(node_exc)[:200]
+            logger.info("direct-node submit failed (%s) — trying MCP", node_err)
+        try:
             out = await self._call("submit_transaction",
                                    {"signed_deploy_json": json.dumps(signed_deploy)})
             res = out[0] if out else {}
@@ -221,6 +223,10 @@ class CsprTradeMCP:
                 res.setdefault("via", "mcp")
                 return res
             return {"result": str(res), "via": "mcp"}
+        except Exception as mcp_exc:
+            # Surface BOTH failures so the real cause (usually the node) is visible.
+            raise CsprTradeError(f"node submit failed [{node_err}]; MCP fallback failed "
+                                 f"[{str(mcp_exc)[:120]}]")
 
     # ── High-level guarded swap ────────────────────────────────────────────────
 
