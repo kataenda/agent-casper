@@ -33,6 +33,10 @@ const X402Services = dynamic(
   () => import("@/components/X402Services").then((m) => ({ default: m.X402Services })),
   { ssr: false }
 );
+const DefiSwap = dynamic(
+  () => import("@/components/DefiSwap").then((m) => ({ default: m.DefiSwap })),
+  { ssr: false }
+);
 
 import { useAgentStore } from "@/lib/store";
 import { useWalletStore } from "@/lib/walletStore";
@@ -313,6 +317,7 @@ export default function DashboardPage() {
         <div className="flex items-center gap-2 flex-wrap justify-end">
           <AgentControls isRegistered={agentRegistered} />
           <WalletWidget />
+          <DefiSwap />
           <X402Services />
           <a
             href={`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/docs`}
@@ -521,7 +526,7 @@ export default function DashboardPage() {
           <span className="w-px h-2.5 bg-cyber-dim" />
           <span>Built with <span style={{ color: "#BF5AF2", opacity: 0.6 }}>Casper SDK</span></span>
           <span className="w-px h-2.5 bg-cyber-dim" />
-          <span style={{ color: "#00FF94", opacity: 0.45 }}>v1.1.0</span>
+          <span style={{ color: "#00FF94", opacity: 0.45 }}>v1.2.0</span>
         </div>
       </footer>
     </div>
