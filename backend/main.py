@@ -59,6 +59,8 @@ class Settings(BaseSettings):
     # Real DeFi via CSPR.trade MCP (Casper mainnet, non-custodial) — safety caps.
     cspr_trade_max_amount_cspr: float = 25.0
     cspr_trade_max_price_impact_pct: float = 2.0
+    # Mainnet node used to broadcast swap deploys (they're too large for the MCP).
+    cspr_mainnet_node_url: str = "https://node.mainnet.cspr.cloud/rpc"
     app_host: str = "0.0.0.0"
     app_port: int = 8000
     debug: bool = True
@@ -600,6 +602,8 @@ def _cspr_trade() -> CsprTradeMCP:
         agent_public_key=pub,
         max_price_impact_pct=settings.cspr_trade_max_price_impact_pct,
         max_amount_cspr=settings.cspr_trade_max_amount_cspr,
+        node_rpc=settings.cspr_mainnet_node_url,
+        node_auth=settings.cspr_cloud_api_key,
     )
 
 

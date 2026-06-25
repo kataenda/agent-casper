@@ -32,6 +32,10 @@ logger = logging.getLogger(__name__)
 
 CSPR_TRADE_MCP_URL = "https://mcp.cspr.trade/mcp"
 MCP_PROTOCOL = "2025-06-18"
+# Public Casper mainnet RPC — used to broadcast the signed deploy directly. Swap
+# deploys are large (~100KB) and exceed the MCP submit_transaction body limit
+# (HTTP 413), so we put the deploy straight to a node and only fall back to MCP.
+MAINNET_NODE_RPC = "https://rpc.mainnet.casperlabs.io/rpc"
 
 # Safety defaults for autonomous execution.
 DEFAULT_MAX_PRICE_IMPACT_PCT = 2.0     # abort a swap whose price impact exceeds this
@@ -53,12 +57,16 @@ class CsprTradeMCP:
         mcp_url: str = CSPR_TRADE_MCP_URL,
         max_price_impact_pct: float = DEFAULT_MAX_PRICE_IMPACT_PCT,
         max_amount_cspr: float = DEFAULT_MAX_AMOUNT_CSPR,
+        node_rpc: str = MAINNET_NODE_RPC,
+        node_auth: str = "",
     ):
         self.mcp_url = mcp_url
         self.agent_key_path = agent_key_path
         self.agent_public_key = agent_public_key
         self.max_price_impact_pct = max_price_impact_pct
         self.max_amount_cspr = max_amount_cspr
+        self.node_rpc = node_rpc
+        self.node_auth = node_auth
 
     # ── MCP transport ────────────────────────────────────────────────────────
 
@@ -79,7 +87,8 @@ class CsprTradeMCP:
             "params": {"protocolVersion": MCP_PROTOCOL, "capabilities": {},
                        "clientInfo": {"name": "agent-casper", "version": "1.0"}},
         })
-        r.raise_for_status()
+        if r.status_code != 200:
+            raise CsprTradeError(f"MCP initialize HTTP {r.status_code}: {r.text[:120]}")
         sid = r.headers.get("mcp-session-id")
         if not sid:
             raise CsprTradeError("CSPR.trade MCP did not return a session id")
@@ -96,8 +105,12 @@ class CsprTradeMCP:
                 "jsonrpc": "2.0", "id": 2, "method": "tools/call",
                 "params": {"name": tool, "arguments": args},
             })
-            r.raise_for_status()
-            data = self._parse_sse(r.text)
+            if r.status_code != 200:
+                raise CsprTradeError(f"{tool}: MCP HTTP {r.status_code} {r.text[:120]}")
+            try:
+                data = self._parse_sse(r.text)
+            except Exception as exc:
+                raise CsprTradeError(f"{tool}: bad MCP response: {exc}")
             if "error" in data:
                 raise CsprTradeError(f"{tool}: {data['error'].get('message', data['error'])}")
             res = data.get("result", {})
@@ -175,11 +188,39 @@ class CsprTradeMCP:
         signed["approvals"] = [approval]
         return signed
 
+    async def _submit_via_node(self, signed_deploy: dict) -> str:
+        """Broadcast the signed deploy straight to a Casper mainnet node (account_put_deploy)."""
+        headers = {"Content-Type": "application/json"}
+        if self.node_auth:
+            headers["Authorization"] = self.node_auth
+        async with httpx.AsyncClient(timeout=40) as client:
+            resp = await client.post(self.node_rpc, headers=headers,
+                                     json={"id": 1, "jsonrpc": "2.0", "method": "account_put_deploy",
+                                           "params": {"deploy": signed_deploy}})
+            if resp.status_code != 200:
+                raise CsprTradeError(f"node HTTP {resp.status_code}: {resp.text[:160]}")
+            data = resp.json()
+            if "error" in data:
+                raise CsprTradeError(f"node: {data['error'].get('message', data['error'])}")
+            h = data.get("result", {}).get("deploy_hash")
+            if not h:
+                raise CsprTradeError(f"node: no deploy_hash ({str(data)[:140]})")
+            return h
+
     async def submit_transaction(self, signed_deploy: dict) -> dict:
-        out = await self._call("submit_transaction",
-                               {"signed_deploy_json": json.dumps(signed_deploy)})
-        res = out[0] if out else {}
-        return res if isinstance(res, dict) else {"result": str(res)}
+        """Broadcast: direct mainnet node first (handles ~100KB swap deploys that
+        413 on the MCP), MCP submit_transaction as fallback."""
+        try:
+            return {"deploy_hash": await self._submit_via_node(signed_deploy), "via": "node"}
+        except Exception as node_exc:
+            logger.info("direct-node submit failed (%s) — trying MCP", node_exc)
+            out = await self._call("submit_transaction",
+                                   {"signed_deploy_json": json.dumps(signed_deploy)})
+            res = out[0] if out else {}
+            if isinstance(res, dict):
+                res.setdefault("via", "mcp")
+                return res
+            return {"result": str(res), "via": "mcp"}
 
     # ── High-level guarded swap ────────────────────────────────────────────────
 
@@ -239,14 +280,18 @@ class CsprTradeMCP:
         if not pathlib.Path(self.agent_key_path).is_file():
             record["note"] = "agent key not available — built + quoted only"
             return record
-        signed = self._sign_deploy(deploy)
+        try:
+            signed = self._sign_deploy(deploy)
+        except Exception as exc:
+            record.update(settlement="sign_failed", note=f"signing failed: {exc}")
+            return record
         record["signed"] = True
 
         if not execute:
             record["note"] = "dry run — signed deploy built but not broadcast (execute=false)"
             return record
 
-        # Broadcast (spends real CSPR on mainnet)
+        # Broadcast (spends real CSPR on mainnet). Never raise — report the reason.
         try:
             sub = await self.submit_transaction(signed)
             tx = (sub.get("deploy_hash") or sub.get("transaction_hash")
@@ -254,6 +299,6 @@ class CsprTradeMCP:
             record.update(executed=True, tx_hash=tx, settlement="submitted",
                           explorer_url=f"https://cspr.live/deploy/{tx}" if tx else None,
                           submit_result=sub)
-        except CsprTradeError as exc:
-            record.update(settlement="submit_failed", note=str(exc))
+        except Exception as exc:
+            record.update(settlement="submit_failed", note=str(exc)[:300])
         return record
