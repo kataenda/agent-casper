@@ -2,7 +2,7 @@
 cmds = ["npm install --legacy-peer-deps"]
 
 [phases.build]
-# rm -rf .next forces a clean Next.js build (no stale incremental output);
-# editing this command also changes the Docker build-layer cache key so the
-# server can't reuse a previously cached `npm run build` layer.
-cmds = ["rm -rf .next && npm run build"]
+# `next build` regenerates output from current source every time. A fresh commit
+# (new SHA) is what forces Coolify to rebuild — do NOT `rm -rf .next` here, it
+# collides with the nixpacks BuildKit cache mount at .next/cache (device busy).
+cmds = ["npm run build"]
