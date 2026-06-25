@@ -22,7 +22,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from casper.client import CasperClient
 from casper.deployer import CasperDeployer
 from casper.rwa_oracle import RWAOracle
-from casper.x402 import X402Handler, CHAIN_TESTNET
+from casper.x402 import X402Handler, CHAIN_TESTNET, CHAIN_MAINNET
 from agent.decision_engine import DecisionEngine
 from agent.yield_agent import YieldAgent, AgentCycleResult
 
@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     x402_facilitator_url: str = "https://x402-facilitator.cspr.cloud"
     x402_pay_to: str = ""  # recipient public-key hex; defaults to the agent (self-settlement)
     x402_settle_interval_seconds: int = 3600  # rate-limit on-chain settlement
+    # Mainnet provider endpoints — other agents PAY this agent for premium data.
+    x402_decision_price: int = 5_000_000_000   # 5 CSPR per AI rebalance recommendation
+    x402_rwa_feed_price: int = 2_500_000_000   # 2.5 CSPR per on-chain-verified RWA feed
     app_host: str = "0.0.0.0"
     app_port: int = 8000
     debug: bool = True
@@ -130,6 +133,11 @@ _check_anthropic_connectivity()
 # ── Global state ──────────────────────────────────────────────────────────────
 
 agent: Optional[YieldAgent] = None
+# Mainnet x402 provider — serves the paid /x402/decision and /x402/rwa-feed
+# resources where OTHER agents pay this agent (closes the x402 loop: provider, not
+# just consumer). Verification is chain-agnostic; settlement is on Casper mainnet
+# via the official facilitator.
+x402_provider: Optional[X402Handler] = None
 ws_connections: list[WebSocket] = []
 
 
@@ -148,7 +156,7 @@ async def broadcast(message: dict):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global agent
+    global agent, x402_provider
 
     casper_client = CasperClient(
         node_url=settings.casper_node_url,
@@ -174,6 +182,19 @@ async def lifespan(app: FastAPI):
         chain=CHAIN_TESTNET,
         pay_to=settings.x402_pay_to,
         min_settle_interval_seconds=settings.x402_settle_interval_seconds,
+    )
+
+    # Mainnet provider handler: payTo is left empty so it resolves to THIS agent's
+    # own public key (the agent receives payment), and the chain is Casper mainnet.
+    x402_provider = X402Handler(
+        agent_account=settings.agent_account_hash,
+        key_path=settings.agent_secret_key_path,
+        node_url=settings.casper_node_url,
+        cloud_api_key=settings.cspr_cloud_api_key,
+        enabled=settings.x402_enabled,
+        facilitator_url=settings.x402_facilitator_url,
+        chain=CHAIN_MAINNET,
+        pay_to="",  # → agent's own public key via requirements() fallback
     )
 
     async def on_cycle(result: AgentCycleResult):
@@ -318,6 +339,7 @@ async def x402_info():
         raise HTTPException(503, "Agent not initialized")
     x402 = agent.x402
     supported = await x402.get_supported_schemes()
+    prov = x402_provider
     return {
         "enabled": x402.enabled,
         "scheme": "exact",
@@ -330,6 +352,26 @@ async def x402_info():
         "facilitator_supported": supported,
         "protected_resources": ["/premium/yield-forecast"],
         "proof": "ed25519 signature over blake2b-256 authorization digest",
+        # The agent is a SERVICE PROVIDER too — other agents pay it for premium data.
+        "roles": ["consumer", "provider"],
+        "provider": {
+            "network": CHAIN_MAINNET,
+            "receives_to": (prov.public_key_hex if prov else x402.public_key_hex),
+            "services": [
+                {
+                    "resource": "/x402/decision",
+                    "price_motes": settings.x402_decision_price,
+                    "price_cspr": round(settings.x402_decision_price / 1e9, 6),
+                    "description": "On-demand Claude AI rebalance recommendation (RWA-aware)",
+                },
+                {
+                    "resource": "/x402/rwa-feed",
+                    "price_motes": settings.x402_rwa_feed_price,
+                    "price_cspr": round(settings.x402_rwa_feed_price / 1e9, 6),
+                    "description": "Aggregated RWA prices (PAXG, UST10Y, WTI) verified on-chain",
+                },
+            ],
+        },
     }
 
 
@@ -402,6 +444,145 @@ async def premium_yield_forecast(request: Request):
         "settlement_tx": settlement_tx,
         "explorer_url": f"https://testnet.cspr.live/deploy/{settlement_tx}" if settlement_tx else None,
         "premium_data": forecast,
+    }
+
+
+# ── x402 mainnet PROVIDER endpoints (other agents pay THIS agent) ──────────────
+
+def _provider_challenge(resource: str, amount: int, description: str) -> JSONResponse:
+    """Build the HTTP 402 PaymentRequirements challenge for a provider resource."""
+    return JSONResponse(
+        status_code=402,
+        content={
+            "x402Version": 2,
+            "error": "X-PAYMENT header required",
+            "accepts": [x402_provider.requirements(resource, amount=amount, description=description)],
+        },
+        headers={"Access-Control-Expose-Headers": "X-PAYMENT"},
+    )
+
+
+async def _provider_verify(request: Request, resource: str, amount: int, description: str):
+    """
+    Shared provider-side x402 gate. Returns either a JSONResponse (402 challenge or
+    rejection) to short-circuit, or a tuple (auth, settlement) when payment is valid.
+    """
+    if not x402_provider or not x402_provider.enabled:
+        raise HTTPException(503, "x402 provider not enabled")
+
+    header = request.headers.get("X-PAYMENT")
+    if not header:
+        return _provider_challenge(resource, amount, description), None
+
+    auth = x402_provider.verify_payment(header)
+    if not auth:
+        return JSONResponse(
+            status_code=402,
+            content={
+                "x402Version": 2,
+                "error": "Payment proof invalid, expired, or replayed",
+                "accepts": [x402_provider.requirements(resource, amount=amount, description=description)],
+            },
+        ), None
+
+    # Proof verified — settle on mainnet via the facilitator (payer → this agent).
+    requirements = x402_provider.requirements(resource, amount=amount, description=description)
+    payload = json.loads(__import__("base64").b64decode(header))
+    settlement = await x402_provider.settle_as_provider(payload, requirements)
+    return auth, settlement
+
+
+@app.api_route("/x402/decision", methods=["GET", "POST"])
+async def x402_decision(request: Request):
+    """
+    PAID (mainnet x402): another agent pays this agent for a fresh, on-demand
+    Claude AI rebalance recommendation that factors in live RWA market signals.
+    Without X-PAYMENT → HTTP 402 + PaymentRequirements.
+    """
+    if not agent:
+        raise HTTPException(503, "Agent not initialized")
+    resource = "/x402/decision"
+    price = settings.x402_decision_price
+    desc = "On-demand Claude AI rebalance recommendation (RWA-aware)"
+
+    gate, settlement = await _provider_verify(request, resource, price, desc)
+    if settlement is None:          # gate is a 402/rejection response
+        return gate
+    auth = gate                     # gate is the verified authorization dict
+
+    history = agent.get_history(1)
+    latest = history[0] if history else None
+    rec = await agent.engine.recommend(
+        yield_rates=(latest.yield_rates if latest else []),
+        portfolio=(latest.portfolio if latest else {}),
+        rwa_prices=(latest.rwa_prices if latest else []),
+        block_height=(latest.block_height if latest else 0),
+        vault_contract_hash=agent.vault_contract_hash,
+        agent_account_hash=agent.agent_account,
+        rebalance_count_today=agent.get_stats().get("rebalances_today", 0),
+        max_rebalances_per_day=agent.max_rebalances,
+    )
+
+    return {
+        "resource": resource,
+        "paid": True,
+        "network": CHAIN_MAINNET,
+        "payer": auth["from"],
+        "amount_motes": int(auth["value"]),
+        "settlement": settlement,
+        "recommendation": rec.model_dump(),
+        "generated_by": "Claude AI (Agent Casper) — RWA-aware yield routing",
+        "block_height": latest.block_height if latest else 0,
+    }
+
+
+@app.api_route("/x402/rwa-feed", methods=["GET", "POST"])
+async def x402_rwa_feed(request: Request):
+    """
+    PAID (mainnet x402): another agent pays this agent for the aggregated RWA
+    price feed (PAXG, UST10Y, WTI), bundled with the on-chain proof — the Casper
+    deploy hashes where these prices were posted to the YieldVault oracle.
+    Without X-PAYMENT → HTTP 402 + PaymentRequirements.
+    """
+    if not agent:
+        raise HTTPException(503, "Agent not initialized")
+    resource = "/x402/rwa-feed"
+    price = settings.x402_rwa_feed_price
+    desc = "Aggregated RWA prices (PAXG, UST10Y, WTI) verified on-chain"
+
+    gate, settlement = await _provider_verify(request, resource, price, desc)
+    if settlement is None:
+        return gate
+    auth = gate
+
+    rwa_prices = await agent.rwa.fetch_rwa_prices()
+
+    # On-chain proof: most recent deploy hashes where PAXG/UST10Y were posted to the
+    # YieldVault oracle on Casper testnet (the contract lives on testnet).
+    onchain_proof: dict = {}
+    for cycle in agent.get_history(20):
+        for asset_id, tx in (cycle.rwa_tx_hashes or {}).items():
+            if asset_id not in onchain_proof and tx:
+                onchain_proof[asset_id] = {
+                    "tx_hash": tx,
+                    "explorer_url": f"https://testnet.cspr.live/deploy/{tx}",
+                }
+        if len(onchain_proof) >= len(YieldAgent.RWA_ASSETS_TO_POST):
+            break
+
+    return {
+        "resource": resource,
+        "paid": True,
+        "network": CHAIN_MAINNET,
+        "payer": auth["from"],
+        "amount_motes": int(auth["value"]),
+        "settlement": settlement,
+        "rwa_prices": rwa_prices,
+        "onchain_proof": onchain_proof,
+        "onchain_proof_note": (
+            "tx_hash entries are Casper deploys where this agent posted the RWA price "
+            "to the YieldVault oracle contract via update_rwa_price() — verifiable on-chain."
+        ),
     }
 
 

@@ -143,18 +143,26 @@ class X402Handler:
 
     # ── Server side: 402 requirements ───────────────────────────────────────
 
-    def requirements(self, resource: str) -> dict:
-        """Build the PaymentRequirements object returned in a 402 response."""
+    def requirements(
+        self,
+        resource: str,
+        amount: Optional[int] = None,
+        description: Optional[str] = None,
+    ) -> dict:
+        """Build the PaymentRequirements object returned in a 402 response.
+
+        `amount`/`description` let one handler price multiple resources
+        differently (used by the mainnet provider endpoints)."""
         pay_to = self.pay_to or self.public_key_hex
         return {
             "scheme": SCHEME_EXACT,
             "network": self.chain,
             "payTo": pay_to,
-            "amount": str(self.payment_amount),
+            "amount": str(amount if amount is not None else self.payment_amount),
             "asset": "CSPR",
             "resource": resource,
             "maxTimeoutSeconds": 900,
-            "description": "Agent Casper premium analytics — x402 micropayment",
+            "description": description or "Agent Casper premium analytics — x402 micropayment",
         }
 
     # ── Client side: build + sign payment ───────────────────────────────────
@@ -264,6 +272,44 @@ class X402Handler:
         except Exception as exc:
             logger.debug("x402 facilitator /settle unreachable: %s", exc)
         return None
+
+    async def settle_as_provider(self, payload: dict, requirements: dict) -> dict:
+        """
+        Provider-side settlement: the remote PAYER pays this agent (payTo).
+
+        Uses the official CSPR.cloud facilitator `/settle`, which moves CSPR from
+        the payer's account → payTo using the payer's signed authorization. Unlike
+        the consumer `pay()` flow we deliberately do NOT fall back to a self-funded
+        on-chain transfer here — a service provider must never pay itself out. If
+        the facilitator can't settle (e.g. the payer lacks an on-chain allowance),
+        the cryptographic proof is still verified and the request is honoured; the
+        settlement is reported as pending.
+
+        Returns a settlement record: {settled, tx_hash, settlement, network, explorer_url}.
+        """
+        explorer_base = ("https://cspr.live/deploy/" if "casper-test" not in self.chain
+                         else "https://testnet.cspr.live/deploy/")
+        fac = await self.facilitator_settle(payload, requirements)
+        tx = (fac or {}).get("transaction") or (fac or {}).get("txHash") if fac else None
+        if tx:
+            logger.info("x402 provider settlement via facilitator on %s — %s", self.chain, tx[:16])
+            return {
+                "settled": True,
+                "tx_hash": tx,
+                "settlement": "facilitator",
+                "network": self.chain,
+                "explorer_url": explorer_base + tx,
+            }
+        return {
+            "settled": False,
+            "tx_hash": None,
+            "settlement": "proof_verified",
+            "network": self.chain,
+            "explorer_url": None,
+            "note": ("Cryptographic payment proof verified and request honoured. "
+                     "On-chain settlement requires the payer to hold a funded "
+                     "mainnet account with an x402 allowance registered at the facilitator."),
+        }
 
     async def settle_onchain(self, authorization: dict) -> Optional[str]:
         """Submit a real native CSPR transfer for the authorized amount.

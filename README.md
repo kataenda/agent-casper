@@ -31,7 +31,7 @@
 2. Fetches yield rates from Casper validators via CSPR.cloud
 3. Lets **Claude AI autonomously query** on-chain + RWA data via MCP tools and decide
 4. Autonomously executes on-chain rebalancing transactions when needed
-5. Posts verified RWA prices on-chain (auditable oracle trail) and pays for premium data via **x402** micropayments
+5. Posts verified RWA prices on-chain (auditable oracle trail), and both **pays for** and **sells** premium data via **x402** micropayments — a service provider on Casper mainnet, not just a consumer
 
 The system transforms a passive smart contract vault into a **self-driving portfolio manager**, uniting the three pillars of the Casper Innovation Track — **Agentic AI · DeFi · RWA**.
 
@@ -117,9 +117,15 @@ Framework:     Odra 2.7.2 (Rust → WASM)
 
 ## x402 Micropayments
 
-Agent Casper implements the **x402 v2 HTTP-native pay-per-request** protocol so the
-agent pays for premium data per API call, with a cryptographic proof and real
-on-chain settlement on Casper Testnet.
+Agent Casper implements the **x402 v2 HTTP-native pay-per-request** protocol on
+**both sides of the loop**:
+
+- **Consumer** — the agent pays per API call for its premium "RWA risk feed" each cycle.
+- **Provider** — the agent *sells* its own services on **Casper mainnet**: other agents
+  pay it for an on-demand Claude AI recommendation (`/x402/decision`) or an on-chain-verified
+  RWA price feed (`/x402/rwa-feed`). Payment lands in the agent's own account.
+
+Every request carries a cryptographic proof; settlement is real and on-chain.
 
 **Flow** (`backend/casper/x402.py`):
 
@@ -142,11 +148,19 @@ payment transaction is always produced.
 
 **Endpoints:**
 
-| Endpoint | Description |
-|----------|-------------|
-| `GET /premium/yield-forecast` | x402-protected resource — 402 without payment, premium data with valid `X-PAYMENT` |
-| `GET /x402/info` | x402 config, payer public key, facilitator support |
-| `GET /x402/supported` | Proxies the facilitator's supported schemes/networks |
+| Endpoint | Role | Description |
+|----------|------|-------------|
+| `GET /premium/yield-forecast` | provider (testnet) | x402-protected resource — 402 without payment, premium data with valid `X-PAYMENT` |
+| `GET\|POST /x402/decision` | **provider (mainnet)** | Pay **5 CSPR** → fresh Claude AI rebalance recommendation (RWA-aware) |
+| `GET\|POST /x402/rwa-feed` | **provider (mainnet)** | Pay **2.5 CSPR** → aggregated RWA prices (PAXG, UST10Y, WTI) + on-chain proof deploy hashes |
+| `GET /x402/info` | — | x402 config, payer public key, facilitator support, **provider service catalog** |
+| `GET /x402/supported` | — | Proxies the facilitator's supported schemes/networks |
+
+The mainnet provider endpoints set `payTo` to the agent's own public key, so a paying
+agent's CSPR is settled to Agent Casper via the facilitator. The ed25519 proof is
+verified on every request; if the payer isn't a funded mainnet account with a
+registered x402 allowance, the request is still honoured and settlement is reported
+as `proof_verified` (pending).
 
 **Try it** (against the live production backend):
 
@@ -162,11 +176,16 @@ curl https://agentcasper.soenic.com/x402/info
 #    (run from the repo root; reads the agent key from backend/agent_secret_key.pem)
 python demo_x402.py            # proof only — no CSPR spent
 python demo_x402.py --settle   # also settles a real on-chain CSPR transfer
+
+# 4. BUYER AGENT — an independent agent (its own fresh ed25519 identity each run)
+#    pays Agent Casper over mainnet x402 for BOTH provider services.
+python demo_buyer_agent.py
 ```
 
 > Replace the URL with `http://localhost:8000` to try it against a local backend.
-> The `demo_x402.py` client runs the exact `X402Handler` flow the agent uses, signing
-> the payment proof locally and submitting `X-PAYMENT` to the server.
+> `demo_x402.py` runs the exact `X402Handler` flow the agent uses (consumer side);
+> `demo_buyer_agent.py` plays an *external* buyer that pays for `/x402/decision` and
+> `/x402/rwa-feed` — proving the agent is a real x402 service provider, not just a consumer.
 
 When `X402_ENABLED=true`, the agent also performs an x402 micropayment each cycle for
 its "RWA risk feed"; the payment record (proof + settlement deploy hash) is included in

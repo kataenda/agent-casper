@@ -478,6 +478,39 @@ class DecisionEngine:
             "note": "DEX pool data currently unavailable. Base decision on validator staking yields and RWA signals only.",
         })
 
+    async def recommend(
+        self,
+        yield_rates: list,
+        portfolio,
+        rwa_prices: list,
+        block_height: int = 0,
+        vault_contract_hash: str = "",
+        agent_account_hash: str = "",
+        rebalance_count_today: int = 0,
+        max_rebalances_per_day: int = 5,
+    ) -> RebalanceDecision:
+        """
+        On-demand rebalance recommendation — a single Claude call (no MCP loop) over
+        the supplied market data. Public entry point for the paid `/x402/decision`
+        provider endpoint, where another agent buys a fresh Claude AI recommendation.
+        Falls back to the deterministic rule-based engine if Claude is unreachable.
+        """
+        if self._demo_mode:
+            return self._rule_based_decide(
+                yield_rates or [], rwa_prices or [],
+                rebalance_count_today, max_rebalances_per_day, portfolio,
+            )
+        return await self._direct_claude_decide(
+            yield_rates=yield_rates or [],
+            portfolio=portfolio,
+            rwa_prices=rwa_prices or [],
+            block_height=block_height,
+            vault_contract_hash=vault_contract_hash,
+            agent_account_hash=agent_account_hash,
+            rebalance_count_today=rebalance_count_today,
+            max_rebalances_per_day=max_rebalances_per_day,
+        )
+
     async def _direct_claude_decide(
         self,
         yield_rates: list,
@@ -658,9 +691,11 @@ class DecisionEngine:
                 )
 
         # ── Rebalance to new target ───────────────────────────────────────────
-        curr_cons = portfolio.model_dump().get("conservative_pct", "?") if portfolio else "?"
-        curr_bal  = portfolio.model_dump().get("balanced_pct", "?") if portfolio else "?"
-        curr_agg  = portfolio.model_dump().get("aggressive_pct", "?") if portfolio else "?"
+        curr = {} if portfolio is None else (
+            portfolio if isinstance(portfolio, dict) else portfolio.model_dump())
+        curr_cons = curr.get("conservative_pct", "?")
+        curr_bal  = curr.get("balanced_pct", "?")
+        curr_agg  = curr.get("aggressive_pct", "?")
         return RebalanceDecision(
             action="REBALANCE",
             new_strategy=target_strategy,
