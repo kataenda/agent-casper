@@ -32,10 +32,11 @@
 3. Lets **Claude AI autonomously query** on-chain + RWA data via MCP tools and decide
 4. Autonomously executes on-chain rebalancing transactions when needed
 5. Posts verified RWA prices on-chain (auditable oracle trail), and both **pays for** and **sells** premium data via **x402** micropayments — a service provider on Casper mainnet, not just a consumer
+6. Executes **real, non-custodial DeFi swaps on Casper mainnet** via the **CSPR.trade MCP** — the agent fetches live quotes, builds the transaction, signs it with its own key, and broadcasts it (verified live: [`f28a4051…`](https://cspr.live/transaction/f28a4051e17a67f4a6bd9951802cfb64a062b1daa01b59945b444fb25a052eb5))
 
 The system transforms a passive smart contract vault into a **self-driving portfolio manager**, uniting the three pillars of the Casper Innovation Track — **Agentic AI · DeFi · RWA**.
 
-> Built using the [Casper AI Toolkit](https://www.casper.network/ai) — MCP Servers, CSPR.cloud, Odra Framework, x402, casper-js-sdk v5
+> Built using the [Casper AI Toolkit](https://www.casper.network/ai) — MCP Servers (Casper MCP + **CSPR.trade MCP**), CSPR.cloud, Odra Framework, x402, casper-js-sdk v5
 
 ---
 
@@ -82,7 +83,7 @@ The system transforms a passive smart contract vault into a **self-driving portf
 | **casper-js-sdk v5** | Frontend deploy signing, wallet integration |
 | **x402 Protocol** | HTTP-native pay-per-request micropayments: ed25519-signed payment proof + real on-chain CSPR settlement + CSPR.cloud facilitator. Enable via `X402_ENABLED=true` |
 | **MCP Server** | Custom Casper MCP server exposes 5 blockchain tools to Claude (block height, yield rates, vault portfolio, RWA prices, account balance) |
-| **CSPR.trade MCP** | DEX pool / liquidity data tool for the aggressive strategy |
+| **CSPR.trade MCP** | **Real non-custodial DeFi** on Casper mainnet (`https://mcp.cspr.trade/mcp`, 24 tools). The agent uses it for live swap quotes **and execution** — `build_swap` → sign with the agent's own ed25519 key → broadcast via `account_put_transaction`. Funds never leave the agent's account. Exposed via `/defi/quote`, `/defi/markets`, `/defi/swap` |
 | **Casper Wallet** | User authentication and transaction signing |
 | **Claude AI** | Autonomous rebalancing decisions with RWA context (claude-haiku-4-5) |
 
@@ -193,6 +194,49 @@ every cycle result broadcast over the WebSocket.
 
 ---
 
+## Real DeFi — CSPR.trade MCP (Casper Mainnet)
+
+Beyond the testnet vault, Agent Casper performs **real, non-custodial DeFi** on Casper
+**mainnet** through the official [CSPR.trade MCP](https://mcp.cspr.trade) (Uniswap-V2 DEX,
+24 public MCP tools). This is genuine on-chain trading — verified live:
+
+> **Live swap:** [`f28a4051…`](https://cspr.live/transaction/f28a4051e17a67f4a6bd9951802cfb64a062b1daa01b59945b444fb25a052eb5) · [`ba71c1a8…`](https://cspr.live/transaction/ba71c1a8e3008f9eed55a78eb6bfb0386cf4d8e61f5690fbc1412c74410b3eae)
+
+**Flow** (`backend/casper/cspr_trade.py`):
+
+1. `get_quote` / `estimate_slippage` — live mainnet pricing, route, and price impact.
+2. `build_swap` — CSPR.trade returns an **unsigned Casper 2.x TransactionV1**.
+3. The agent **signs it locally** with its own ed25519 key (the same key it uses for x402
+   proofs and rebalances) — the MCP never holds funds (**non-custodial**).
+4. The signed transaction is broadcast via `account_put_transaction` to a Casper mainnet
+   node, returning a real transaction hash.
+
+**Guardrails:** input-amount cap, price-impact cap, and an explicit `execute` flag
+(`false` = quote + build + sign only, no broadcast).
+
+**Endpoints:**
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /defi/quote` | Live CSPR.trade mainnet swap quote (read-only, no wallet) |
+| `GET /defi/markets` | Live CSPR.trade trading pairs |
+| `GET\|POST /defi/swap` | Build + sign + (with `execute=true`) broadcast a real swap; returns the tx hash |
+
+```bash
+# Live mainnet quote (free, read-only)
+curl "https://agentcasper.soenic.com/defi/quote?token_in=CSPR&token_out=sCSPR&amount=10"
+
+# Execute a real non-custodial swap on mainnet (spends the agent's own CSPR)
+curl -X POST https://agentcasper.soenic.com/defi/swap \
+  -H "Content-Type: application/json" \
+  -d '{"token_in":"CSPR","token_out":"sCSPR","amount":"10","execute":true}'
+```
+
+The dashboard also exposes a **Swap** panel (header button) for the same flow with a
+real-mainnet confirmation step.
+
+---
+
 ## On-Chain Proof
 
 All activity is verifiable on the [Casper Testnet explorer](https://testnet.cspr.live). Example transactions produced autonomously by the agent:
@@ -204,6 +248,12 @@ All activity is verifiable on the [Casper Testnet explorer](https://testnet.cspr
 | RWA price on-chain (gold) | `update_rwa_price` | [`b9f33ec3…`](https://testnet.cspr.live/deploy/b9f33ec3e9e1091912796beaa98b95d1b85887fd9df692067c7767bf37150d4e) |
 | RWA price on-chain (treasury) | `update_rwa_price` | [`0700586b…`](https://testnet.cspr.live/deploy/0700586b8e302123887f4f759fb2ac90156cb2f8daad6d8f9e09db2aaf7f730b) |
 | x402 micropayment settlement | native transfer | [`ba8fb27e…`](https://testnet.cspr.live/deploy/ba8fb27e71acc2c0cba50a72a0bd3820028dc6ceb8791ac51b79b0614148f32d) |
+
+Plus **real DeFi on Casper mainnet** via CSPR.trade MCP (verifiable on [cspr.live](https://cspr.live)):
+
+| Action | Network | Transaction |
+|--------|---------|-------------|
+| Non-custodial swap (CSPR → sCSPR) | **mainnet** | [`f28a4051…`](https://cspr.live/transaction/f28a4051e17a67f4a6bd9951802cfb64a062b1daa01b59945b444fb25a052eb5) |
 
 > The agent account has produced 130+ processed transactions on Testnet to date.
 
@@ -606,7 +656,8 @@ agent-casper/
 │       ├── deployer.py         # Transaction signing (pycspr)
 │       ├── rwa_oracle.py       # PAXG / UST10Y / WTI price feeds
 │       ├── mcp_server.py       # MCP server — blockchain tools for Claude
-│       └── x402.py             # x402 micropayment handler
+│       ├── x402.py             # x402 micropayment handler (consumer + provider)
+│       └── cspr_trade.py       # CSPR.trade MCP — real non-custodial DeFi swaps
 ├── frontend/src/
 │   ├── app/page.tsx            # Main cyber dashboard
 │   └── components/
@@ -674,8 +725,8 @@ lsof -i :8000                  # Linux/Mac
 - The agent requires **CSPR balance in the agent account** to pay gas for rebalance transactions (~5 CSPR each)
 - Maximum **5 rebalances per day** (configurable via `MAX_REBALANCES_PER_DAY`)
 - After 5 rebalances, the agent keeps monitoring but will not execute until the quota resets at midnight UTC
-- All transactions are visible at [testnet.cspr.live](https://testnet.cspr.live)
-- The smart contract is live on Casper **Testnet** — do not use Mainnet CSPR
+- Vault/rebalance/RWA transactions are visible at [testnet.cspr.live](https://testnet.cspr.live); CSPR.trade DeFi swaps are on **mainnet** at [cspr.live](https://cspr.live)
+- The **YieldVault contract** is on Casper **Testnet**. The **CSPR.trade DeFi swaps** run on **mainnet** and spend the agent account's own CSPR (the DEX is mainnet-only) — fund the agent's mainnet account to enable `/defi/swap` execution
 
 ---
 
@@ -685,11 +736,12 @@ lsof -i :8000                  # Linux/Mac
 - YieldVault contract on Casper Testnet
 - Autonomous AI agent (Claude) with 60-second decision loop via MCP tools
 - RWA oracle on-chain posting (PAXG, UST10Y)
-- x402 micropayments (HTTP-native, ed25519 proof, on-chain settlement)
+- x402 micropayments — two-sided (consumer **and** provider, mainnet)
+- **Real non-custodial DeFi swaps on Casper mainnet via CSPR.trade MCP**
 - Real-time cyber dashboard with WebSocket
 
 ### Phase 2 — DeFi Integration (Q3 2026)
-- Connect to real Casper DeFi protocols
+- Route vault capital into real Casper DeFi positions (CSPR.trade LP, validator staking)
 - Live yield rate feeds from on-chain sources
 - Multi-vault strategy support
 - Mobile notifications (Telegram bot)
