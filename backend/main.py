@@ -23,6 +23,7 @@ from casper.client import CasperClient
 from casper.deployer import CasperDeployer
 from casper.rwa_oracle import RWAOracle
 from casper.x402 import X402Handler, CHAIN_TESTNET, CHAIN_MAINNET
+from casper.cspr_trade import CsprTradeMCP, CsprTradeError
 from agent.decision_engine import DecisionEngine
 from agent.yield_agent import YieldAgent, AgentCycleResult
 
@@ -55,6 +56,9 @@ class Settings(BaseSettings):
     # Mainnet provider endpoints — other agents PAY this agent for premium data.
     x402_decision_price: int = 5_000_000_000   # 5 CSPR per AI rebalance recommendation
     x402_rwa_feed_price: int = 2_500_000_000   # 2.5 CSPR per on-chain-verified RWA feed
+    # Real DeFi via CSPR.trade MCP (Casper mainnet, non-custodial) — safety caps.
+    cspr_trade_max_amount_cspr: float = 25.0
+    cspr_trade_max_price_impact_pct: float = 2.0
     app_host: str = "0.0.0.0"
     app_port: int = 8000
     debug: bool = True
@@ -584,6 +588,63 @@ async def x402_rwa_feed(request: Request):
             "to the YieldVault oracle contract via update_rwa_price() — verifiable on-chain."
         ),
     }
+
+
+# ── Real DeFi via CSPR.trade MCP (Casper mainnet, non-custodial) ───────────────
+
+def _cspr_trade() -> CsprTradeMCP:
+    """Build a CSPR.trade MCP client signed by the agent's own key."""
+    pub = agent.x402.public_key_hex if agent else ""
+    return CsprTradeMCP(
+        agent_key_path=settings.agent_secret_key_path,
+        agent_public_key=pub,
+        max_price_impact_pct=settings.cspr_trade_max_price_impact_pct,
+        max_amount_cspr=settings.cspr_trade_max_amount_cspr,
+    )
+
+
+@app.get("/defi/quote")
+async def defi_quote(token_in: str = "CSPR", token_out: str = "sCSPR", amount: str = "10"):
+    """Live CSPR.trade mainnet swap quote (read-only, no wallet, no risk)."""
+    try:
+        return await _cspr_trade().get_quote(token_in, token_out, amount)
+    except CsprTradeError as exc:
+        raise HTTPException(502, str(exc))
+
+
+@app.get("/defi/markets")
+async def defi_markets():
+    """Live CSPR.trade mainnet trading pairs."""
+    try:
+        pairs = await _cspr_trade().get_pairs()
+        return {"network": "casper:casper", "source": "CSPR.trade MCP", "pairs": pairs}
+    except CsprTradeError as exc:
+        raise HTTPException(502, str(exc))
+
+
+class SwapRequest(BaseModel):
+    token_in: str = "CSPR"
+    token_out: str = "sCSPR"
+    amount: str = "10"
+    slippage_bps: int = 300
+    execute: bool = False   # MUST be explicitly true to spend real CSPR on mainnet
+
+
+@app.post("/defi/swap")
+async def defi_swap(req: SwapRequest):
+    """
+    Build (and, only with execute=true, broadcast) a REAL non-custodial swap on
+    CSPR.trade mainnet via MCP. The agent signs the unsigned deploy with its own
+    key; funds never leave the agent's account. Guardrailed by amount + price impact.
+    Default execute=false returns the real quote + signed deploy without broadcasting.
+    """
+    try:
+        return await _cspr_trade().swap(
+            token_in=req.token_in, token_out=req.token_out, amount=req.amount,
+            slippage_bps=req.slippage_bps, execute=req.execute,
+        )
+    except CsprTradeError as exc:
+        raise HTTPException(400, str(exc))
 
 
 class SetupContractRequest(BaseModel):
