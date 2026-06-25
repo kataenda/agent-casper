@@ -69,6 +69,10 @@ class YieldAgent:
         self._rebalances_today = 0
         self._last_rebalance_date: Optional[date] = None
         self._last_rwa_post_ts: float = 0.0
+        # Last on-chain RWA deploy hashes, carried forward across cycles so the
+        # dashboard's on-chain proof stays visible (deploys are permanent) instead
+        # of flickering on only the ~1 cycle/hour that actually posts.
+        self._last_rwa_tx_hashes: dict[str, str] = {}
         self._cycle_history: list[AgentCycleResult] = []
 
     async def start(self):
@@ -148,8 +152,13 @@ class YieldAgent:
                 else:
                     cycle_error = "TX_FAILED"
 
-        # Post verified RWA prices on-chain — creates auditable oracle trail on Casper
-        rwa_tx_hashes = await self._post_rwa_prices_onchain(rwa_prices)
+        # Post verified RWA prices on-chain — creates auditable oracle trail on Casper.
+        # Posting is rate-limited (hourly), so most cycles post nothing; carry the
+        # last known deploy hashes forward so the dashboard proof doesn't flicker.
+        posted = await self._post_rwa_prices_onchain(rwa_prices)
+        if posted:
+            self._last_rwa_tx_hashes.update(posted)
+        rwa_tx_hashes = dict(self._last_rwa_tx_hashes)
 
         # x402 micropayment — agent pays per request for the premium RWA risk feed.
         # A real ed25519-signed payment proof is produced every cycle; on-chain
