@@ -29,6 +29,10 @@ const ChatBox = dynamic(
   () => import("@/components/ChatBox").then((m) => ({ default: m.ChatBox })),
   { ssr: false }
 );
+const X402Services = dynamic(
+  () => import("@/components/X402Services").then((m) => ({ default: m.X402Services })),
+  { ssr: false }
+);
 
 import { useAgentStore } from "@/lib/store";
 import { useWalletStore } from "@/lib/walletStore";
@@ -309,6 +313,7 @@ export default function DashboardPage() {
         <div className="flex items-center gap-2 flex-wrap justify-end">
           <AgentControls isRegistered={agentRegistered} />
           <WalletWidget />
+          <X402Services />
           <a
             href={`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/docs`}
             target="_blank" rel="noopener noreferrer"
