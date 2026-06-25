@@ -142,7 +142,7 @@ class CsprTradeMCP:
         return d.get("data", d) if isinstance(d, dict) else d
 
     async def get_native_cspr_balance(self, public_key: str) -> dict:
-        out = await self._call("get_native_cspr_balance", {"public_key": public_key})
+        out = await self._call("get_native_cspr_balance", {"account_public_key": public_key})
         return out[0] if out else {}
 
     # ── Swap building summary parsing ─────────────────────────────────────────
