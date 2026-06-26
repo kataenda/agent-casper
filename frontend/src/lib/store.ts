@@ -50,7 +50,20 @@ export interface AgentCycle {
   rwa_prices?: RWAPrice[];
   rwa_tx_hashes?: Record<string, string>;
   tx_hash: string | null;
+  defi_execution?: DefiExecution;
   error?: string | null;
+}
+
+export interface DefiExecution {
+  executed?: boolean;
+  tx_hash?: string | null;
+  settlement?: string;
+  token_in?: string;
+  token_out?: string;
+  amount?: string;
+  explorer_url?: string | null;
+  triggered_by?: string;
+  note?: string;
 }
 
 export interface AgentStats {

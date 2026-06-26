@@ -36,6 +36,8 @@
 
 The system transforms a passive smart contract vault into a **self-driving portfolio manager**, uniting the three pillars of the Casper Innovation Track — **Agentic AI · DeFi · RWA**.
 
+> **What's live vs. roadmap (honest scope).** The Testnet **YieldVault is the agent's *decision + on-chain proof layer*** — it records AI-driven allocation changes and verified RWA prices on-chain, but does **not** itself route deposited capital into yield-bearing positions yet. Real, non-custodial **execution** runs on **mainnet** via the **CSPR.trade MCP** (verified swaps), signed with the agent's own key. Routing the vault's deposited capital directly into live DeFi positions is **Phase 2 (Q3 2026)**. We deliberately keep this distinction explicit rather than claim the vault "generates yield" today.
+
 > Built using the [Casper AI Toolkit](https://www.casper.network/ai) — MCP Servers (Casper MCP + **CSPR.trade MCP**), CSPR.cloud, Odra Framework, x402, casper-js-sdk v5
 
 ---
@@ -214,6 +216,15 @@ Beyond the testnet vault, Agent Casper performs **real, non-custodial DeFi** on 
 
 **Guardrails:** input-amount cap, price-impact cap, and an explicit `execute` flag
 (`false` = quote + build + sign only, no broadcast).
+
+**Autonomous decision → execution (closing the loop).** When the AI decides to
+**REBALANCE**, the agent can also fire a small **real** mainnet swap via CSPR.trade in
+the same cycle — turning the on-chain allocation record into actual on-chain DeFi
+execution (shown in the dashboard's decision log as a `DeFi⚡MAINNET` tx badge). This
+is **off by default** (`DEFI_EXECUTE_ON_REBALANCE=false`) and spends the **agent's own**
+mainnet CSPR, bounded by a fixed per-swap amount (`DEFI_SWAP_AMOUNT_CSPR`), a per-day cap
+(`DEFI_MAX_SWAPS_PER_DAY`), plus the amount + price-impact caps above. (Routing the
+*vault's deposited* capital this way is Phase 2 — see Honest scope.)
 
 **Endpoints:**
 

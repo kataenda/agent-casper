@@ -2,6 +2,8 @@
 
 > **Casper Agentic Buildathon 2026** · Build Direction #1: Autonomous Yield-Routing Agent
 
+> **Honest scope.** The Testnet YieldVault is the agent's *decision + on-chain proof layer* (records AI allocations + RWA prices on-chain); it does not itself route deposited capital into yield positions yet. Real non-custodial **execution** runs on **mainnet** via CSPR.trade MCP. Vault-capital routing into live DeFi = **Phase 2 (Q3 2026)**. We do not claim the vault "generates yield" today.
+
 ## Required items
 
 - [x] Public repository URL — https://github.com/kataenda/agent-casper

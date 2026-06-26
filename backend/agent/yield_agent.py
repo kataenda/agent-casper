@@ -15,6 +15,7 @@ from casper.client import CasperClient, PortfolioState, YieldRate
 from casper.deployer import CasperDeployer
 from casper.rwa_oracle import RWAOracle
 from casper.x402 import X402Handler
+from casper.cspr_trade import CsprTradeMCP
 from agent.decision_engine import DecisionEngine, RebalanceDecision
 
 logger = logging.getLogger(__name__)
@@ -30,6 +31,7 @@ class AgentCycleResult(BaseModel):
     rwa_tx_hashes: dict[str, str] = {}   # asset_id → deploy hash
     tx_hash: Optional[str] = None
     x402_payment: dict = {}              # x402 micropayment record for this cycle
+    defi_execution: dict = {}            # real CSPR.trade mainnet swap triggered by a rebalance
     error: Optional[str] = None
 
 
@@ -48,6 +50,12 @@ class YieldAgent:
         max_rebalances_per_day: int = 5,
         rwa_onchain_enabled: bool = True,
         rwa_post_interval_seconds: int = 3600,
+        cspr_trade: Optional[CsprTradeMCP] = None,
+        defi_execute_on_rebalance: bool = False,
+        defi_swap_amount_cspr: float = 5.0,
+        defi_swap_token_in: str = "CSPR",
+        defi_swap_token_out: str = "sCSPR",
+        defi_max_swaps_per_day: int = 1,
         on_cycle_complete: Optional[Callable] = None,
     ):
         self.casper = casper_client
@@ -62,11 +70,21 @@ class YieldAgent:
         self.max_rebalances = max_rebalances_per_day
         self.rwa_onchain_enabled = rwa_onchain_enabled
         self.rwa_post_interval = rwa_post_interval_seconds
+        # Real DeFi: when the AI decides to REBALANCE, optionally route a small,
+        # capped real swap on Casper mainnet via CSPR.trade — closing the loop from
+        # AI decision → real on-chain execution. OFF by default (spends real CSPR).
+        self.cspr_trade = cspr_trade
+        self.defi_execute_on_rebalance = defi_execute_on_rebalance
+        self.defi_swap_amount_cspr = defi_swap_amount_cspr
+        self.defi_swap_token_in = defi_swap_token_in
+        self.defi_swap_token_out = defi_swap_token_out
+        self.defi_max_swaps_per_day = defi_max_swaps_per_day
         self.on_cycle_complete = on_cycle_complete
 
         self._running = False
         self.paused = False           # set True to freeze rebalancing without stopping loop
         self._rebalances_today = 0
+        self._defi_swaps_today = 0
         self._last_rebalance_date: Optional[date] = None
         self._last_rwa_post_ts: float = 0.0
         # Last on-chain RWA deploy hashes, carried forward across cycles so the
@@ -102,6 +120,7 @@ class YieldAgent:
         today = date.today()
         if self._last_rebalance_date != today:
             self._rebalances_today = 0
+            self._defi_swaps_today = 0
             self._last_rebalance_date = today
 
         block_height, yield_rates, portfolio, rwa_prices = await asyncio.gather(
@@ -140,6 +159,7 @@ class YieldAgent:
 
         tx_hash = None
         cycle_error = None
+        defi_execution: dict = {}
         if decision.action == "REBALANCE":
             if self.paused:
                 cycle_error = "PAUSED"
@@ -149,6 +169,9 @@ class YieldAgent:
                 tx_hash = await self._execute_rebalance(decision, portfolio)
                 if tx_hash:
                     self._rebalances_today += 1
+                    # Close the loop: the AI's allocation decision is now also
+                    # executed as a real, capped, non-custodial swap on mainnet.
+                    defi_execution = await self._execute_defi_swap(decision)
                 else:
                     cycle_error = "TX_FAILED"
 
@@ -181,6 +204,7 @@ class YieldAgent:
             rwa_tx_hashes=rwa_tx_hashes,
             tx_hash=tx_hash,
             x402_payment=x402_payment,
+            defi_execution=defi_execution,
             error=cycle_error,
         )
 
@@ -261,6 +285,47 @@ class YieldAgent:
             logger.error("Failed to execute rebalance: %s", exc)
             return None
 
+    async def _execute_defi_swap(self, decision: RebalanceDecision) -> dict:
+        """
+        Execute a real, capped, non-custodial swap on Casper mainnet via CSPR.trade,
+        triggered by an AI rebalance decision — turning the on-chain allocation record
+        into actual on-chain DeFi execution.
+
+        Heavily guarded: OFF unless `defi_execute_on_rebalance` is enabled; bounded by
+        a small fixed amount, a per-day swap cap, and CSPR.trade's own amount +
+        price-impact caps. Never raises — the swap is best-effort and reported in the
+        cycle result so the dashboard can show "decision → executed on-chain".
+        """
+        if not (self.defi_execute_on_rebalance and self.cspr_trade):
+            return {}
+        if self._defi_swaps_today >= self.defi_max_swaps_per_day:
+            return {
+                "executed": False,
+                "settlement": "daily_cap",
+                "note": f"defi swap daily cap reached ({self._defi_swaps_today}/{self.defi_max_swaps_per_day})",
+            }
+        try:
+            record = await self.cspr_trade.swap(
+                token_in=self.defi_swap_token_in,
+                token_out=self.defi_swap_token_out,
+                amount=str(self.defi_swap_amount_cspr),
+                execute=True,
+            )
+            record["triggered_by"] = decision.new_strategy or decision.action
+            if record.get("executed"):
+                self._defi_swaps_today += 1
+                logger.info(
+                    "DeFi execution on mainnet — %s %s→%s tx=%s",
+                    self.defi_swap_amount_cspr, self.defi_swap_token_in,
+                    self.defi_swap_token_out, record.get("tx_hash"),
+                )
+            else:
+                logger.info("DeFi execution not broadcast — %s", record.get("settlement"))
+            return record
+        except Exception as exc:
+            logger.warning("DeFi execution error: %s", exc)
+            return {"executed": False, "settlement": "error", "note": str(exc)[:200]}
+
     async def force_rebalance(self, strategy: str = "balanced") -> Optional[str]:
         """
         Immediately execute a rebalance with the specified strategy.
@@ -301,6 +366,8 @@ class YieldAgent:
             "running": self._running,
             "paused": self.paused,
             "rebalances_today": self._rebalances_today,
+            "defi_swaps_today": self._defi_swaps_today,
+            "defi_execute_on_rebalance": self.defi_execute_on_rebalance,
             "total_cycles": len(self._cycle_history),
             "poll_interval_seconds": self.poll_interval,
         }

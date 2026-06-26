@@ -59,6 +59,13 @@ class Settings(BaseSettings):
     # Real DeFi via CSPR.trade MCP (Casper mainnet, non-custodial) — safety caps.
     cspr_trade_max_amount_cspr: float = 25.0
     cspr_trade_max_price_impact_pct: float = 2.0
+    # Close the loop: when the AI decides REBALANCE, also execute a small REAL swap
+    # on mainnet (decision → on-chain execution). OFF by default — spends real CSPR.
+    defi_execute_on_rebalance: bool = False
+    defi_swap_amount_cspr: float = 5.0
+    defi_swap_token_in: str = "CSPR"
+    defi_swap_token_out: str = "sCSPR"
+    defi_max_swaps_per_day: int = 1
     # Mainnet node used to broadcast swap deploys (they're too large for the MCP).
     # cspr.cloud convention: mainnet is the BARE domain (testnet has the .testnet. prefix).
     cspr_mainnet_node_url: str = "https://node.cspr.cloud/rpc"
@@ -207,6 +214,17 @@ async def lifespan(app: FastAPI):
     async def on_cycle(result: AgentCycleResult):
         await broadcast({"event": "cycle", "data": result.model_dump()})
 
+    # CSPR.trade MCP client signed by the agent's own key — used to execute a real
+    # mainnet swap when the AI rebalances (only if defi_execute_on_rebalance is on).
+    agent_cspr_trade = CsprTradeMCP(
+        agent_key_path=settings.agent_secret_key_path,
+        agent_public_key=x402.public_key_hex,
+        max_price_impact_pct=settings.cspr_trade_max_price_impact_pct,
+        max_amount_cspr=settings.cspr_trade_max_amount_cspr,
+        node_rpc=settings.cspr_mainnet_node_url,
+        node_auth=settings.cspr_cloud_api_key,
+    )
+
     agent = YieldAgent(
         casper_client=casper_client,
         decision_engine=decision_engine,
@@ -220,6 +238,12 @@ async def lifespan(app: FastAPI):
         max_rebalances_per_day=settings.max_rebalances_per_day,
         rwa_onchain_enabled=settings.rwa_onchain_enabled,
         rwa_post_interval_seconds=settings.rwa_post_interval_seconds,
+        cspr_trade=agent_cspr_trade,
+        defi_execute_on_rebalance=settings.defi_execute_on_rebalance,
+        defi_swap_amount_cspr=settings.defi_swap_amount_cspr,
+        defi_swap_token_in=settings.defi_swap_token_in,
+        defi_swap_token_out=settings.defi_swap_token_out,
+        defi_max_swaps_per_day=settings.defi_max_swaps_per_day,
         on_cycle_complete=on_cycle,
     )
 

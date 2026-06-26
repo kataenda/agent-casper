@@ -62,8 +62,21 @@ function NoTxBadge({ error }: { error?: string | null }) {
   );
 }
 
+function DefiBadge({ defi }: { defi: NonNullable<AgentCycle["defi_execution"]> }) {
+  if (!defi.executed || !defi.tx_hash) return null;
+  const url = defi.explorer_url ?? `https://cspr.live/transaction/${defi.tx_hash}`;
+  return (
+    <a href={url} target="_blank" rel="noopener noreferrer"
+       className="font-mono text-[9px] px-1.5 py-0.5 rounded hover:opacity-75 transition-opacity"
+       style={{ color: "#BF5AF2", background: "rgba(191,90,242,0.1)", border: "1px solid rgba(191,90,242,0.3)" }}
+       title={`Real mainnet swap ${defi.amount ?? ""} ${defi.token_in ?? ""}→${defi.token_out ?? ""} · ${defi.tx_hash}`}>
+      DeFi⚡MAINNET:{defi.tx_hash.slice(0, 10)}…↗
+    </a>
+  );
+}
+
 function CycleRow({ cycle, index }: { cycle: AgentCycle; index: number }) {
-  const { decision, timestamp, block_height, tx_hash, rwa_tx_hashes, error } = cycle;
+  const { decision, timestamp, block_height, tx_hash, rwa_tx_hashes, defi_execution, error } = cycle;
   const ts      = timestamp && !timestamp.endsWith("Z") && !timestamp.includes("+") ? timestamp + "Z" : timestamp;
   const time    = ts ? format(new Date(ts), "HH:mm:ss") : "--:--:--";
   const action  = ACTION_CFG[decision.action] ?? ACTION_CFG.HOLD;
@@ -127,6 +140,7 @@ function CycleRow({ cycle, index }: { cycle: AgentCycle; index: number }) {
           {rwa_tx_hashes && Object.entries(rwa_tx_hashes).map(([asset, hash]) =>
             hash ? <TxLink key={asset} hash={hash} label={asset} /> : null
           )}
+          {defi_execution && <DefiBadge defi={defi_execution} />}
         </div>
       </div>
     </div>
