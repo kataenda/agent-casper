@@ -209,6 +209,8 @@ async def lifespan(app: FastAPI):
         facilitator_url=settings.x402_facilitator_url,
         chain=CHAIN_MAINNET,
         pay_to="",  # → agent's own public key via requirements() fallback
+        # Verify payer-submitted settlement transfers on the Casper MAINNET node.
+        settle_node_url=settings.cspr_mainnet_node_url,
     )
 
     async def on_cycle(result: AgentCycleResult):

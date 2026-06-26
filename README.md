@@ -161,10 +161,19 @@ payment transaction is always produced.
 | `GET /x402/supported` | — | Proxies the facilitator's supported schemes/networks |
 
 The mainnet provider endpoints set `payTo` to the agent's own public key, so a paying
-agent's CSPR is settled to Agent Casper via the facilitator. The ed25519 proof is
-verified on every request; if the payer isn't a funded mainnet account with a
-registered x402 allowance, the request is still honoured and settlement is reported
-as `proof_verified` (pending).
+agent's CSPR is settled to Agent Casper. The ed25519 proof is verified on every request,
+and there are **two ways the payment settles on-chain**:
+
+1. **Facilitator pull** — the official CSPR.cloud facilitator moves CSPR from a payer
+   that holds a registered x402 allowance (`settlement: facilitator`).
+2. **Payer push (self-contained)** — the payer submits a real native transfer to `payTo`
+   and passes its deploy hash as `authorization.settlement_tx`. The provider then
+   **verifies that transfer on-chain** (payer → payTo, ≥ amount, executed Success) and
+   reports `settlement: onchain_transfer_by_payer` with a real `cspr.live` tx.
+
+Either way the proof is bound to the on-chain payment (the transfer's sender must equal
+the proof's signer). If neither settles (e.g. an unfunded demo key), the proof is still
+verified and the request honoured with `settlement: proof_verified` (pending).
 
 **Try it** (against the live production backend):
 
@@ -183,7 +192,11 @@ python demo_x402.py --settle   # also settles a real on-chain CSPR transfer
 
 # 4. BUYER AGENT — an independent agent (its own fresh ed25519 identity each run)
 #    pays Agent Casper over mainnet x402 for BOTH provider services.
-python demo_buyer_agent.py
+python demo_buyer_agent.py                       # proof only — settlement pending
+
+# 5. REAL on-chain settlement: a funded mainnet buyer actually transfers CSPR to
+#    Agent Casper, proving the provider economy settles on-chain (agent earns).
+python demo_buyer_agent.py --settle --key buyer_key.pem --cloud-key <CSPR_CLOUD_KEY>
 ```
 
 > Replace the URL with `http://localhost:8000` to try it against a local backend.

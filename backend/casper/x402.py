@@ -90,6 +90,7 @@ class X402Handler:
         chain: str = CHAIN_TESTNET,
         pay_to: str = "",
         min_settle_interval_seconds: int = 3600,
+        settle_node_url: str = "",
     ):
         self.agent_account = agent_account
         self.key_path = key_path
@@ -101,6 +102,10 @@ class X402Handler:
         self.chain = chain
         self.pay_to = pay_to
         self.min_settle_interval = min_settle_interval_seconds
+        # Node used to VERIFY a payer-submitted settlement transfer on-chain. For the
+        # mainnet provider this is the mainnet node (the payer pays on mainnet even
+        # though proof verification is chain-agnostic). Defaults to node_url.
+        self.settle_node_url = settle_node_url or node_url
 
         self._kp = None
         self._used_nonces: set[str] = set()
@@ -167,8 +172,13 @@ class X402Handler:
 
     # ── Client side: build + sign payment ───────────────────────────────────
 
-    def build_payment(self, requirements: dict) -> dict:
-        """Build and ed25519-sign an x402 v2 payment payload for `requirements`."""
+    def build_payment(self, requirements: dict, settlement_tx: Optional[str] = None) -> dict:
+        """Build and ed25519-sign an x402 v2 payment payload for `requirements`.
+
+        `settlement_tx` (optional): the deploy hash of a REAL on-chain transfer the
+        payer already submitted to `payTo`. Including it here binds that transfer to
+        the signed proof, so the provider can verify a genuine on-chain settlement
+        (payer → provider) instead of reporting the payment as pending."""
         kp = self._keypair()
         now = int(time.time())
         valid_before = now + int(requirements.get("maxTimeoutSeconds", 900))
@@ -182,6 +192,8 @@ class X402Handler:
             "validBefore": str(valid_before),
             "nonce": secrets.token_hex(32),
         }
+        if settlement_tx:
+            authorization["settlement_tx"] = settlement_tx
         signature = kp.get_signature(_authorization_digest(authorization))  # 64-byte ed25519
 
         return {
@@ -300,6 +312,33 @@ class X402Handler:
                 "network": self.chain,
                 "explorer_url": explorer_base + tx,
             }
+
+        # Facilitator couldn't settle — check whether the payer included the deploy
+        # hash of a REAL on-chain transfer it already submitted to payTo. If that
+        # transfer verifies on-chain (payer → payTo, ≥ amount, success), this is a
+        # genuine provider settlement: another agent actually paid this agent.
+        inner = payload.get("payload") or {}
+        auth = inner.get("authorization") or {}
+        settlement_tx = auth.get("settlement_tx")
+        if settlement_tx:
+            payer = inner.get("publicKey") or auth.get("from", "")
+            pay_to = requirements.get("payTo") or self.pay_to
+            min_amount = int(requirements.get("amount", self.payment_amount))
+            ok, info = await self._verify_payer_transfer(settlement_tx, payer, pay_to, min_amount)
+            if ok:
+                logger.info("x402 provider settlement via payer on-chain transfer on %s — %s",
+                            self.chain, settlement_tx[:16])
+                return {
+                    "settled": True,
+                    "tx_hash": settlement_tx,
+                    "settlement": "onchain_transfer_by_payer",
+                    "network": self.chain,
+                    "explorer_url": explorer_base + settlement_tx,
+                    "verified": info,
+                }
+            logger.info("x402 provider: payer settlement_tx %s not verified — %s",
+                        settlement_tx[:16], info.get("reason"))
+
         return {
             "settled": False,
             "tx_hash": None,
@@ -307,9 +346,78 @@ class X402Handler:
             "network": self.chain,
             "explorer_url": None,
             "note": ("Cryptographic payment proof verified and request honoured. "
-                     "On-chain settlement requires the payer to hold a funded "
-                     "mainnet account with an x402 allowance registered at the facilitator."),
+                     "For real on-chain settlement, the payer either registers an "
+                     "x402 allowance at the facilitator, or submits a native transfer "
+                     "to payTo and passes its deploy hash as authorization.settlement_tx."),
         }
+
+    async def _verify_payer_transfer(
+        self, deploy_hash: str, expected_from_hex: str, pay_to_hex: str, min_amount: int
+    ) -> tuple[bool, dict]:
+        """Verify a payer-submitted native transfer landed on-chain: executed with
+        Success, sent by the x402 payer, to payTo, for ≥ the required amount.
+        Returns (ok, info). Best-effort target/amount parsing — never raises."""
+        try:
+            from pycspr.crypto import get_account_hash
+        except Exception:
+            get_account_hash = None
+
+        headers = {"Content-Type": "application/json"}
+        if self.cloud_api_key:
+            headers["Authorization"] = self.cloud_api_key
+        try:
+            async with httpx.AsyncClient(timeout=20, headers=headers) as client:
+                resp = await client.post(self.settle_node_url, json={
+                    "id": 1, "jsonrpc": "2.0", "method": "info_get_deploy",
+                    "params": {"deploy_hash": deploy_hash},
+                })
+                resp.raise_for_status()
+                data = resp.json()
+        except Exception as exc:
+            return False, {"reason": f"deploy lookup failed: {str(exc)[:120]}"}
+        if "error" in data:
+            return False, {"reason": f"node: {data['error'].get('message', data['error'])}"}
+
+        result = data.get("result", {}) or {}
+        deploy = result.get("deploy", {}) or {}
+
+        # 1. Executed successfully
+        exec_results = result.get("execution_results") or []
+        if not any("Success" in (er.get("result") or {}) for er in exec_results):
+            return False, {"reason": "deploy not successfully executed yet"}
+
+        # 2. Sender binds to the x402 payer (only the proof signer's transfer counts)
+        sender = (deploy.get("header") or {}).get("account", "") or ""
+        if expected_from_hex and sender and sender.lower() != expected_from_hex.lower():
+            return False, {"reason": "transfer sender != x402 payer"}
+
+        # 3. Transfer target == payTo and amount ≥ required (best-effort parse)
+        transfer = (deploy.get("session") or {}).get("Transfer") or {}
+        args = {}
+        for entry in transfer.get("args", []):
+            if isinstance(entry, list) and len(entry) == 2:
+                args[entry[0]] = entry[1]
+
+        def parsed(name: str) -> str:
+            v = args.get(name) or {}
+            return str(v.get("parsed", "")) if isinstance(v, dict) else str(v)
+
+        if transfer:
+            try:
+                if int(parsed("amount") or 0) < int(min_amount):
+                    return False, {"reason": "transfer amount below required"}
+            except Exception:
+                pass
+            target_field = (parsed("target") or "").lower()
+            if get_account_hash and pay_to_hex and target_field:
+                try:
+                    ah = get_account_hash(bytes.fromhex(pay_to_hex)).hex().lower()
+                    if ah not in target_field and pay_to_hex.lower() not in target_field:
+                        return False, {"reason": "transfer target != payTo"}
+                except Exception:
+                    pass  # parse failure — don't reject a successful, payer-bound transfer
+
+        return True, {"sender": sender, "amount": parsed("amount"), "deploy_hash": deploy_hash}
 
     async def settle_onchain(self, authorization: dict) -> Optional[str]:
         """Submit a real native CSPR transfer for the authorized amount.
@@ -337,6 +445,53 @@ class X402Handler:
         except Exception as exc:
             logger.warning("x402: on-chain settle failed: %s", exc)
             return None
+
+    async def pay_provider_onchain(self, pay_to_hex: str, amount: int) -> str:
+        """Buyer side: submit a REAL native CSPR transfer to the provider (payTo),
+        returning the deploy hash. The hash is passed as authorization.settlement_tx
+        so the provider can verify a genuine on-chain payment (payer → provider)."""
+        import pycspr
+        from pycspr.crypto import get_account_hash
+
+        kp = self._keypair()
+        amount = max(int(amount), MIN_NATIVE_TRANSFER_MOTES)
+        target_account_hash = get_account_hash(bytes.fromhex(pay_to_hex))  # payTo pubkey → account hash
+        params = pycspr.create_deploy_parameters(account=kp, chain_name=self._chain_name())
+        deploy = pycspr.create_transfer(
+            params, amount=amount, target=target_account_hash, correlation_id=int(time.time()),
+        )
+        deploy.approve(kp)
+        deploy_hash = await self._put_deploy(pycspr.to_json(deploy))
+        logger.info("x402 buyer: paid provider on-chain — %d motes → %s (deploy %s)",
+                    amount, pay_to_hex[:16], deploy_hash[:16])
+        return deploy_hash
+
+    async def get_deploy_success(self, deploy_hash: str) -> Optional[bool]:
+        """Poll info_get_deploy on settle_node_url. Returns True if executed with
+        Success, False if Failure, None if not yet processed / lookup failed."""
+        headers = {"Content-Type": "application/json"}
+        if self.cloud_api_key:
+            headers["Authorization"] = self.cloud_api_key
+        try:
+            async with httpx.AsyncClient(timeout=20, headers=headers) as client:
+                resp = await client.post(self.settle_node_url, json={
+                    "id": 1, "jsonrpc": "2.0", "method": "info_get_deploy",
+                    "params": {"deploy_hash": deploy_hash},
+                })
+                resp.raise_for_status()
+                data = resp.json()
+        except Exception:
+            return None
+        results = (data.get("result", {}) or {}).get("execution_results") or []
+        if not results:
+            return None
+        for er in results:
+            r = er.get("result") or {}
+            if "Success" in r:
+                return True
+            if "Failure" in r:
+                return False
+        return None
 
     async def _put_deploy(self, deploy_dict: dict) -> str:
         headers = {"Content-Type": "application/json"}
