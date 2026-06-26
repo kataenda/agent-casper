@@ -6,6 +6,7 @@ pub enum VaultError {
     ZeroDeposit         = 1,
     InsufficientBalance = 2,
     InvalidAllocation   = 3,
+    FeeTooHigh          = 4,
     NotOwner            = 10,
     NotAgent            = 11,
     Paused              = 12,
@@ -53,9 +54,11 @@ pub struct AgentRegistered { pub agent: Address }
 pub struct EmergencyPaused { pub by: Address, pub timestamp: u64 }
 #[odra::event]
 pub struct RwaPriceUpdated { pub asset_id: String, pub price_usd_cents: u64, pub yield_bps: u32, pub timestamp: u64, pub reporter: Address }
+#[odra::event]
+pub struct FeeCollected   { pub payer: Address, pub fee: U512, pub timestamp: u64 }
 
-// 14 fields (Odra limit = 15)
-#[odra::module(events = [Deposited, Withdrawn, Rebalanced, AgentRegistered, EmergencyPaused, RwaPriceUpdated])]
+// 15 fields (Odra limit = 15)
+#[odra::module(events = [Deposited, Withdrawn, Rebalanced, AgentRegistered, EmergencyPaused, RwaPriceUpdated, FeeCollected])]
 pub struct YieldVault {
     owner:             Var<Address>,
     agent:             Var<Address>,
@@ -71,6 +74,7 @@ pub struct YieldVault {
     aggressive_apy:    Var<u32>,
     rebalance_count:   Var<u64>,
     rebalance_records: Mapping<u64, RebalanceRecord>,
+    fee_bps:           Var<u32>,   // management/entry fee in basis points (100 = 1%)
 }
 
 #[odra::module]
@@ -88,6 +92,7 @@ impl YieldVault {
         self.balanced_apy.set(700);
         self.aggressive_apy.set(1500);
         self.rebalance_count.set(0);
+        self.fee_bps.set(100);   // 1% entry/management fee by default
     }
 
     pub fn register_agent(&mut self, agent: Address) {
@@ -103,12 +108,33 @@ impl YieldVault {
         self.aggressive_apy.set(aggressive);
     }
 
+    /// Owner sets the management/entry fee in basis points (100 = 1%). Capped at 10%.
+    pub fn set_fee_bps(&mut self, bps: u32) {
+        self.only_owner();
+        if bps > 1000 { self.env().revert(VaultError::FeeTooHigh); }
+        self.fee_bps.set(bps);
+    }
+
     pub fn deposit(&mut self, amount: U512) {
         self.not_paused();
         let caller = self.env().caller();
         if amount == U512::zero() { self.env().revert(VaultError::ZeroDeposit); }
+
+        // Management/entry fee: a `fee_bps` cut is credited to the protocol owner
+        // (withdrawable via withdraw()); the depositor is credited the net amount.
+        // This is the vault's on-chain revenue model.
+        let fee = amount * U512::from(self.fee_bps.get_or_default()) / U512::from(10000u32);
+        let net = amount - fee;
+
         let current = self.balances.get_or_default(&caller);
-        self.balances.set(&caller, current + amount);
+        self.balances.set(&caller, current + net);
+        if fee > U512::zero() {
+            let owner = self.owner.get_or_revert_with(VaultError::NotOwner);
+            let owner_bal = self.balances.get_or_default(&owner);
+            self.balances.set(&owner, owner_bal + fee);
+            self.env().emit_event(FeeCollected { payer: caller, fee, timestamp: self.env().get_block_time() });
+        }
+
         let total = self.total_deposited.get_or_default();
         self.total_deposited.set(total + amount);
         self.env().emit_event(Deposited { depositor: caller, amount, timestamp: self.env().get_block_time() });
@@ -185,6 +211,7 @@ impl YieldVault {
     pub fn get_rebalance_count(&self) -> u64 { self.rebalance_count.get_or_default() }
     pub fn is_paused(&self) -> bool { self.paused.get_or_default() }
     pub fn get_agent(&self) -> Option<Address> { self.agent.get() }
+    pub fn get_fee_bps(&self) -> u32 { self.fee_bps.get_or_default() }
 
     pub fn get_portfolio(&self) -> Portfolio {
         let count = self.rebalance_count.get_or_default();

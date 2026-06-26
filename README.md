@@ -105,17 +105,18 @@ Framework:     Odra 2.7.2 (Rust → WASM)
 
 | Function | Description |
 |----------|-------------|
-| `deposit()` | Payable — users deposit CSPR into the vault |
+| `deposit()` | Payable — users deposit CSPR; a `fee_bps` management fee is taken |
 | `withdraw(amount)` | Users withdraw their CSPR balance |
 | `register_agent(agent)` | Owner registers the AI agent address |
 | `rebalance(strategy, pcts, reason)` | Agent executes a portfolio rebalance |
 | `update_rwa_price(asset, price, yield)` | Agent posts verified RWA data on-chain |
-| `get_portfolio()` | Returns current TVL and allocation |
+| `set_fee_bps(bps)` | Owner sets the management fee (basis points, capped at 10%) |
+| `get_portfolio()` / `get_fee_bps()` | Read current TVL/allocation and the active fee |
 | `emergency_pause()` | Owner safety control |
 
 ### Events Emitted
 
-`Deposited`, `Withdrawn`, `Rebalanced`, `AgentRegistered`, `RwaPriceUpdated`, `EmergencyPaused`
+`Deposited`, `Withdrawn`, `Rebalanced`, `AgentRegistered`, `RwaPriceUpdated`, `EmergencyPaused`, `FeeCollected`
 
 ---
 
@@ -762,7 +763,8 @@ Agent Casper is built to be a **self-sustaining** agent, not a one-off demo. Rev
 | Stream | Status | How it works |
 |--------|--------|--------------|
 | **x402 service fees** | ✅ **Live** | The agent *sells* its intelligence: other agents pay **5 CSPR** per AI rebalance recommendation (`/x402/decision`) and **2.5 CSPR** per on-chain-verified RWA feed (`/x402/rwa-feed`). Payment settles into the agent's own mainnet account — machine-to-machine revenue that scales with adoption. |
-| **Vault management / performance fee** | 🔄 **Phase 2** | When the vault routes *deposited* capital into live yield positions, it takes a small **management fee** (% of AUM) and/or **performance fee** (% of yield generated) — the standard model for an automated portfolio manager. |
+| **Vault management fee** | ✅ **In contract** | The YieldVault charges an owner-configurable **management fee** on deposits (`fee_bps`, default 1%, capped 10%), credited to the protocol owner and emitted as a `FeeCollected` event. Implemented in [`yield_vault.rs`](contracts/src/yield_vault.rs) — active on the live testnet instance once the updated WASM is deployed. |
+| **Vault performance fee** | 🔄 **Phase 2** | When the vault routes *deposited* capital into live yield positions, it additionally takes a **performance fee** (% of yield generated) — the standard model for an automated portfolio manager. |
 
 This two-sided design means the agent earns **both** as a service provider in the x402
 agent economy **today**, and as a yield manager on assets under management **as the vault
