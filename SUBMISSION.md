@@ -25,7 +25,7 @@
 | Deployed contract hash | `hash-f6ba9dfa2a236dcc253436c3350f06931465ca94290fad689dfc7c9058c559da` |
 | Agent account hash | `account-hash-88cb6d5e2b0a47b99688e0179a16f5c0c2a16f88c3294b6bf291d9020965843f` |
 | Example rebalance tx hash | `dd0c391f1d69d5fe55a3b72fd6fd1d617a354812c80de67b9d12ddc9233ec29e` |
-| DoraHacks submission link | *coming soon* |
+| DoraHacks submission link | https://dorahacks.io/buidl/44340 |
 
 ---
 
