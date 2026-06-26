@@ -106,5 +106,5 @@ npm install && npm run dev
 | **Real-World Applicability** | DeFi yield optimization with live PAXG, UST10Y, WTI oracle feeds — **plus real non-custodial swaps on Casper mainnet via CSPR.trade MCP** (verified tx `f28a4051…`) |
 | **User Experience & Design** | Cyberpunk real-time dashboard with animated starfield, WebSocket live updates |
 | **Working Smart Contracts** | YieldVault (Odra 2.7.2) deployed on Casper Testnet — 3 verified tx hashes |
-| **Long-Term Launch Plans** | Phase 2 (Q3 2026): real DeFi protocols; Phase 3 (Q4 2026): Mainnet + DAO |
+| **Long-Term Launch Plans** | Live socials + phased roadmap + **revenue model**: x402 service fees already settle to the agent today (5 CSPR/decision, 2.5 CSPR/RWA feed); vault management/performance fee in Phase 2 (Q3 2026); Mainnet + DAO in Phase 3 (Q4 2026) |
 | **Potential for Long-Term Impact** | First autonomous yield agent on Casper — template for agentic DeFi ecosystem |

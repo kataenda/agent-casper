@@ -755,6 +755,22 @@ lsof -i :8000                  # Linux/Mac
 
 ---
 
+## Business Model
+
+Agent Casper is built to be a **self-sustaining** agent, not a one-off demo. Revenue comes from two streams:
+
+| Stream | Status | How it works |
+|--------|--------|--------------|
+| **x402 service fees** | ✅ **Live** | The agent *sells* its intelligence: other agents pay **5 CSPR** per AI rebalance recommendation (`/x402/decision`) and **2.5 CSPR** per on-chain-verified RWA feed (`/x402/rwa-feed`). Payment settles into the agent's own mainnet account — machine-to-machine revenue that scales with adoption. |
+| **Vault management / performance fee** | 🔄 **Phase 2** | When the vault routes *deposited* capital into live yield positions, it takes a small **management fee** (% of AUM) and/or **performance fee** (% of yield generated) — the standard model for an automated portfolio manager. |
+
+This two-sided design means the agent earns **both** as a service provider in the x402
+agent economy **today**, and as a yield manager on assets under management **as the vault
+matures**. Operating costs (gas, Claude inference, RWA data) are covered per-cycle, so the
+margin grows with usage rather than requiring continuous external funding.
+
+---
+
 ## Roadmap
 
 ### Phase 1 — Buildathon MVP ✅
