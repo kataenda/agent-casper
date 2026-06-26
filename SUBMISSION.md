@@ -40,6 +40,12 @@ All transactions are verifiable on Casper Testnet Explorer.
 | First AI `rebalance` tx | `dd0c391f1d69d5fe55a3b72fd6fd1d617a354812c80de67b9d12ddc9233ec29e` | [View on cspr.live](https://testnet.cspr.live/deploy/dd0c391f1d69d5fe55a3b72fd6fd1d617a354812c80de67b9d12ddc9233ec29e) |
 | x402 micropayment settlement | `6f67d64987b67ecd2b9f740b5622e9f868096c7b59c076aacc116550acd1b642` | [View on cspr.live](https://testnet.cspr.live/deploy/6f67d64987b67ecd2b9f740b5622e9f868096c7b59c076aacc116550acd1b642) |
 
+Plus **real DeFi on Casper Mainnet** via CSPR.trade MCP (the YieldVault is on Testnet; the DEX is mainnet-only):
+
+| Action | Network | Hash | Explorer |
+|---|---|---|---|
+| Non-custodial swap (CSPR → sCSPR) | **mainnet** | `f28a4051e17a67f4a6bd9951802cfb64a062b1daa01b59945b444fb25a052eb5` | [View on cspr.live](https://cspr.live/transaction/f28a4051e17a67f4a6bd9951802cfb64a062b1daa01b59945b444fb25a052eb5) |
+
 ---
 
 ## Casper AI Toolkit used
@@ -49,8 +55,10 @@ All transactions are verifiable on Casper Testnet Explorer.
 | **Odra Framework 2.7.2** | YieldVault smart contract (Rust → WASM) |
 | **CSPR.cloud APIs** | Block data, deploy status, account balances, on-chain portfolio state |
 | **casper-js-sdk v5** | Frontend deploy signing, wallet integration |
-| **x402 Protocol** | HTTP-native pay-per-request: ed25519-signed payment proof, real on-chain CSPR settlement, official CSPR.cloud facilitator integration (`X402_ENABLED=true`) |
-| **MCP Server** | Exposes Casper blockchain state to Claude AI via tool calls |
+| **CSPR.click** | Frontend wallet connect SDK (`@make-software/csprclick-ui`) — Casper Wallet, Ledger, Torus; account session + transaction signing in the dashboard |
+| **x402 Protocol** | HTTP-native pay-per-request, **two-sided**: agent is both consumer (pays for its RWA risk feed each cycle) and **provider on mainnet** (other agents pay it for `/x402/decision` + `/x402/rwa-feed`). ed25519-signed payment proof, real on-chain CSPR settlement, official CSPR.cloud facilitator integration (`X402_ENABLED=true`) |
+| **CSPR.trade MCP** | **Real non-custodial DeFi** on Casper mainnet (`mcp.cspr.trade`, 24 tools): `get_quote` → `build_swap` (unsigned Casper 2.x TransactionV1) → agent signs with its own ed25519 key → broadcast via `account_put_transaction`. Funds never leave the agent's account. Exposed via `/defi/quote`, `/defi/markets`, `/defi/swap` |
+| **MCP Server** | Custom Casper MCP server exposes blockchain state (block height, yield rates, vault portfolio, RWA prices, account balance) to Claude AI via tool calls |
 | **Casper Wallet** | User authentication and transaction signing |
 | **Claude AI (Anthropic)** | Autonomous rebalancing decisions with RWA market context |
 
@@ -70,7 +78,7 @@ cp backend/.env.example backend/.env
 #    Fill: ANTHROPIC_API_KEY, CSPR_CLOUD_API_KEY
 #    Set:  VAULT_CONTRACT_HASH, AGENT_ACCOUNT_HASH, AGENT_SECRET_KEY_PATH
 
-# 4. Run backend (AI agent starts automatically, polls every 5 min)
+# 4. Run backend (AI agent starts automatically, polls every 60s)
 cd backend
 pip install -r requirements.txt
 python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
@@ -93,7 +101,7 @@ npm install && npm run dev
 | **Technical Execution** | FastAPI + Next.js + Rust/WASM, WebSocket real-time, MCP tools |
 | **Innovation & Originality** | Autonomous AI yield agent + RWA oracle on Casper — Build Direction #1 |
 | **Use of AI / Agentic Systems** | Claude AI decision loop (60s), MCP tools, natural language chat interface |
-| **Real-World Applicability** | DeFi yield optimization with live PAXG, UST10Y, WTI oracle feeds |
+| **Real-World Applicability** | DeFi yield optimization with live PAXG, UST10Y, WTI oracle feeds — **plus real non-custodial swaps on Casper mainnet via CSPR.trade MCP** (verified tx `f28a4051…`) |
 | **User Experience & Design** | Cyberpunk real-time dashboard with animated starfield, WebSocket live updates |
 | **Working Smart Contracts** | YieldVault (Odra 2.7.2) deployed on Casper Testnet — 3 verified tx hashes |
 | **Long-Term Launch Plans** | Phase 2 (Q3 2026): real DeFi protocols; Phase 3 (Q4 2026): Mainnet + DAO |
