@@ -47,6 +47,7 @@ Plus **real DeFi on Casper Mainnet** via CSPR.trade MCP (the YieldVault is on Te
 | Action | Network | Hash | Explorer |
 |---|---|---|---|
 | Non-custodial swap (CSPR → sCSPR) | **mainnet** | `f28a4051e17a67f4a6bd9951802cfb64a062b1daa01b59945b444fb25a052eb5` | [View on cspr.live](https://cspr.live/transaction/f28a4051e17a67f4a6bd9951802cfb64a062b1daa01b59945b444fb25a052eb5) |
+| **AI-decided autonomous swap** (agent REBALANCE → swap, no human) | **mainnet** | `2bafdb43211c32d88d815873fc2bcee12d4c141dec8cc6e24399bea5c320164f` | [View on cspr.live](https://cspr.live/transaction/2bafdb43211c32d88d815873fc2bcee12d4c141dec8cc6e24399bea5c320164f) |
 
 ---
 
