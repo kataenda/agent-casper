@@ -1,5 +1,5 @@
 {
-  "name": "casper-yield-agent-frontend",
+  "name": "agent-casper-frontend",
   "version": "1.0.0",
   "private": true,
   "scripts": {
