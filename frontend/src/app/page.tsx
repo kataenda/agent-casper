@@ -374,7 +374,7 @@ export default function DashboardPage() {
       <div className="flex-1 min-h-0 gap-2" style={{
         display: "grid",
         gridTemplateColumns: "1fr 2fr 1.5fr 1fr",
-        gridTemplateRows: "minmax(0,0.7fr) minmax(0,1.15fr) minmax(0,0.75fr)",
+        gridTemplateRows: "minmax(0,0.9fr) minmax(0,0.95fr) minmax(0,0.75fr)",
       }}>
 
         {/* RWA Oracle — col 1, rows 1–2 */}

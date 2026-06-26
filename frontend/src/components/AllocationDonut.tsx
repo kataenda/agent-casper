@@ -49,8 +49,8 @@ export function AllocationDonut({ portfolio }: Props) {
   return (
     <div className="flex flex-row items-center gap-3">
       {/* Donut + center overlay */}
-      <div className="relative shrink-0" style={{ width: 200, height: 200 }}>
-        <ResponsiveContainer width="100%" height={200}>
+      <div className="relative shrink-0" style={{ width: 150, height: 150 }}>
+        <ResponsiveContainer width="100%" height={150}>
           <PieChart>
             <defs>
               {data.map((_d, i) => (
@@ -66,7 +66,7 @@ export function AllocationDonut({ portfolio }: Props) {
             <Pie
               data={data}
               cx="50%" cy="50%"
-              innerRadius={62} outerRadius={88}
+              innerRadius={46} outerRadius={66}
               paddingAngle={3}
               dataKey="value"
               strokeWidth={0}
@@ -82,7 +82,7 @@ export function AllocationDonut({ portfolio }: Props) {
         {/* Center text */}
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <div className="text-center">
-            <div className="text-base font-mono font-bold cyber-num glow-cyan"
+            <div className="text-sm font-mono font-bold cyber-num glow-cyan"
                  style={{ color: "#00F5FF" }}>
               {totalCspr}
             </div>
