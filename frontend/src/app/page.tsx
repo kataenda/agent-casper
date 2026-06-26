@@ -47,6 +47,7 @@ import { AllocationDonut } from "@/components/AllocationDonut";
 import { DecisionLog } from "@/components/DecisionLog";
 import { YieldRatesPanel } from "@/components/YieldRatesPanel";
 import { RWAPanel } from "@/components/RWAPanel";
+import { DefiProofCard } from "@/components/DefiProofCard";
 
 const CUT = 12;   // px — diagonal corner cut size
 const BRD = 1.5;  // px — border thickness (semua sisi)
@@ -460,6 +461,7 @@ export default function DashboardPage() {
           <div className="flex flex-col gap-2 flex-1 justify-center">
             <DeployPanel />
             <RegisterAgentButton contractHash={CONTRACT_HASH} />
+            <DefiProofCard />
           </div>
         </Panel>
 
