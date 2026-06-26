@@ -26,3 +26,6 @@ contracts/target/
 .vscode/
 .idea/
 *.swp
+
+# Local-only docs (not for GitHub)
+DEMO_SCRIPT.md
