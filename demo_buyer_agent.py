@@ -74,7 +74,7 @@ def settle_onchain_first(buyer: X402Handler, requirements: dict) -> str:
     print(f"  [*] paying provider on-chain: {amount/1e9:g} CSPR → {pay_to[:20]}...")
     tx = asyncio.run(buyer.pay_provider_onchain(pay_to, amount))
     print(f"      submitted transfer deploy {tx[:16]}… — waiting for finalization")
-    for _ in range(40):  # up to ~120s
+    for i in range(100):  # up to ~400s; mainnet finalization is typically 2–4 min
         ok = asyncio.run(buyer.get_deploy_success(tx))
         if ok is True:
             print(f"      ✓ transfer finalized — https://cspr.live/deploy/{tx}")
@@ -82,7 +82,9 @@ def settle_onchain_first(buyer: X402Handler, requirements: dict) -> str:
         if ok is False:
             print("      ✗ transfer FAILED on-chain")
             return tx
-        time.sleep(3)
+        if i and i % 10 == 0:
+            print(f"      … still finalizing ({i*4}s)")
+        time.sleep(4)
     print("      … not finalized in time; sending proof anyway (settlement may be pending)")
     return tx
 
@@ -152,10 +154,17 @@ def main():
                     help="Funded mainnet buyer PEM (required for --settle; else a fresh key is used)")
     ap.add_argument("--node", default=DEFAULT_MAINNET_NODE, help="Casper mainnet node RPC")
     ap.add_argument("--cloud-key", default="", help="CSPR.cloud API key (node auth header)")
+    ap.add_argument("--only", default="", choices=["decision", "rwa-feed"],
+                    help="Buy only ONE resource (cheaper for --settle). "
+                         "decision=5 CSPR, rwa-feed=2.5 CSPR")
     args = ap.parse_args()
 
     if args.settle and not args.key:
         ap.error("--settle requires --key <funded mainnet PEM> (a fresh key has no CSPR to spend)")
+
+    resources = RESOURCES
+    if args.only:
+        resources = [f"/x402/{args.only}"]
 
     buyer = X402Handler(
         agent_account="", key_path=(args.key or new_buyer_key()),
@@ -167,7 +176,7 @@ def main():
     print(f"  target backend   : {args.base}")
     print(f"  on-chain settle  : {'YES (real CSPR)' if args.settle else 'no (proof only)'}")
 
-    for resource in RESOURCES:
+    for resource in resources:
         buy(buyer, args.base, resource, settle=args.settle)
 
     print("\n  done — buyer paid Agent Casper for every resource via x402.\n")
