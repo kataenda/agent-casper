@@ -261,6 +261,19 @@ reason, so the dashboard still shows *why* the agent chose to hold. In short: sw
 **event-driven** (an economic threshold is crossed), not schedule-driven — the poll
 interval only sets how often the agent *looks*, never how often it *trades*.
 
+**Operator-tunable (no code change).** The thresholds are plain environment variables, so
+the agent's posture is switched live — the **production / real default is the strict
+"discipline" profile**:
+
+| Profile | `DEFI_EXECUTE_ON_REBALANCE` | `DEFI_MIN_DRIFT_PCT` | `DEFI_MIN_NET_GAIN_BPS` | Behaviour |
+|---------|:---:|:---:|:---:|-----------|
+| **Real / discipline** (default) | `true` | `10` | `50` | Swaps only on a large, genuinely profitable reallocation |
+| **Demo** (show execution live) | `true` | `5` | `20` | Looser gates so a real swap fires during a short demo |
+| **Off** | `false` | — | — | No autonomous swaps at all |
+
+> For judging, the deployed agent runs the **Real / discipline** profile (`10` / `50`) so
+> every autonomous mainnet swap reflects a deliberate, cost-justified decision — not churn.
+
 **Endpoints:**
 
 | Endpoint | Description |
