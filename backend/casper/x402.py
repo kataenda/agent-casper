@@ -451,14 +451,16 @@ class X402Handler:
         returning the deploy hash. The hash is passed as authorization.settlement_tx
         so the provider can verify a genuine on-chain payment (payer → provider)."""
         import pycspr
-        from pycspr.crypto import get_account_hash
 
         kp = self._keypair()
         amount = max(int(amount), MIN_NATIVE_TRANSFER_MOTES)
-        target_account_hash = get_account_hash(bytes.fromhex(pay_to_hex))  # payTo pubkey → account hash
+        # pycspr create_transfer expects the recipient's PUBLIC KEY account-key bytes
+        # (01-tagged) as target — it derives the recipient internally. Passing an
+        # account hash here fails ("not a valid KeyAlgorithm").
+        target = bytes.fromhex(pay_to_hex)
         params = pycspr.create_deploy_parameters(account=kp, chain_name=self._chain_name())
         deploy = pycspr.create_transfer(
-            params, amount=amount, target=target_account_hash, correlation_id=int(time.time()),
+            params, amount=amount, target=target, correlation_id=int(time.time()),
         )
         deploy.approve(kp)
         deploy_hash = await self._put_deploy(pycspr.to_json(deploy))
