@@ -9,7 +9,7 @@
 - [x] Public repository URL — https://github.com/kataenda/agent-casper
 - [x] README with project description, architecture, how to run, and license
 - [x] `SUBMISSION.md` in repo root (this file)
-- [x] Demo video (public link, 3–7 minutes) — https://youtu.be/2iQ0bkKPrx0
+- [x] Demo video (public link, 3–7 minutes) — https://youtu.be/m7k5AcwDM8E
 - [x] Working prototype deployed on Casper Testnet
 - [x] Proof of on-chain transactions (tx hashes — see below)
 - [x] Contract source (`contracts/src/yield_vault.rs`) + WASM (`contracts/wasm/yield_vault.wasm`)
@@ -23,7 +23,7 @@
 | Field | Value |
 |---|---|
 | Repo URL | https://github.com/kataenda/agent-casper |
-| Demo video URL | https://youtu.be/2iQ0bkKPrx0 |
+| Demo video URL | https://youtu.be/m7k5AcwDM8E |
 | Deployed contract hash | `hash-f6ba9dfa2a236dcc253436c3350f06931465ca94290fad689dfc7c9058c559da` |
 | Agent account hash | `account-hash-88cb6d5e2b0a47b99688e0179a16f5c0c2a16f88c3294b6bf291d9020965843f` |
 | Example rebalance tx hash | `dd0c391f1d69d5fe55a3b72fd6fd1d617a354812c80de67b9d12ddc9233ec29e` |
