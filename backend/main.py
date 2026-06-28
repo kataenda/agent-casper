@@ -24,6 +24,7 @@ from casper.deployer import CasperDeployer
 from casper.rwa_oracle import RWAOracle
 from casper.x402 import X402Handler, CHAIN_TESTNET, CHAIN_MAINNET
 from casper.cspr_trade import CsprTradeMCP, CsprTradeError
+from casper import swap_log
 from agent.decision_engine import DecisionEngine
 from agent.yield_agent import YieldAgent, AgentCycleResult
 
@@ -670,12 +671,21 @@ async def defi_swap(req: SwapRequest):
     Default execute=false returns the real quote + signed deploy without broadcasting.
     """
     try:
-        return await _cspr_trade().swap(
+        result = await _cspr_trade().swap(
             token_in=req.token_in, token_out=req.token_out, amount=req.amount,
             slippage_bps=req.slippage_bps, execute=req.execute,
         )
+        # Persist executed swaps so the dashboard proof becomes a real history.
+        swap_log.record_swap(result, triggered_by="manual")
+        return result
     except CsprTradeError as exc:
         raise HTTPException(400, str(exc))
+
+
+@app.get("/defi/history")
+async def defi_history(limit: int = 50):
+    """Persistent history of real, non-custodial swaps executed on Casper mainnet."""
+    return {"swaps": swap_log.load_swaps(limit)}
 
 
 class SetupContractRequest(BaseModel):

@@ -16,6 +16,7 @@ from casper.deployer import CasperDeployer
 from casper.rwa_oracle import RWAOracle
 from casper.x402 import X402Handler
 from casper.cspr_trade import CsprTradeMCP
+from casper import swap_log
 from agent.decision_engine import DecisionEngine, RebalanceDecision
 
 logger = logging.getLogger(__name__)
@@ -314,6 +315,7 @@ class YieldAgent:
             record["triggered_by"] = decision.new_strategy or decision.action
             if record.get("executed"):
                 self._defi_swaps_today += 1
+                swap_log.record_swap(record, triggered_by=record["triggered_by"])
                 logger.info(
                     "DeFi execution on mainnet — %s %s→%s tx=%s",
                     self.defi_swap_amount_cspr, self.defi_swap_token_in,
