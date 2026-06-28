@@ -4,7 +4,7 @@
 
 > **Honest scope.** The Testnet YieldVault is the agent's *decision + on-chain proof layer* (records AI allocations + RWA prices on-chain); it does not itself route deposited capital into yield positions yet. Real non-custodial **execution** runs on **mainnet** via CSPR.trade MCP. Vault-capital routing into live DeFi = **Phase 2 (Q3 2026)**. We do not claim the vault "generates yield" today.
 
-> **Honest scope — x402.** The x402 integration is **conformant with the official CSPR.cloud `exact` scheme** ([`@make-software/casper-x402`](https://github.com/make-software/casper-x402)) and **verified end-to-end against the live facilitator `/verify` (`isValid: true`)** — real 402 handshake, EIP-712 (`casper-eip-712`) typed-data digest signed with the agent's ed25519 key, and CEP-18 `transfer_with_authorization` settlement (true sub-CSPR micropayments, no native-transfer floor). Reproduce with `scripts/x402_verify_proof.py`. The one operational requirement for live `/settle` to move tokens is that the agent **holds a balance of the configured CEP-18 token** (`X402_ASSET`); funding that token balance is the remaining step.
+> **x402 is real end-to-end.** Conformant with the official CSPR.cloud `exact` scheme ([`@make-software/casper-x402`](https://github.com/make-software/casper-x402)) and **settled on-chain by the live facilitator**: real 402 handshake, EIP-712 (`casper-eip-712`) digest signed with the agent's ed25519 key, accepted by the facilitator `/verify` (`isValid: true`), then a real **`transfer_with_authorization`** of the agent-deployed CEP-18 X402 token submitted by the facilitator `/settle`. Verified on testnet: tx [`e297580f…`](https://testnet.cspr.live/transaction/e297580fc01b3bd4bfb011a592f129822b253041bf643ce16aed6c34f4443fdc), token package `c61db3d7ed7565c6a770e03184c031cf6a2a10f35519726d6fed577c46d28a63`. Reproduce: `scripts/deploy_x402_token.py` → `scripts/x402_settle_real.py` (verify-only: `scripts/x402_verify_proof.py`).
 
 ## Required items
 
@@ -43,6 +43,8 @@ All transactions are verifiable on Casper Testnet Explorer.
 | `register_agent` call | `7c3c0da82f682eab1f8be8131f11b2b0319b86a7f618d589c2fa7230e4b24380` | [View on cspr.live](https://testnet.cspr.live/deploy/7c3c0da82f682eab1f8be8131f11b2b0319b86a7f618d589c2fa7230e4b24380) |
 | First AI `rebalance` tx | `dd0c391f1d69d5fe55a3b72fd6fd1d617a354812c80de67b9d12ddc9233ec29e` | [View on cspr.live](https://testnet.cspr.live/deploy/dd0c391f1d69d5fe55a3b72fd6fd1d617a354812c80de67b9d12ddc9233ec29e) |
 | x402 micropayment settlement | `6f67d64987b67ecd2b9f740b5622e9f868096c7b59c076aacc116550acd1b642` | [View on cspr.live](https://testnet.cspr.live/deploy/6f67d64987b67ecd2b9f740b5622e9f868096c7b59c076aacc116550acd1b642) |
+| **x402 `exact` settle (facilitator `transfer_with_authorization`)** | `e297580fc01b3bd4bfb011a592f129822b253041bf643ce16aed6c34f4443fdc` | [View on cspr.live](https://testnet.cspr.live/transaction/e297580fc01b3bd4bfb011a592f129822b253041bf643ce16aed6c34f4443fdc) |
+| x402 CEP-18 token (deployed by agent) | `c61db3d7ed7565c6a770e03184c031cf6a2a10f35519726d6fed577c46d28a63` | [View on cspr.live](https://testnet.cspr.live/contract-package/c61db3d7ed7565c6a770e03184c031cf6a2a10f35519726d6fed577c46d28a63) |
 
 Plus **real DeFi on Casper Mainnet** via CSPR.trade MCP (the YieldVault is on Testnet; the DEX is mainnet-only):
 

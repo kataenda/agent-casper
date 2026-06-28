@@ -147,12 +147,15 @@ Because settlement is a **CEP-18 token transfer** (not a native transfer), amoun
 **true sub-CSPR micropayments** — no 2.5 CSPR native-transfer floor. The facilitator pays
 the deploy gas via its published `feePayer`; the agent only needs to hold the token.
 
-> **Honest scope — x402.** The payment construction is **fully conformant** with the
-> official `exact` scheme and **accepted by the live CSPR.cloud facilitator `/verify`
-> (`isValid: true`)** — real 402 handshake, EIP-712 ed25519 proof, CEP-18 settlement
-> semantics. The one operational requirement for live `/settle` to move tokens is that
-> the agent **holds a balance of the configured CEP-18 token** (`X402_ASSET`) exposing
-> `transfer_with_authorization`; funding/holding that token is the remaining step.
+> **x402 is real end-to-end.** Fully conformant with the official `exact` scheme and
+> **settled on-chain by the live CSPR.cloud facilitator** — real 402 handshake, EIP-712
+> ed25519 proof accepted by the facilitator `/verify` (`isValid: true`), and a real
+> `transfer_with_authorization` of the deployed CEP-18 X402 token submitted by the
+> facilitator `/settle`. Verified on testnet:
+> [`e297580f…`](https://testnet.cspr.live/transaction/e297580fc01b3bd4bfb011a592f129822b253041bf643ce16aed6c34f4443fdc)
+> (token [`c61db3d7…`](https://testnet.cspr.live/contract-package/c61db3d7ed7565c6a770e03184c031cf6a2a10f35519726d6fed577c46d28a63)).
+> Reproduce: deploy the token (`scripts/deploy_x402_token.py`), then settle
+> (`scripts/x402_settle_real.py`); verify-only proof: `scripts/x402_verify_proof.py`.
 
 **Endpoints:**
 
@@ -312,6 +315,7 @@ All activity is verifiable on the [Casper Testnet explorer](https://testnet.cspr
 | RWA price on-chain (gold) | `update_rwa_price` | [`b9f33ec3…`](https://testnet.cspr.live/deploy/b9f33ec3e9e1091912796beaa98b95d1b85887fd9df692067c7767bf37150d4e) |
 | RWA price on-chain (treasury) | `update_rwa_price` | [`0700586b…`](https://testnet.cspr.live/deploy/0700586b8e302123887f4f759fb2ac90156cb2f8daad6d8f9e09db2aaf7f730b) |
 | x402 micropayment settlement | native transfer | [`ba8fb27e…`](https://testnet.cspr.live/deploy/ba8fb27e71acc2c0cba50a72a0bd3820028dc6ceb8791ac51b79b0614148f32d) |
+| **x402 `exact` settle** (facilitator `transfer_with_authorization`) | CEP-18 X402 | [`e297580f…`](https://testnet.cspr.live/transaction/e297580fc01b3bd4bfb011a592f129822b253041bf643ce16aed6c34f4443fdc) |
 
 Plus **real DeFi on Casper mainnet** via CSPR.trade MCP (verifiable on [cspr.live](https://cspr.live)):
 
