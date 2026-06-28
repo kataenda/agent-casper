@@ -4,6 +4,7 @@ Provides REST API + WebSocket for real-time agent monitoring.
 """
 
 import asyncio
+import base64
 import json
 import logging
 import os
@@ -50,13 +51,22 @@ class Settings(BaseSettings):
     rwa_onchain_enabled: bool = True
     rwa_post_interval_seconds: int = 3600
     x402_enabled: bool = False
-    x402_payment_amount: int = 1_000_000
+    x402_payment_amount: int = 1_000_000   # token base units (see X402_TOKEN_DECIMALS)
     x402_facilitator_url: str = "https://x402-facilitator.cspr.cloud"
-    x402_pay_to: str = ""  # recipient public-key hex; defaults to the agent (self-settlement)
+    x402_pay_to: str = ""  # recipient account-hash address ('00'+hash); defaults to the agent
     x402_settle_interval_seconds: int = 3600  # rate-limit on-chain settlement
-    # Mainnet provider endpoints — other agents PAY this agent for premium data.
-    x402_decision_price: int = 5_000_000_000   # 5 CSPR per AI rebalance recommendation
-    x402_rwa_feed_price: int = 2_500_000_000   # 2.5 CSPR per on-chain-verified RWA feed
+    # CEP-18 token for the official `exact` scheme (facilitator settles a
+    # transfer_with_authorization of this token). Asset = 64-hex contract package hash;
+    # name/version form the EIP-712 domain; decimals/symbol are display metadata.
+    x402_asset: str = ""
+    x402_token_name: str = ""
+    x402_token_version: str = "1"
+    x402_token_decimals: int = 6
+    x402_token_symbol: str = ""
+    # Mainnet provider endpoints — other agents PAY this agent for premium data
+    # (amounts in token base units).
+    x402_decision_price: int = 5_000_000   # AI rebalance recommendation
+    x402_rwa_feed_price: int = 2_500_000   # on-chain-verified RWA feed
     # Real DeFi via CSPR.trade MCP (Casper mainnet, non-custodial) — safety caps.
     cspr_trade_max_amount_cspr: float = 25.0
     cspr_trade_max_price_impact_pct: float = 2.0
@@ -204,10 +214,15 @@ async def lifespan(app: FastAPI):
         chain=CHAIN_TESTNET,
         pay_to=settings.x402_pay_to,
         min_settle_interval_seconds=settings.x402_settle_interval_seconds,
+        asset=settings.x402_asset,
+        token_name=settings.x402_token_name,
+        token_version=settings.x402_token_version,
+        token_decimals=settings.x402_token_decimals,
+        token_symbol=settings.x402_token_symbol,
     )
 
     # Mainnet provider handler: payTo is left empty so it resolves to THIS agent's
-    # own public key (the agent receives payment), and the chain is Casper mainnet.
+    # own account-hash address (the agent receives payment), chain is Casper mainnet.
     x402_provider = X402Handler(
         agent_account=settings.agent_account_hash,
         key_path=settings.agent_secret_key_path,
@@ -216,9 +231,13 @@ async def lifespan(app: FastAPI):
         enabled=settings.x402_enabled,
         facilitator_url=settings.x402_facilitator_url,
         chain=CHAIN_MAINNET,
-        pay_to="",  # → agent's own public key via requirements() fallback
-        # Verify payer-submitted settlement transfers on the Casper MAINNET node.
+        pay_to="",  # → agent's own account-hash address via _ensure_pay_to
         settle_node_url=settings.cspr_mainnet_node_url,
+        asset=settings.x402_asset,
+        token_name=settings.x402_token_name,
+        token_version=settings.x402_token_version,
+        token_decimals=settings.x402_token_decimals,
+        token_symbol=settings.x402_token_symbol,
     )
 
     async def on_cycle(result: AgentCycleResult):
@@ -388,29 +407,30 @@ async def x402_info():
         "scheme": "exact",
         "network": x402.chain,
         "payer_public_key": x402.public_key_hex,
-        "pay_to": x402.pay_to or x402.public_key_hex,
-        "payment_amount_motes": x402.payment_amount,
-        "payment_amount_cspr": round(x402.payment_amount / 1e9, 6),
+        "payer_address": x402.address,
+        "pay_to": x402.pay_to or x402.address,
+        "asset": x402.asset,
+        "token": {"name": x402.token_name, "version": x402.token_version,
+                  "decimals": x402.token_decimals, "symbol": x402.token_symbol},
+        "amount": x402.payment_amount,
         "facilitator_url": x402.facilitator_url,
         "facilitator_supported": supported,
         "protected_resources": ["/premium/yield-forecast"],
-        "proof": "ed25519 signature over blake2b-256 authorization digest",
+        "proof": "ed25519 signature over EIP-712 TransferWithAuthorization digest",
         # The agent is a SERVICE PROVIDER too — other agents pay it for premium data.
         "roles": ["consumer", "provider"],
         "provider": {
             "network": CHAIN_MAINNET,
-            "receives_to": (prov.public_key_hex if prov else x402.public_key_hex),
+            "receives_to": (prov.address if prov else x402.address),
             "services": [
                 {
                     "resource": "/x402/decision",
-                    "price_motes": settings.x402_decision_price,
-                    "price_cspr": round(settings.x402_decision_price / 1e9, 6),
+                    "amount": settings.x402_decision_price,
                     "description": "On-demand Claude AI rebalance recommendation (RWA-aware)",
                 },
                 {
                     "resource": "/x402/rwa-feed",
-                    "price_motes": settings.x402_rwa_feed_price,
-                    "price_cspr": round(settings.x402_rwa_feed_price / 1e9, 6),
+                    "amount": settings.x402_rwa_feed_price,
                     "description": "Aggregated RWA prices (PAXG, UST10Y, WTI) verified on-chain",
                 },
             ],
@@ -440,7 +460,8 @@ async def premium_yield_forecast(request: Request):
     if not agent:
         raise HTTPException(503, "Agent not initialized")
     x402 = agent.x402
-    resource = "/premium/yield-forecast"
+    resource_url = str(request.url).split("?")[0]
+    resource_obj = x402.resource_object(resource_url, "Agent Casper premium yield forecast")
     await x402._ensure_pay_to()
 
     header = request.headers.get("X-PAYMENT")
@@ -450,7 +471,8 @@ async def premium_yield_forecast(request: Request):
             content={
                 "x402Version": 2,
                 "error": "X-PAYMENT header required",
-                "accepts": [x402.requirements(resource)],
+                "resource": resource_obj,
+                "accepts": [x402.requirements(resource_url)],
             },
             headers={"Access-Control-Expose-Headers": "X-PAYMENT"},
         )
@@ -462,12 +484,17 @@ async def premium_yield_forecast(request: Request):
             content={
                 "x402Version": 2,
                 "error": "Payment proof invalid, expired, or replayed",
-                "accepts": [x402.requirements(resource)],
+                "resource": resource_obj,
+                "accepts": [x402.requirements(resource_url)],
             },
         )
 
+    # Proof verified — settle the CEP-18 transfer_with_authorization via the facilitator.
     settle = request.query_params.get("settle", "true").lower() != "false"
-    settlement_tx = await x402.settle_onchain(auth) if settle else None
+    settlement = {}
+    if settle:
+        payload = json.loads(base64.b64decode(header))
+        settlement = await x402.settle_as_provider(payload, payload.get("accepted") or x402.requirements(resource_url))
 
     history = agent.get_history(1)
     latest = history[0] if history else None
@@ -479,13 +506,13 @@ async def premium_yield_forecast(request: Request):
         "note": "Premium analytics unlocked via x402 micropayment",
     }
     return {
-        "resource": resource,
+        "resource": resource_url,
         "paid": True,
         "payer": auth["from"],
-        "amount_motes": int(auth["value"]),
-        "settlement": "onchain_transfer" if settlement_tx else ("skipped" if not settle else "failed"),
-        "settlement_tx": settlement_tx,
-        "explorer_url": f"https://testnet.cspr.live/deploy/{settlement_tx}" if settlement_tx else None,
+        "amount": int(auth["value"]),
+        "settlement": settlement.get("settlement", "skipped"),
+        "settlement_tx": settlement.get("tx_hash"),
+        "explorer_url": settlement.get("explorer_url"),
         "premium_data": forecast,
     }
 
@@ -499,6 +526,7 @@ def _provider_challenge(resource: str, amount: int, description: str) -> JSONRes
         content={
             "x402Version": 2,
             "error": "X-PAYMENT header required",
+            "resource": x402_provider.resource_object(resource, description),
             "accepts": [x402_provider.requirements(resource, amount=amount, description=description)],
         },
         headers={"Access-Control-Expose-Headers": "X-PAYMENT"},
@@ -524,13 +552,14 @@ async def _provider_verify(request: Request, resource: str, amount: int, descrip
             content={
                 "x402Version": 2,
                 "error": "Payment proof invalid, expired, or replayed",
+                "resource": x402_provider.resource_object(resource, description),
                 "accepts": [x402_provider.requirements(resource, amount=amount, description=description)],
             },
         ), None
 
     # Proof verified — settle on mainnet via the facilitator (payer → this agent).
     requirements = x402_provider.requirements(resource, amount=amount, description=description)
-    payload = json.loads(__import__("base64").b64decode(header))
+    payload = json.loads(base64.b64decode(header))
     settlement = await x402_provider.settle_as_provider(payload, requirements)
     return auth, settlement
 

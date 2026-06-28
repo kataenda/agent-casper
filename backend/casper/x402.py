@@ -1,29 +1,30 @@
 """
-x402 Micropayment Protocol — real implementation for Agent Casper.
+x402 Micropayment Protocol — official `exact` scheme for Agent Casper.
 
-Implements the HTTP-native x402 v2 "pay-per-request" flow on Casper Network:
+Implements the CSPR.cloud Casper x402 v2 "pay-per-request" flow, conformant with
+the official `@make-software/casper-x402` `exact` scheme (verified end-to-end
+against the live facilitator `/verify`, which returns isValid: true):
 
   1. Client requests a protected resource.
-  2. Server replies `402 Payment Required` + PaymentRequirements.
-  3. Client builds a payment authorization, signs it with its ed25519
-     private key (real cryptographic proof), and retries with `X-PAYMENT`.
-  4. Server cryptographically verifies the signature, checks expiry + nonce,
-     then settles the micropayment.
+  2. Server replies `402 Payment Required` + `{resource, accepts:[PaymentRequirements]}`.
+  3. Client builds a `TransferWithAuthorization` and signs the EIP-712 typed-data
+     digest (see casper.eip712) with its ed25519 key, retrying with `X-PAYMENT`.
+  4. Server recomputes the digest, verifies the signature + binds it to the payer,
+     then settles via the facilitator.
 
 Cryptographic proof
-    A real ed25519 signature (pycspr) over the canonical authorization digest.
-    Only the holder of the agent's private key can produce it; anyone with the
-    public key can verify it. (The previous version used a plain SHA-256 hash of
-    public data, which is forgeable — that has been replaced.)
+    A real ed25519 signature over the EIP-712 `TransferWithAuthorization` digest
+    (CEP-18 `transfer_with_authorization`). The facilitator recomputes the same
+    digest, so a payment this server accepts is also facilitator-settleable.
 
 Settlement
-    A real native CSPR transfer submitted on-chain via pycspr, returning a
-    Casper deploy hash. Best-effort integration with the official CSPR.cloud
-    facilitator (https://x402-facilitator.cspr.cloud) is attempted first via its
-    `/settle` endpoint; on any failure we fall back to a direct on-chain transfer
-    so a verifiable payment transaction is always produced.
+    The facilitator submits a CEP-18 `transfer_with_authorization` deploy moving
+    `amount` of the configured token (`asset`) from the payer to `payTo` — true
+    sub-CSPR micropayments, no native-transfer floor. The facilitator pays gas via
+    its published feePayer; the agent only needs to hold the token.
 
 Spec: https://github.com/make-software/casper-x402
+EIP-712: https://github.com/casper-ecosystem/casper-eip-712
 Facilitator: https://x402-facilitator.cspr.cloud
 """
 
@@ -36,6 +37,8 @@ import time
 from typing import Optional
 
 import httpx
+
+from casper.eip712 import transfer_authorization_digest
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +94,11 @@ class X402Handler:
         pay_to: str = "",
         min_settle_interval_seconds: int = 3600,
         settle_node_url: str = "",
+        asset: str = "",
+        token_name: str = "",
+        token_version: str = "1",
+        token_decimals: int = 6,
+        token_symbol: str = "",
     ):
         self.agent_account = agent_account
         self.key_path = key_path
@@ -102,6 +110,15 @@ class X402Handler:
         self.chain = chain
         self.pay_to = pay_to
         self.min_settle_interval = min_settle_interval_seconds
+        # CEP-18 token for the official `exact` scheme: the facilitator settles a
+        # `transfer_with_authorization` of this token. `asset` is the 64-hex contract
+        # package hash; name/version form the EIP-712 domain; decimals/symbol are
+        # display metadata advertised in PaymentRequirements.extra.
+        self.asset = (asset or "").lower().replace("hash-", "")
+        self.token_name = token_name
+        self.token_version = token_version
+        self.token_decimals = token_decimals
+        self.token_symbol = token_symbol or token_name
         # Node used to VERIFY a payer-submitted settlement transfer on-chain. For the
         # mainnet provider this is the mainnet node (the payer pays on mainnet even
         # though proof verification is chain-agnostic). Defaults to node_url.
@@ -127,24 +144,41 @@ class X402Handler:
         except Exception:
             return ""
 
+    @property
+    def account_hash_hex(self) -> str:
+        """The agent's 64-hex Casper account hash (no prefix)."""
+        try:
+            from pycspr.crypto import get_account_hash
+            return get_account_hash(bytes.fromhex(self.public_key_hex)).hex()
+        except Exception:
+            return ""
+
+    @property
+    def address(self) -> str:
+        """The agent's x402 address: '00' + account hash (Casper account-hash address)."""
+        ah = self.account_hash_hex
+        return ("00" + ah) if ah else ""
+
+    @staticmethod
+    def account_hash_from_pubkey(public_key_hex: str) -> str:
+        """'00' + account hash for a given public key hex."""
+        try:
+            from pycspr.crypto import get_account_hash
+            return "00" + get_account_hash(bytes.fromhex(public_key_hex)).hex()
+        except Exception:
+            return ""
+
     def _chain_name(self) -> str:
         return "casper-test" if "casper-test" in self.chain else "casper"
 
     async def _ensure_pay_to(self) -> None:
-        """Resolve a valid payee. If unset, use the facilitator's on-chain feePayer
-        for this network (a real, existing account — native self-transfers are
-        rejected by the node with 'Invalid purse')."""
+        """Resolve a valid payee (account-hash address). If unset, default to the
+        agent's own address so the exact-scheme `transfer_with_authorization`
+        settles to a real, existing account."""
         if self.pay_to:
             return
-        supported = await self.get_supported_schemes()
-        for kind in (supported or {}).get("kinds", []):
-            if kind.get("network") == self.chain:
-                fee_payer = kind.get("extra", {}).get("feePayer", "")
-                if fee_payer:
-                    # facilitator publishes the raw 32-byte ed25519 key — add the 01 algo tag
-                    self.pay_to = ("01" + fee_payer) if len(fee_payer) == 64 else fee_payer
-                    logger.info("x402: pay_to resolved from facilitator feePayer %s", self.pay_to[:18])
-                    return
+        self.pay_to = self.address
+        logger.info("x402: pay_to defaulted to agent address %s", self.pay_to[:18])
 
     # ── Server side: 402 requirements ───────────────────────────────────────
 
@@ -154,57 +188,83 @@ class X402Handler:
         amount: Optional[int] = None,
         description: Optional[str] = None,
     ) -> dict:
-        """Build the PaymentRequirements object returned in a 402 response.
+        """Build an official x402 `exact`-scheme PaymentRequirement (CSPR.cloud Casper).
 
-        `amount`/`description` let one handler price multiple resources
-        differently (used by the mainnet provider endpoints)."""
-        pay_to = self.pay_to or self.public_key_hex
+        `payTo` is an account-hash address ('00'+hash); `asset` is the CEP-18 token
+        contract package hash; `extra` carries the token name/version (EIP-712 domain)
+        plus decimals/symbol for display. `amount` is in the token's base units.
+        """
+        pay_to = self.pay_to or self.address
         return {
             "scheme": SCHEME_EXACT,
             "network": self.chain,
-            "payTo": pay_to,
+            "asset": self.asset,
             "amount": str(amount if amount is not None else self.payment_amount),
-            "asset": "CSPR",
-            "resource": resource,
+            "payTo": pay_to,
             "maxTimeoutSeconds": 900,
-            "description": description or "Agent Casper premium analytics — x402 micropayment",
+            "extra": {
+                "name": self.token_name,
+                "version": self.token_version,
+                "decimals": str(self.token_decimals),
+                "symbol": self.token_symbol,
+            },
         }
+
+    def resource_object(self, url: str, description: Optional[str] = None,
+                        mime_type: str = "application/json") -> dict:
+        """The `resource` object included in the 402 response and payment payload."""
+        obj = {"url": url, "mimeType": mime_type}
+        if description:
+            obj["description"] = description
+        return obj
 
     # ── Client side: build + sign payment ───────────────────────────────────
 
-    def build_payment(self, requirements: dict, settlement_tx: Optional[str] = None) -> dict:
-        """Build and ed25519-sign an x402 v2 payment payload for `requirements`.
+    def build_payment(self, requirements: dict, resource: Optional[dict] = None) -> dict:
+        """
+        Build an official x402 `exact`-scheme payment payload for `requirements`,
+        signing the EIP-712 `TransferWithAuthorization` digest with the agent's
+        ed25519 key. Verified accepted by the CSPR.cloud facilitator `/verify`.
 
-        `settlement_tx` (optional): the deploy hash of a REAL on-chain transfer the
-        payer already submitted to `payTo`. Including it here binds that transfer to
-        the signed proof, so the provider can verify a genuine on-chain settlement
-        (payer → provider) instead of reporting the payment as pending."""
+        The returned envelope is `{x402Version, resource, accepted, payload}` where
+        `payload = {signature, publicKey, authorization}`.
+        """
         kp = self._keypair()
         now = int(time.time())
+        valid_after = now - 600                       # matches the official client
         valid_before = now + int(requirements.get("maxTimeoutSeconds", 900))
-        pay_to = requirements.get("payTo") or self.pay_to or kp.account_key.hex()
+        frm = self.address
+        pay_to = requirements.get("payTo") or self.pay_to or frm
+        amount = str(requirements.get("amount", self.payment_amount))
+        nonce = secrets.token_hex(32)
+        extra = requirements.get("extra") or {}
 
-        authorization = {
-            "from": kp.account_key.hex(),
-            "to": pay_to,
-            "value": str(requirements.get("amount", self.payment_amount)),
-            "validAfter": str(now),
-            "validBefore": str(valid_before),
-            "nonce": secrets.token_hex(32),
-        }
-        if settlement_tx:
-            authorization["settlement_tx"] = settlement_tx
-        signature = kp.get_signature(_authorization_digest(authorization))  # 64-byte ed25519
+        digest = transfer_authorization_digest(
+            name=extra.get("name", self.token_name),
+            version=extra.get("version", self.token_version),
+            network=requirements.get("network", self.chain),
+            asset=requirements.get("asset", self.asset),
+            frm=frm, to=pay_to, value=int(amount),
+            valid_after=valid_after, valid_before=valid_before, nonce=nonce,
+        )
+        signature = kp.get_signature(digest)          # 64-byte ed25519 over the digest
 
         return {
             "x402Version": X402_VERSION,
-            "scheme": SCHEME_EXACT,
-            "network": self.chain,
+            "resource": resource or self.resource_object(requirements.get("resource", "")),
+            "accepted": requirements,
             "payload": {
-                # Casper signature = 1-byte algo tag (01 = ed25519) + 64-byte sig
+                # algorithm-prefixed signature: 01 (ed25519) + 64-byte sig
                 "signature": "01" + signature.hex(),
                 "publicKey": kp.account_key.hex(),
-                "authorization": authorization,
+                "authorization": {
+                    "from": frm,
+                    "to": pay_to,
+                    "value": amount,
+                    "validAfter": str(valid_after),
+                    "validBefore": str(valid_before),
+                    "nonce": nonce,
+                },
             },
         }
 
@@ -226,9 +286,13 @@ class X402Handler:
 
     def verify_payment(self, header_value: str) -> Optional[dict]:
         """
-        Cryptographically verify an incoming X-PAYMENT header.
-        Returns the verified authorization dict, or None if the signature is
-        invalid, the authorization is expired, or the nonce was already used.
+        Verify an incoming X-PAYMENT header against the official `exact` scheme:
+        recompute the EIP-712 digest from the payload's `accepted` terms +
+        `authorization`, check the ed25519 signature, bind the signer to
+        `authorization.from`, enforce the time window and nonce replay protection.
+
+        Returns the verified authorization dict (or None). Mirrors the facilitator's
+        `/verify` so a payment that this server accepts is also facilitator-settleable.
         """
         try:
             from pycspr import crypto
@@ -236,7 +300,10 @@ class X402Handler:
             payload = json.loads(base64.b64decode(header_value))
             inner = payload["payload"]
             auth = inner["authorization"]
-            pub = bytes.fromhex(inner["publicKey"])
+            accepted = payload.get("accepted") or {}
+            extra = accepted.get("extra") or {}
+            pub_hex = inner["publicKey"]
+            pub = bytes.fromhex(pub_hex)
             sig = bytes.fromhex(inner["signature"])
 
             # 1. Time window
@@ -251,17 +318,31 @@ class X402Handler:
                 logger.warning("x402: nonce replay rejected")
                 return None
 
-            # 3. ed25519 signature over the authorization digest
+            # 3. Bind the signing public key to authorization.from (account hash)
+            if self.account_hash_from_pubkey(pub_hex).lower() != str(auth["from"]).lower():
+                logger.warning("x402: publicKey does not match authorization.from")
+                return None
+
+            # 4. ed25519/secp256k1 signature over the recomputed EIP-712 digest
+            digest = transfer_authorization_digest(
+                name=extra.get("name", self.token_name),
+                version=extra.get("version", self.token_version),
+                network=accepted.get("network", self.chain),
+                asset=accepted.get("asset", self.asset),
+                frm=auth["from"], to=auth["to"], value=int(auth["value"]),
+                valid_after=int(auth["validAfter"]), valid_before=int(auth["validBefore"]),
+                nonce=auth["nonce"],
+            )
             vk = pub[1:] if len(pub) == 33 else pub          # strip 01 algo tag
             raw_sig = sig[1:] if len(sig) == 65 else sig      # strip 01 algo tag
             algo = (crypto.KeyAlgorithm.ED25519 if pub[:1] == b"\x01"
                     else crypto.KeyAlgorithm.SECP256K1)
-            if not crypto.is_signature_valid(_authorization_digest(auth), raw_sig, vk, algo):
+            if not crypto.is_signature_valid(digest, raw_sig, vk, algo):
                 logger.warning("x402: signature verification failed")
                 return None
 
             self._used_nonces.add(nonce)
-            logger.info("x402: payment proof verified for payer %s", auth["from"][:16])
+            logger.info("x402: payment proof verified for payer %s", str(auth["from"])[:18])
             return auth
         except Exception as exc:
             logger.warning("x402: verify error: %s", exc)
@@ -550,8 +631,10 @@ class X402Handler:
             "resource": resource,
             "scheme": SCHEME_EXACT,
             "network": self.chain,
-            "amount_motes": int(requirements["amount"]),
+            "asset": requirements["asset"],
+            "amount": int(requirements["amount"]),
             "payer": payload["payload"]["publicKey"],
+            "payer_address": payload["payload"]["authorization"]["from"],
             "pay_to": requirements["payTo"],
             "proof_valid": verified is not None,
             "signature": payload["payload"]["signature"][:26] + "…",
@@ -562,15 +645,17 @@ class X402Handler:
         if not verified:
             return record
 
+        # Settle the CEP-18 transfer_with_authorization via the official facilitator
+        # (rate-limited to conserve token balance). The signed proof is produced every
+        # call regardless; only on-chain settlement is throttled.
         now = time.time()
         if settle and (now - self._last_settle_ts) >= self.min_settle_interval:
             fac = await self.facilitator_settle(payload, requirements)
-            if fac and fac.get("transaction"):
-                record.update(settled=True, tx_hash=fac["transaction"], settlement="facilitator")
-            else:
-                tx = await self.settle_onchain(verified)
-                if tx:
-                    record.update(settled=True, tx_hash=tx, settlement="onchain_transfer")
-            if record["settled"]:
+            tx = (fac or {}).get("transaction") or (fac or {}).get("txHash")
+            if tx:
+                record.update(settled=True, tx_hash=tx, settlement="facilitator")
                 self._last_settle_ts = now
+            elif fac is not None:
+                record["settlement"] = "facilitator_error"
+                record["note"] = str(fac)[:200]
         return record

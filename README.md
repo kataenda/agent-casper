@@ -84,7 +84,7 @@ The system transforms a passive smart contract vault into a **self-driving portf
 | **Odra Framework 2.7.2** | YieldVault smart contract (Rust → WASM) |
 | **casper-js-sdk v5** | Frontend deploy signing, wallet integration |
 | **CSPR.click** | Frontend wallet-connect SDK (`@make-software/csprclick-ui`) — Casper Wallet / Ledger / Torus, account session + in-dashboard transaction signing |
-| **x402 Protocol** | HTTP-native pay-per-request micropayments: ed25519-signed payment proof + real on-chain CSPR settlement + CSPR.cloud facilitator. Enable via `X402_ENABLED=true` |
+| **x402 Protocol** | HTTP-native pay-per-request, **official CSPR.cloud `exact` scheme** — EIP-712 (`casper-eip-712`) typed-data signed with the agent's ed25519 key, CEP-18 `transfer_with_authorization` settlement, **verified against the live facilitator `/verify` (`isValid: true`)**. Enable via `X402_ENABLED=true` |
 | **MCP Server** | Custom Casper MCP server exposes 5 blockchain tools to Claude (block height, yield rates, vault portfolio, RWA prices, account balance) |
 | **CSPR.trade MCP** | **Real non-custodial DeFi** on Casper mainnet (`https://mcp.cspr.trade/mcp`, 24 tools). The agent uses it for live swap quotes **and execution** — `build_swap` → sign with the agent's own ed25519 key → broadcast via `account_put_transaction`. Funds never leave the agent's account. Exposed via `/defi/quote`, `/defi/markets`, `/defi/swap` |
 | **Casper Wallet** | User authentication and transaction signing |
@@ -130,43 +130,38 @@ Agent Casper implements the **x402 v2 HTTP-native pay-per-request** protocol on
   pay it for an on-demand Claude AI recommendation (`/x402/decision`) or an on-chain-verified
   RWA price feed (`/x402/rwa-feed`). Payment lands in the agent's own account.
 
-Every request carries a cryptographic proof; settlement is real and on-chain.
+This is the **official CSPR.cloud `exact` scheme** — conformant with
+[`@make-software/casper-x402`](https://github.com/make-software/casper-x402) and
+**verified end-to-end against the live facilitator** (`/verify` returns
+`isValid: true` — reproduce with [`scripts/x402_verify_proof.py`](scripts/x402_verify_proof.py)).
 
-**Flow** (`backend/casper/x402.py`):
+**Flow** (`backend/casper/x402.py` + `backend/casper/eip712.py`):
 
 1. Client requests a protected resource (`GET /premium/yield-forecast`).
-2. Server replies **HTTP 402 Payment Required** + `PaymentRequirements` (scheme `exact`, network `casper:casper-test`).
-3. Client builds a payment authorization and **signs it with its ed25519 private key** (pycspr) — a real cryptographic proof over a blake2b-256 digest. Only the agent's key can produce it; the public key verifies it.
-4. Client retries with the base64 `X-PAYMENT` header.
-5. Server **cryptographically verifies** the signature, checks expiry + nonce (replay protection), then **settles a real native CSPR transfer on-chain** and returns the resource + Casper deploy hash.
+2. Server replies **HTTP 402 Payment Required** + `{resource, accepts:[PaymentRequirements]}` (scheme `exact`, network `casper:casper-test`, `asset` = CEP-18 token package hash, `extra` = token name/version).
+3. Client builds a **`TransferWithAuthorization`** and signs the **EIP-712 typed-data digest** ([`casper-eip-712`](https://github.com/casper-ecosystem/casper-eip-712) domain: `name, version, chain_name, contract_package_hash`) with its **ed25519** key — `keccak256(0x1901 ‖ domainSeparator ‖ structHash)`.
+4. Client retries with the base64 `X-PAYMENT` header (`{x402Version, resource, accepted, payload:{signature, publicKey, authorization}}`).
+5. Server **recomputes the same digest**, verifies the signature, binds it to the payer (`publicKey` → account hash → `authorization.from`), checks expiry + nonce, then **settles via the facilitator** as a CEP-18 `transfer_with_authorization`.
 
-Best-effort integration with the official **CSPR.cloud facilitator**
-(`https://x402-facilitator.cspr.cloud`) is attempted first (`/supported`, `/settle`);
-on any failure the agent falls back to a direct on-chain transfer so a verifiable
-payment transaction is always produced.
+Because settlement is a **CEP-18 token transfer** (not a native transfer), amounts are
+**true sub-CSPR micropayments** — no 2.5 CSPR native-transfer floor. The facilitator pays
+the deploy gas via its published `feePayer`; the agent only needs to hold the token.
 
-> **Note on amounts:** Casper enforces a **2.5 CSPR floor on native transfers**, so
-> on-chain settlement uses 2.5 CSPR (sub-CSPR micropayments require a CEP-18 token,
-> which is what the official facilitator's `exact` scheme uses). On-chain settlement
-> is rate-limited (`X402_SETTLE_INTERVAL_SECONDS`) to conserve agent funds; the
-> cryptographic proof is produced on every request.
-
-> **Honest scope — x402.** This proves a **real, on-chain-verified pay-per-access
-> flow** (genuine 402 handshake, ed25519-signed proof, real CSPR settlement the
-> provider verifies on-chain) — **not yet true sub-cent micropayments**. Because of
-> the 2.5 CSPR native-transfer floor, settlement is rate-limited (hourly) rather than
-> per-request, and the recurring buyer-side payments run on **testnet**. Per-request,
-> sub-cent settlement needs a payment-channel / CEP-18-token rail to avoid the floor —
-> that's **Phase 2**. We don't claim production micropayment economics today.
+> **Honest scope — x402.** The payment construction is **fully conformant** with the
+> official `exact` scheme and **accepted by the live CSPR.cloud facilitator `/verify`
+> (`isValid: true`)** — real 402 handshake, EIP-712 ed25519 proof, CEP-18 settlement
+> semantics. The one operational requirement for live `/settle` to move tokens is that
+> the agent **holds a balance of the configured CEP-18 token** (`X402_ASSET`) exposing
+> `transfer_with_authorization`; funding/holding that token is the remaining step.
 
 **Endpoints:**
 
 | Endpoint | Role | Description |
 |----------|------|-------------|
 | `GET /premium/yield-forecast` | provider (testnet) | x402-protected resource — 402 without payment, premium data with valid `X-PAYMENT` |
-| `GET\|POST /x402/decision` | **provider (mainnet)** | Pay **5 CSPR** → fresh Claude AI rebalance recommendation (RWA-aware) |
-| `GET\|POST /x402/rwa-feed` | **provider (mainnet)** | Pay **2.5 CSPR** → aggregated RWA prices (PAXG, UST10Y, WTI) + on-chain proof deploy hashes |
-| `GET /x402/info` | — | x402 config, payer public key, facilitator support, **provider service catalog** |
+| `GET\|POST /x402/decision` | **provider (mainnet)** | Pay (CEP-18 token) → fresh Claude AI rebalance recommendation (RWA-aware) |
+| `GET\|POST /x402/rwa-feed` | **provider (mainnet)** | Pay (CEP-18 token) → aggregated RWA prices (PAXG, UST10Y, WTI) + on-chain proof deploy hashes |
+| `GET /x402/info` | — | x402 config, payer address + token, facilitator support, **provider service catalog** |
 | `GET /x402/supported` | — | Proxies the facilitator's supported schemes/networks |
 
 The mainnet provider endpoints set `payTo` to the agent's own public key, so a paying
