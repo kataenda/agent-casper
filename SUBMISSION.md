@@ -4,6 +4,8 @@
 
 > **Honest scope.** The Testnet YieldVault is the agent's *decision + on-chain proof layer* (records AI allocations + RWA prices on-chain); it does not itself route deposited capital into yield positions yet. Real non-custodial **execution** runs on **mainnet** via CSPR.trade MCP. Vault-capital routing into live DeFi = **Phase 2 (Q3 2026)**. We do not claim the vault "generates yield" today.
 
+> **Honest scope — x402.** The x402 integration proves a **real, on-chain-verified pay-per-access flow**: genuine 402 handshake, ed25519-signed payment proof, and a real native-CSPR settlement the provider verifies on-chain. It is **not yet true sub-cent micropayments** — Casper's native-transfer floor (2.5 CSPR) means each settlement is rate-limited (hourly) rather than per-request, and the recurring buyer-side payments run on **testnet**. Per-request, sub-cent settlement needs a payment-channel / purse rail to avoid the native-transfer floor = **Phase 2**. We do not claim production micropayment economics today.
+
 ## Required items
 
 - [x] Public repository URL — https://github.com/kataenda/agent-casper

@@ -151,6 +151,14 @@ payment transaction is always produced.
 > is rate-limited (`X402_SETTLE_INTERVAL_SECONDS`) to conserve agent funds; the
 > cryptographic proof is produced on every request.
 
+> **Honest scope — x402.** This proves a **real, on-chain-verified pay-per-access
+> flow** (genuine 402 handshake, ed25519-signed proof, real CSPR settlement the
+> provider verifies on-chain) — **not yet true sub-cent micropayments**. Because of
+> the 2.5 CSPR native-transfer floor, settlement is rate-limited (hourly) rather than
+> per-request, and the recurring buyer-side payments run on **testnet**. Per-request,
+> sub-cent settlement needs a payment-channel / CEP-18-token rail to avoid the floor —
+> that's **Phase 2**. We don't claim production micropayment economics today.
+
 **Endpoints:**
 
 | Endpoint | Role | Description |
