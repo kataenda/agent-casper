@@ -57,6 +57,18 @@ export function DefiProofCard() {
   const isLive = (ts: string | null) =>
     !!ts && Date.now() - new Date(ts).getTime() < LIVE_WINDOW_MS;
 
+  // Date + time of the swap. Recorded swaps carry a real timestamp; the seeded
+  // verified proofs have none, so we label them "verified" rather than fake a date.
+  const fmtTs = (ts: string | null): string => {
+    if (!ts) return "verified";
+    const d = new Date(ts);
+    if (isNaN(d.getTime())) return "verified";
+    return d.toLocaleString(undefined, {
+      month: "short", day: "numeric",
+      hour: "2-digit", minute: "2-digit", hour12: false,
+    });
+  };
+
   return (
     <div
       className="rounded-lg border"
@@ -95,8 +107,11 @@ export function DefiProofCard() {
               <span>{s.amount} {s.token_in} → {s.token_out}</span>
               <span className="text-cyber-muted">· non-custodial</span>
             </div>
-            <div className="text-[8px] font-mono text-cyber-muted truncate">
-              {s.tx_hash.slice(0, 28)}…
+            <div className="flex items-center gap-1.5 text-[8px] font-mono text-cyber-muted">
+              <span className="truncate">{s.tx_hash.slice(0, 22)}…</span>
+              <span className="ml-auto shrink-0 whitespace-nowrap" style={{ color: "rgba(191,90,242,0.7)" }}>
+                {fmtTs(s.ts)}
+              </span>
             </div>
           </a>
         ))}
