@@ -57,6 +57,8 @@ class YieldAgent:
         defi_swap_token_in: str = "CSPR",
         defi_swap_token_out: str = "sCSPR",
         defi_max_swaps_per_day: int = 1,
+        defi_min_drift_pct: float = 10.0,
+        defi_min_net_gain_bps: int = 50,
         on_cycle_complete: Optional[Callable] = None,
     ):
         self.casper = casper_client
@@ -80,6 +82,8 @@ class YieldAgent:
         self.defi_swap_token_in = defi_swap_token_in
         self.defi_swap_token_out = defi_swap_token_out
         self.defi_max_swaps_per_day = defi_max_swaps_per_day
+        self.defi_min_drift_pct = defi_min_drift_pct
+        self.defi_min_net_gain_bps = defi_min_net_gain_bps
         self.on_cycle_complete = on_cycle_complete
 
         self._running = False
@@ -171,8 +175,9 @@ class YieldAgent:
                 if tx_hash:
                     self._rebalances_today += 1
                     # Close the loop: the AI's allocation decision is now also
-                    # executed as a real, capped, non-custodial swap on mainnet.
-                    defi_execution = await self._execute_defi_swap(decision)
+                    # executed as a real, capped, non-custodial swap on mainnet —
+                    # but only when the reallocation is economically worth it.
+                    defi_execution = await self._execute_defi_swap(decision, portfolio, yield_rates)
                 else:
                     cycle_error = "TX_FAILED"
 
@@ -286,16 +291,55 @@ class YieldAgent:
             logger.error("Failed to execute rebalance: %s", exc)
             return None
 
-    async def _execute_defi_swap(self, decision: RebalanceDecision) -> dict:
+    def _swap_worth_it(self, decision, portfolio, yield_rates) -> tuple[bool, str]:
+        """
+        Economic gate — decide whether a rebalance is materially worth a real swap.
+
+        A swap costs gas + price impact, so a "clearly better allocation" isn't enough:
+        the move must clear two bars. (1) Drift: the current allocation must be off the
+        AI's target by at least `defi_min_drift_pct` points — avoids churning on noise.
+        (2) Net gain: the estimated annualized portfolio APY uplift must clear
+        `defi_min_net_gain_bps`. A HIGH-risk de-risk move bypasses the gain bar, since
+        capital preservation can rightly accept lower yield. Returns (ok, reason).
+        """
+        drift = max(
+            abs(decision.conservative_pct - portfolio.conservative_pct),
+            abs(decision.balanced_pct - portfolio.balanced_pct),
+            abs(decision.aggressive_pct - portfolio.aggressive_pct),
+        )
+        if drift < self.defi_min_drift_pct:
+            return False, (f"drift {drift}pp < min {self.defi_min_drift_pct}pp — "
+                           "allocation already near target")
+
+        # Risk-driven de-risk is legitimate even at lower APY — skip the gain bar.
+        if str(decision.risk_level).upper() == "HIGH":
+            return True, f"de-risk (HIGH risk), drift {drift}pp"
+
+        apy = {str(r.strategy).lower(): r.apy_bps for r in (yield_rates or [])}
+        def _port_apy(con, bal, agg) -> float:  # weighted portfolio APY in bps
+            return (con * apy.get("conservative", 0)
+                    + bal * apy.get("balanced", 0)
+                    + agg * apy.get("aggressive", 0)) / 100.0
+        gain_bps = (
+            _port_apy(decision.conservative_pct, decision.balanced_pct, decision.aggressive_pct)
+            - _port_apy(portfolio.conservative_pct, portfolio.balanced_pct, portfolio.aggressive_pct)
+        )
+        if gain_bps < self.defi_min_net_gain_bps:
+            return False, (f"est. APY uplift {gain_bps:.0f}bps < min "
+                           f"{self.defi_min_net_gain_bps}bps — not worth swap cost")
+        return True, f"drift {drift}pp, est. +{gain_bps:.0f}bps APY"
+
+    async def _execute_defi_swap(self, decision: RebalanceDecision, portfolio, yield_rates) -> dict:
         """
         Execute a real, capped, non-custodial swap on Casper mainnet via CSPR.trade,
         triggered by an AI rebalance decision — turning the on-chain allocation record
         into actual on-chain DeFi execution.
 
-        Heavily guarded: OFF unless `defi_execute_on_rebalance` is enabled; bounded by
-        a small fixed amount, a per-day swap cap, and CSPR.trade's own amount +
-        price-impact caps. Never raises — the swap is best-effort and reported in the
-        cycle result so the dashboard can show "decision → executed on-chain".
+        Heavily guarded: OFF unless `defi_execute_on_rebalance` is enabled; gated by an
+        economic worth-it check (drift + net-gain), a per-day swap cap, a small fixed
+        amount, and CSPR.trade's own amount + price-impact caps. Never raises — the swap
+        is best-effort and reported in the cycle result so the dashboard can show
+        "decision → executed on-chain".
         """
         if not (self.defi_execute_on_rebalance and self.cspr_trade):
             return {}
@@ -305,6 +349,10 @@ class YieldAgent:
                 "settlement": "daily_cap",
                 "note": f"defi swap daily cap reached ({self._defi_swaps_today}/{self.defi_max_swaps_per_day})",
             }
+        worth_it, reason = self._swap_worth_it(decision, portfolio, yield_rates)
+        if not worth_it:
+            logger.info("DeFi swap skipped — %s", reason)
+            return {"executed": False, "settlement": "below_threshold", "note": reason}
         try:
             record = await self.cspr_trade.swap(
                 token_in=self.defi_swap_token_in,

@@ -67,6 +67,13 @@ class Settings(BaseSettings):
     defi_swap_token_in: str = "CSPR"
     defi_swap_token_out: str = "sCSPR"
     defi_max_swaps_per_day: int = 1
+    # Economic discipline — only swap when the reallocation is materially worth it.
+    # Drift gate: current allocation must be off the AI's target by at least this
+    # many percentage points. Net-gain gate: estimated annualized portfolio APY
+    # uplift must clear this many bps. Prevents churn on marginal/noise decisions.
+    # (HIGH-risk de-risk moves bypass the net-gain gate — capital preservation.)
+    defi_min_drift_pct: float = 10.0
+    defi_min_net_gain_bps: int = 50
     # Mainnet node used to broadcast swap deploys (they're too large for the MCP).
     # cspr.cloud convention: mainnet is the BARE domain (testnet has the .testnet. prefix).
     cspr_mainnet_node_url: str = "https://node.cspr.cloud/rpc"
@@ -247,6 +254,8 @@ async def lifespan(app: FastAPI):
         defi_swap_token_in=settings.defi_swap_token_in,
         defi_swap_token_out=settings.defi_swap_token_out,
         defi_max_swaps_per_day=settings.defi_max_swaps_per_day,
+        defi_min_drift_pct=settings.defi_min_drift_pct,
+        defi_min_net_gain_bps=settings.defi_min_net_gain_bps,
         on_cycle_complete=on_cycle,
     )
 

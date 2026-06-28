@@ -240,6 +240,27 @@ mainnet CSPR, bounded by a fixed per-swap amount (`DEFI_SWAP_AMOUNT_CSPR`), a pe
 (`DEFI_MAX_SWAPS_PER_DAY`), plus the amount + price-impact caps above. (Routing the
 *vault's deposited* capital this way is Phase 2 — see Honest scope.)
 
+**When does the agent actually swap? (economic discipline).** A REBALANCE decision is
+*necessary but not sufficient* — a swap costs gas + price impact, so the agent only fires
+one when the move is **materially worth the cost**. Before executing, `_swap_worth_it()`
+([`backend/agent/yield_agent.py`](backend/agent/yield_agent.py)) applies two gates:
+
+- **Drift gate** — the current allocation must be off the AI's target by at least
+  `DEFI_MIN_DRIFT_PCT` percentage points (default `10`). This prevents *churn*: tiny,
+  noise-level deviations are held, not traded.
+- **Net-gain gate** — the estimated **annualized portfolio APY uplift** from the
+  reallocation (weighted across the live per-strategy yield rates) must clear
+  `DEFI_MIN_NET_GAIN_BPS` (default `50` bps). A marginal improvement that wouldn't repay
+  the swap cost is skipped.
+- **De-risk bypass** — if the AI flags `risk_level = HIGH` (depeg, TVL drain, macro risk),
+  the net-gain gate is bypassed so the agent can move to safety even at lower yield —
+  capital preservation outweighs yield in a risk event.
+
+Skipped swaps are reported in the cycle result as `settlement: "below_threshold"` with the
+reason, so the dashboard still shows *why* the agent chose to hold. In short: swaps are
+**event-driven** (an economic threshold is crossed), not schedule-driven — the poll
+interval only sets how often the agent *looks*, never how often it *trades*.
+
 **Endpoints:**
 
 | Endpoint | Description |
@@ -247,6 +268,7 @@ mainnet CSPR, bounded by a fixed per-swap amount (`DEFI_SWAP_AMOUNT_CSPR`), a pe
 | `GET /defi/quote` | Live CSPR.trade mainnet swap quote (read-only, no wallet) |
 | `GET /defi/markets` | Live CSPR.trade trading pairs |
 | `GET\|POST /defi/swap` | Build + sign + (with `execute=true`) broadcast a real swap; returns the tx hash |
+| `GET /defi/history` | Persistent history of executed mainnet swaps (survives restarts) |
 
 ```bash
 # Live mainnet quote (free, read-only)
