@@ -25,7 +25,7 @@
 
 ## Overview
 
-**AGENT-CASPER** is a fully autonomous DeFi yield optimization agent running on the Casper Network. Every 60 seconds, the agent:
+**AGENT-CASPER** is a fully autonomous DeFi yield optimization agent running on the Casper Network. On each polling cycle — a **configurable interval** (`60s` in the demo video for visible live activity, `300s` in production to cut LLM cost on 24/7 operation) — the agent:
 
 1. Fetches real-world asset prices (PAXG/gold, UST10Y/T-bonds, WTI/oil)
 2. Fetches yield rates from Casper validators via CSPR.cloud
@@ -58,7 +58,7 @@ The system transforms a passive smart contract vault into a **self-driving portf
 │       │              ▲                        │                 │
 │  ┌────▼──────────────┴────────────────────────▼──────────────┐  │
 │  │          FastAPI Backend (Python)                         │  │
-│  │  • Yield Agent loop (every 60s)                           │  │
+│  │  • Yield Agent loop (60s/300s)                            │  │
 │  │  • CSPR.cloud middleware                                  │  │
 │  │  • x402 micropayment handler                              │  │
 │  │  • WebSocket broadcast                                    │  │
@@ -365,7 +365,7 @@ AGENT_SECRET_KEY_PATH=./agent_secret_key.pem
 # AGENT_SECRET_KEY_CONTENT=-----BEGIN PRIVATE KEY-----\nxxxx\n-----END PRIVATE KEY-----
 
 # ── Agent Configuration ───────────────────────────────────────────────────
-AGENT_POLL_INTERVAL_SECONDS=60   # How often the agent polls (seconds)
+AGENT_POLL_INTERVAL_SECONDS=300  # how often the agent looks (60 in demo, 300 in prod)
 MAX_REBALANCES_PER_DAY=5         # Maximum rebalances allowed per day
 
 # Post verified RWA prices (PAXG, UST10Y) on-chain via update_rwa_price().
@@ -493,7 +493,7 @@ Both backend and frontend are deployed on a self-hosted VPS using [Coolify](http
    | `AGENT_ACCOUNT_HASH` | `account-hash-xxxx...` |
    | `AGENT_SECRET_KEY_CONTENT` | PEM content with `\n` for newlines |
    | `MAX_REBALANCES_PER_DAY` | `5` |
-   | `AGENT_POLL_INTERVAL_SECONDS` | `60` |
+   | `AGENT_POLL_INTERVAL_SECONDS` | `300` (use `60` for a live demo) |
    | `PORT` | `8000` |
    | `DEBUG` | `false` |
 
@@ -547,7 +547,7 @@ curl https://agentcasper.yourdomain.com/
 
 Check Coolify → backend app → **Logs** to confirm:
 ```
-INFO  agent.yield_agent — YieldAgent started — polling every 60s
+INFO  agent.yield_agent — YieldAgent started — polling every 300s
 INFO  agent.yield_agent — [Block 8,xxx,xxx] Decision: REBALANCE | Confidence: 0.82
 ```
 
@@ -621,7 +621,7 @@ This grants the AI agent permission to execute rebalances on behalf of the vault
 Once CSPR is deposited, the agent is active automatically. Watch:
 
 - **AI Decision** card: HOLD / REBALANCE / ALERT
-- **Neural Decision Log**: Claude AI reasoning every 60 seconds
+- **Neural Decision Log**: Claude AI reasoning on each polling cycle (60s demo / 300s prod)
 - **Portfolio Trajectory**: value chart over time
 - **Allocation Matrix**: live donut chart of CONS/BALA/AGGR split
 
@@ -631,7 +631,7 @@ Once CSPR is deposited, the agent is active automatically. Watch:
 
 | Button | Action |
 |--------|--------|
-| **START AGENT** | Start the agent loop (polls every 60 seconds) |
+| **START AGENT** | Start the agent loop (polls on the configured interval — 60s demo / 300s prod) |
 | **STOP AGENT** | Pause the agent loop |
 | **API** | Open Swagger UI for backend API documentation |
 
@@ -714,7 +714,7 @@ agent-casper/
 │   ├── main.py                 # FastAPI + WebSocket + agent lifecycle
 │   ├── .env.example            # Configuration template
 │   ├── agent/
-│   │   ├── yield_agent.py      # Autonomous 60-second agent loop
+│   │   ├── yield_agent.py      # Autonomous agent loop (configurable interval)
 │   │   └── decision_engine.py  # Claude AI with MCP tools
 │   └── casper/
 │       ├── client.py           # CSPR.cloud REST client
@@ -816,7 +816,7 @@ margin grows with usage rather than requiring continuous external funding.
 
 ### Phase 1 — Buildathon MVP ✅
 - YieldVault contract on Casper Testnet
-- Autonomous AI agent (Claude) with 60-second decision loop via MCP tools
+- Autonomous AI agent (Claude) with a configurable decision loop (60s demo / 300s prod) via MCP tools
 - RWA oracle on-chain posting (PAXG, UST10Y)
 - x402 micropayments — two-sided (consumer **and** provider, mainnet)
 - **Real non-custodial DeFi swaps on Casper mainnet via CSPR.trade MCP**
