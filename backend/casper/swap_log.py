@@ -26,24 +26,28 @@ _LOCK = threading.Lock()
 _MAX_ENTRIES = 100
 
 # Already-verified real mainnet swaps (referenced in README/SUBMISSION). Seeded so
-# the proof history is never empty. `ts: None` → these are baseline/verified, not
-# timed this session; the frontend shows them as "verified" without a fake date.
+# the proof history is never empty. The `ts` values are the swaps' REAL on-chain
+# deploy timestamps (fetched from cspr.cloud) — not fabricated.
 _SEED: list[dict] = [
     {
         "tx_hash": "2bafdb43211c32d88d815873fc2bcee12d4c141dec8cc6e24399bea5c320164f",
         "amount": "5", "token_in": "CSPR", "token_out": "sCSPR",
         "explorer_url": "https://cspr.live/transaction/2bafdb43211c32d88d815873fc2bcee12d4c141dec8cc6e24399bea5c320164f",
         "executed": True, "settlement": "submitted",
-        "triggered_by": "agent", "ts": None,
+        "triggered_by": "agent", "ts": "2026-06-26T17:42:20Z",
     },
     {
         "tx_hash": "f28a4051e17a67f4a6bd9951802cfb64a062b1daa01b59945b444fb25a052eb5",
         "amount": "5", "token_in": "CSPR", "token_out": "sCSPR",
         "explorer_url": "https://cspr.live/transaction/f28a4051e17a67f4a6bd9951802cfb64a062b1daa01b59945b444fb25a052eb5",
         "executed": True, "settlement": "submitted",
-        "triggered_by": "manual", "ts": None,
+        "triggered_by": "manual", "ts": "2026-06-25T17:31:37Z",
     },
 ]
+
+# tx_hash → real on-chain timestamp, used to self-heal older log files that were
+# seeded before these timestamps were known (their entries had ts=None).
+_SEED_TS = {s["tx_hash"]: s["ts"] for s in _SEED}
 
 
 def _read() -> list[dict]:
@@ -53,7 +57,14 @@ def _read() -> list[dict]:
         return list(_SEED)
     try:
         data = json.loads(_LOG_PATH.read_text(encoding="utf-8"))
-        return data if isinstance(data, list) else list(_SEED)
+        if not isinstance(data, list):
+            return list(_SEED)
+        # Self-heal: backfill real on-chain timestamps for seed entries that were
+        # written before those timestamps were known (ts was None).
+        for item in data:
+            if not item.get("ts") and item.get("tx_hash") in _SEED_TS:
+                item["ts"] = _SEED_TS[item["tx_hash"]]
+        return data
     except Exception as exc:  # corrupt/unreadable — fall back to seed, don't crash
         logger.warning("swap_log: could not read %s (%s) — using seed", _LOG_PATH, exc)
         return list(_SEED)

@@ -22,13 +22,13 @@ const FALLBACK: SwapEntry[] = [
     tx_hash: "2bafdb43211c32d88d815873fc2bcee12d4c141dec8cc6e24399bea5c320164f",
     amount: "5", token_in: "CSPR", token_out: "sCSPR",
     explorer_url: "https://cspr.live/transaction/2bafdb43211c32d88d815873fc2bcee12d4c141dec8cc6e24399bea5c320164f",
-    triggered_by: "agent", ts: null,
+    triggered_by: "agent", ts: "2026-06-26T17:42:20Z",
   },
   {
     tx_hash: "f28a4051e17a67f4a6bd9951802cfb64a062b1daa01b59945b444fb25a052eb5",
     amount: "5", token_in: "CSPR", token_out: "sCSPR",
     explorer_url: "https://cspr.live/transaction/f28a4051e17a67f4a6bd9951802cfb64a062b1daa01b59945b444fb25a052eb5",
-    triggered_by: "manual", ts: null,
+    triggered_by: "manual", ts: "2026-06-25T17:31:37Z",
   },
 ];
 
