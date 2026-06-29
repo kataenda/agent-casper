@@ -232,6 +232,13 @@ export default function DashboardPage() {
   const { connected, latestCycle, cycles, depositedMotes, vaultTxs } = useAgentStore();
   const { agentRegistered } = useWalletStore();
 
+  // Gate the client-driven dashboard behind a mount flag so the server-rendered
+  // HTML and the first client render match exactly. The store rehydrates persisted
+  // state (vaultTxs) synchronously on the client, which would otherwise diverge from
+  // the server's empty state and trigger React hydration errors (#418/#423/#425).
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
   const [agentInfo, setAgentInfo] = useState<{ account_hash: string; balance_cspr: number } | null>(null);
   useEffect(() => {
     fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/admin/agent-address`)
@@ -269,6 +276,19 @@ export default function DashboardPage() {
     lastAction === "REBALANCE" ? "#00F5FF" : lastAction === "ALERT" ? "#FF2D55" : "#FFFFFF";
 
   const HUD_C = "rgba(0,245,255,0.35)";
+
+  // Until the client has mounted, render a deterministic placeholder. This is what
+  // the server emits and what the client renders first → no hydration mismatch.
+  if (!mounted) {
+    return (
+      <div className="h-screen overflow-hidden flex items-center justify-center">
+        <span className="font-mono text-[10px] uppercase tracking-[0.3em] animate-pulse"
+              style={{ color: "#00F5FF", textShadow: "0 0 12px #00F5FF" }}>
+          Initializing Agent Casper…
+        </span>
+      </div>
+    );
+  }
 
   return (
     /* Full viewport — no scroll */
