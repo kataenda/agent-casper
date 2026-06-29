@@ -5,7 +5,7 @@
 [![Casper Testnet](https://img.shields.io/badge/Casper-Testnet-00F5FF)](https://testnet.cspr.live)
 [![Smart Contract](https://img.shields.io/badge/Contract-hash--f6ba9dfa-00FF94)](https://testnet.cspr.live)
 [![License: MIT](https://img.shields.io/badge/License-MIT-BF5AF2.svg)](LICENSE)
-[![Demo Video](https://img.shields.io/badge/Demo-YouTube-FF0000)](https://youtu.be/m7k5AcwDM8E)
+[![Demo Video](https://img.shields.io/badge/Demo-YouTube-FF0000)](https://youtu.be/a20ls_stpDU)
 [![Live Demo](https://img.shields.io/badge/Live%20Demo-VPS-00F5FF)](https://casper.soenic.com)
 
 ---
@@ -16,7 +16,7 @@
 |---|---|
 | **Live Dashboard** | https://casper.soenic.com |
 | **Backend API** | https://agentcasper.soenic.com |
-| **Demo Video** | https://youtu.be/m7k5AcwDM8E |
+| **Demo Video** | https://youtu.be/a20ls_stpDU |
 | **Smart Contract** | https://testnet.cspr.live (hash-f6ba9dfa...) |
 | **X / Twitter** | https://x.com/kata_enda |
 | **Telegram** | https://t.me/soesoe14 |
