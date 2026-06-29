@@ -19,6 +19,8 @@
 | **Demo Video** | https://youtu.be/m7k5AcwDM8E |
 | **Smart Contract** | https://testnet.cspr.live (hash-f6ba9dfa...) |
 | **X / Twitter** | https://x.com/kata_enda |
+| **Telegram** | https://t.me/soesoe14 |
+| **Discord** | mas_end_47419 |
 | **GitHub** | https://github.com/kataenda |
 
 ---
@@ -850,6 +852,8 @@ Follow the project and reach out:
 | Channel | Link |
 |---|---|
 | X / Twitter | [@kata_enda](https://x.com/kata_enda) |
+| Telegram | [@soesoe14](https://t.me/soesoe14) |
+| Discord | `mas_end_47419` |
 | GitHub | [kataenda/agent-casper](https://github.com/kataenda) |
 | Community Vote | [Vote on CSPR.fans](https://cspr.fans) |
 
