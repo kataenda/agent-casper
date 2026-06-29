@@ -6,6 +6,8 @@
 
 > **x402 is real end-to-end.** Conformant with the official CSPR.cloud `exact` scheme ([`@make-software/casper-x402`](https://github.com/make-software/casper-x402)) and **settled on-chain by the live facilitator**: real 402 handshake, EIP-712 (`casper-eip-712`) digest signed with the agent's ed25519 key, accepted by the facilitator `/verify` (`isValid: true`), then a real **`transfer_with_authorization`** of the agent-deployed CEP-18 X402 token submitted by the facilitator `/settle`. Verified on testnet: tx [`e297580f…`](https://testnet.cspr.live/transaction/e297580fc01b3bd4bfb011a592f129822b253041bf643ce16aed6c34f4443fdc), token package `c61db3d7ed7565c6a770e03184c031cf6a2a10f35519726d6fed577c46d28a63`. Reproduce: `scripts/deploy_x402_token.py` → `scripts/x402_settle_real.py` (verify-only: `scripts/x402_verify_proof.py`).
 
+> **Agent-to-agent commerce (the machine economy), working today.** Agent Casper is not just an x402 *consumer* — it *earns* over x402. An independent buyer agent (its own ed25519 identity, `demo_buyer_agent.py`) discovers Agent Casper's services, pays for `/x402/decision` + `/x402/rwa-feed`, and settles **on Casper mainnet** — autonomous machine-to-machine payment with no human in the loop. This closed, two-sided loop (the agent both pays for its RWA risk feed and gets paid for its AI decisions) is exactly the agent economy described in the Casper Manifest, on top of real DeFi + RWA execution.
+
 ## Required items
 
 - [x] Public repository URL — https://github.com/kataenda/agent-casper

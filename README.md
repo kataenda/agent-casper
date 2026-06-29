@@ -36,7 +36,7 @@
 5. Posts verified RWA prices on-chain (auditable oracle trail), and both **pays for** and **sells** premium data via **x402** micropayments — a service provider on Casper mainnet, not just a consumer
 6. Executes **real, non-custodial DeFi swaps on Casper mainnet** via the **CSPR.trade MCP** — the agent fetches live quotes, builds the transaction, signs it with its own key, and broadcasts it (verified live: [`f28a4051…`](https://cspr.live/transaction/f28a4051e17a67f4a6bd9951802cfb64a062b1daa01b59945b444fb25a052eb5))
 
-The system transforms a passive smart contract vault into a **self-driving portfolio manager**, uniting the three pillars of the Casper Innovation Track — **Agentic AI · DeFi · RWA**.
+The system transforms a passive smart contract vault into a **self-driving portfolio manager**, uniting the three pillars of the Casper Innovation Track — **Agentic AI · DeFi · RWA** — and closes the loop with **agent-to-agent commerce**: an independent buyer agent pays Agent Casper over x402 and settles on mainnet, putting the **machine economy** to work, not just describing it.
 
 > **What's live vs. roadmap (honest scope).** The Testnet **YieldVault is the agent's *decision + on-chain proof layer*** — it records AI-driven allocation changes and verified RWA prices on-chain, but does **not** itself route deposited capital into yield-bearing positions yet. Real, non-custodial **execution** runs on **mainnet** via the **CSPR.trade MCP** (verified swaps), signed with the agent's own key. Routing the vault's deposited capital directly into live DeFi positions is **Phase 2 (Q3 2026)**. We deliberately keep this distinction explicit rather than claim the vault "generates yield" today.
 
@@ -123,6 +123,13 @@ Framework:     Odra 2.7.2 (Rust → WASM)
 ---
 
 ## x402 Micropayments
+
+> **This is agent-to-agent commerce — the machine economy, working today.** Agent Casper
+> doesn't just *consume* x402; it *earns* over x402. An independent buyer agent (its own
+> ed25519 identity) discovers Agent Casper's services, pays for them, and settles **on
+> Casper mainnet** — autonomous machine-to-machine payment with no human in the loop. The
+> closed, two-sided loop (the agent both pays for its RWA risk feed and gets paid for its
+> AI decisions) is exactly the agent economy the Casper Manifest describes.
 
 Agent Casper implements the **x402 v2 HTTP-native pay-per-request** protocol on
 **both sides of the loop**:
