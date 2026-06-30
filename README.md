@@ -36,7 +36,7 @@
 5. Posts verified RWA prices on-chain (auditable oracle trail), and both **pays for** and **sells** premium data via **x402** micropayments — a service provider on Casper mainnet, not just a consumer
 6. Executes **real, non-custodial DeFi swaps on Casper mainnet** via the **CSPR.trade MCP** — the agent fetches live quotes, builds the transaction, signs it with its own key, and broadcasts it (verified live: [`f28a4051…`](https://cspr.live/transaction/f28a4051e17a67f4a6bd9951802cfb64a062b1daa01b59945b444fb25a052eb5))
 
-The system transforms a passive smart contract vault into a **self-driving portfolio manager**, uniting the three pillars of the Casper Innovation Track — **Agentic AI · DeFi · RWA** — and closes the loop with **agent-to-agent commerce**: an independent buyer agent pays Agent Casper over x402 and settles on mainnet, putting the **machine economy** to work, not just describing it.
+The system transforms a passive smart contract vault into a **self-driving portfolio manager**, uniting the three pillars of the Casper Innovation Track — **Agentic AI · DeFi · RWA** — and closes the loop with **agent-to-agent commerce**: an independent buyer agent (its own ed25519 identity) pays Agent Casper over x402 and settles **on-chain** — a real CEP-18 `transfer_with_authorization` between two distinct agents ([`eb0e914c…`](https://testnet.cspr.live/transaction/eb0e914cdd902b177d95cd92a345cff3d7cdfbc33bffe8927d456d8c8a1f469e), Casper testnet) — putting the **machine economy** to work, not just describing it.
 
 > **What's live vs. roadmap (honest scope).** The Testnet **YieldVault is the agent's *decision + on-chain proof layer*** — it records AI-driven allocation changes and verified RWA prices on-chain, but does **not** itself route deposited capital into yield-bearing positions yet. Real, non-custodial **execution** runs on **mainnet** via the **CSPR.trade MCP** (verified swaps), signed with the agent's own key. Routing the vault's deposited capital directly into live DeFi positions is **Phase 2 (Q3 2026)**. We deliberately keep this distinction explicit rather than claim the vault "generates yield" today.
 
@@ -126,8 +126,9 @@ Framework:     Odra 2.7.2 (Rust → WASM)
 
 > **This is agent-to-agent commerce — the machine economy, working today.** Agent Casper
 > doesn't just *consume* x402; it *earns* over x402. An independent buyer agent (its own
-> ed25519 identity) discovers Agent Casper's services, pays for them, and settles **on
-> Casper mainnet** — autonomous machine-to-machine payment with no human in the loop. The
+> ed25519 identity) discovers Agent Casper's services, pays for them, and **settles on-chain**
+> — a real CEP-18 `transfer_with_authorization` between two distinct agents, autonomous
+> machine-to-machine payment with no human in the loop ([`eb0e914c…`](https://testnet.cspr.live/transaction/eb0e914cdd902b177d95cd92a345cff3d7cdfbc33bffe8927d456d8c8a1f469e), Casper testnet). The
 > closed, two-sided loop (the agent both pays for its RWA risk feed and gets paid for its
 > AI decisions) is exactly the agent economy the Casper Manifest describes.
 
@@ -135,9 +136,11 @@ Agent Casper implements the **x402 v2 HTTP-native pay-per-request** protocol on
 **both sides of the loop**:
 
 - **Consumer** — the agent pays per API call for its premium "RWA risk feed" each cycle.
-- **Provider** — the agent *sells* its own services on **Casper mainnet**: other agents
-  pay it for an on-demand Claude AI recommendation (`/x402/decision`) or an on-chain-verified
-  RWA price feed (`/x402/rwa-feed`). Payment lands in the agent's own account.
+- **Provider** — the agent *sells* its own services: other agents pay it for an on-demand
+  Claude AI recommendation (`/x402/decision`) or an on-chain-verified RWA price feed
+  (`/x402/rwa-feed`). Payment lands in the agent's own account, with real CEP-18
+  `transfer_with_authorization` settlement demonstrated on-chain (Casper testnet, where the
+  X402 token lives).
 
 This is the **official CSPR.cloud `exact` scheme** — conformant with
 [`@make-software/casper-x402`](https://github.com/make-software/casper-x402) and
@@ -156,15 +159,24 @@ Because settlement is a **CEP-18 token transfer** (not a native transfer), amoun
 **true sub-CSPR micropayments** — no 2.5 CSPR native-transfer floor. The facilitator pays
 the deploy gas via its published `feePayer`; the agent only needs to hold the token.
 
-> **x402 is real end-to-end.** Fully conformant with the official `exact` scheme and
-> **settled on-chain by the live CSPR.cloud facilitator** — real 402 handshake, EIP-712
-> ed25519 proof accepted by the facilitator `/verify` (`isValid: true`), and a real
-> `transfer_with_authorization` of the deployed CEP-18 X402 token submitted by the
-> facilitator `/settle`. Verified on testnet:
-> [`e297580f…`](https://testnet.cspr.live/transaction/e297580fc01b3bd4bfb011a592f129822b253041bf643ce16aed6c34f4443fdc)
-> (token [`c61db3d7…`](https://testnet.cspr.live/contract-package/c61db3d7ed7565c6a770e03184c031cf6a2a10f35519726d6fed577c46d28a63)).
-> Reproduce: deploy the token (`scripts/deploy_x402_token.py`), then settle
-> (`scripts/x402_settle_real.py`); verify-only proof: `scripts/x402_verify_proof.py`.
+> **x402 is real end-to-end — including genuine agent-to-agent settlement.** Fully
+> conformant with the official `exact` scheme and **settled on-chain by the live CSPR.cloud
+> facilitator** (Casper testnet, where the CEP-18 X402 token lives) — real 402 handshake,
+> EIP-712 ed25519 proof accepted by the facilitator `/verify` (`isValid: true`), and a real
+> `transfer_with_authorization` submitted by the facilitator `/settle`. Two on-chain proofs:
+>
+> - **Agent-to-agent (independent buyer → provider):** a separate buyer agent with its own
+>   ed25519 identity (`00e2d5cd…`) pays the Agent Casper provider (`0088cb6d…`) 1 X402 —
+>   [`eb0e914c…`](https://testnet.cspr.live/transaction/eb0e914cdd902b177d95cd92a345cff3d7cdfbc33bffe8927d456d8c8a1f469e)
+>   (funding transfer agent → buyer: [`7cc8be65…`](https://testnet.cspr.live/deploy/7cc8be65f8bd55766fb98f5735c6cf8a94e26a823a804fd020357eb4166900cf)).
+>   This is the machine economy literally on-chain: two distinct agents, real token moving between them.
+> - **Settlement rail:** the agent's own `transfer_with_authorization` of the deployed token —
+>   [`e297580f…`](https://testnet.cspr.live/transaction/e297580fc01b3bd4bfb011a592f129822b253041bf643ce16aed6c34f4443fdc)
+>   (token [`c61db3d7…`](https://testnet.cspr.live/contract-package/c61db3d7ed7565c6a770e03184c031cf6a2a10f35519726d6fed577c46d28a63)).
+>
+> Reproduce: deploy the token (`scripts/deploy_x402_token.py`), fund the buyer
+> (`scripts/fund_buyer.py`), then settle buyer → provider (`scripts/buyer_pays_agent.py`);
+> self-settle: `scripts/x402_settle_real.py`; verify-only proof: `scripts/x402_verify_proof.py`.
 
 **Endpoints:**
 
@@ -325,6 +337,7 @@ All activity is verifiable on the [Casper Testnet explorer](https://testnet.cspr
 | RWA price on-chain (treasury) | `update_rwa_price` | [`0700586b…`](https://testnet.cspr.live/deploy/0700586b8e302123887f4f759fb2ac90156cb2f8daad6d8f9e09db2aaf7f730b) |
 | x402 micropayment settlement | native transfer | [`ba8fb27e…`](https://testnet.cspr.live/deploy/ba8fb27e71acc2c0cba50a72a0bd3820028dc6ceb8791ac51b79b0614148f32d) |
 | **x402 `exact` settle** (facilitator `transfer_with_authorization`) | CEP-18 X402 | [`e297580f…`](https://testnet.cspr.live/transaction/e297580fc01b3bd4bfb011a592f129822b253041bf643ce16aed6c34f4443fdc) |
+| **Agent-to-agent x402 settle** (independent buyer → provider) | CEP-18 X402 | [`eb0e914c…`](https://testnet.cspr.live/transaction/eb0e914cdd902b177d95cd92a345cff3d7cdfbc33bffe8927d456d8c8a1f469e) |
 
 Plus **real DeFi on Casper mainnet** via CSPR.trade MCP (verifiable on [cspr.live](https://cspr.live)):
 
@@ -844,8 +857,9 @@ margin grows with usage rather than requiring continuous external funding.
 - Multi-vault strategy support
 - Mobile notifications (Telegram bot)
 
-### Phase 3 — Production Launch (Q4 2026)
+### Phase 3 — Production Launch & Multi-Tenant SaaS (Q4 2026)
 - Casper Mainnet deployment
+- **Multi-tenant architecture** — today Agent Casper runs as a single autonomous agent with one on-chain identity (ideal for a verifiable, auditable demo). Productization turns this into a per-user service: each user/DAO gets its **own isolated agent instance + non-custodial wallet**, with keys held in a KMS / threshold-signing setup (never a shared PEM), tenant-scoped state in a database (`tenant_id` on every record), and token-based auth gating every endpoint. The single-agent core stays the unit of execution — we replicate it per tenant rather than re-architect it.
 - x402 fee-based API for institutional access (CEP-18 stablecoin micropayments)
 - DAO governance for strategy parameters
 - Audited smart contracts
