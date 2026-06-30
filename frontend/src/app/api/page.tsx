@@ -80,6 +80,15 @@ const GROUPS: Group[] = [
 
 const TOTAL = GROUPS.reduce((n, g) => n + g.endpoints.length, 0);
 
+/* Editable request-body templates for POST endpoints. Endpoints not listed here
+   (pause/resume/rebalance) take no body — they get an Execute button only. */
+const POST_BODY: Record<string, string> = {
+  "/chat": '{\n  "message": "What is your current strategy?"\n}',
+  "/admin/setup": '{\n  "vault_contract_hash": "hash-…",\n  "agent_account_hash": "account-hash-…"\n}',
+  "/rpc": '{\n  "jsonrpc": "2.0",\n  "id": 1,\n  "method": "info_get_status",\n  "params": {}\n}',
+  "/deploy": '{\n  "deploy": {}\n}',
+};
+
 /* ── Chamfered panel ──────────────────────────────────────────────── */
 function Card({ children, accent = ACCENT }: { children: React.ReactNode; accent?: string }) {
   return (
@@ -116,15 +125,28 @@ export default function ApiPage() {
     fetch(`${API}/`).then(r => setOnline(r.ok)).catch(() => setOnline(false));
   }, []);
 
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [reqBody, setReqBody] = useState<Record<string, string>>({});
+
   const clearResult = useCallback((path: string) => {
     setResults(s => { const n = { ...s }; delete n[path]; return n; });
   }, []);
 
-  const tryIt = useCallback(async (ep: Endpoint) => {
+  const toggle = useCallback((path: string) => {
+    setExpanded(e => ({ ...e, [path]: !e[path] }));
+  }, []);
+
+  // Unified runner — GET fires immediately; POST sends the (editable) JSON body.
+  const runReq = useCallback(async (ep: Endpoint) => {
     setBusy(b => ({ ...b, [ep.path]: true }));
     const t0 = performance.now();
     try {
-      const r = await fetch(`${API}${ep.path}`);
+      const opts: RequestInit = { method: ep.method };
+      if (ep.method === "POST") {
+        const bodyStr = (reqBody[ep.path] ?? POST_BODY[ep.path] ?? "").trim();
+        if (bodyStr) { opts.headers = { "Content-Type": "application/json" }; opts.body = bodyStr; }
+      }
+      const r = await fetch(`${API}${ep.path}`, opts);
       const raw = await r.text();
       let body = raw;
       try { body = JSON.stringify(JSON.parse(raw), null, 2); } catch { /* not JSON */ }
@@ -136,7 +158,7 @@ export default function ApiPage() {
     } finally {
       setBusy(b => ({ ...b, [ep.path]: false }));
     }
-  }, []);
+  }, [reqBody]);
 
   return (
     <div className="min-h-screen px-4 py-4 md:px-8 md:py-6" style={{ maxWidth: 1300, margin: "0 auto" }}>
@@ -235,16 +257,49 @@ export default function ApiPage() {
                               {res.status}{ep.expect402 && res.ok ? " ✓" : ""}
                             </span>
                           )}
-                          {ep.probe && (
-                            <button onClick={() => tryIt(ep)} disabled={busy[ep.path]}
+                          {ep.method === "GET" && ep.probe && (
+                            <button onClick={() => runReq(ep)} disabled={busy[ep.path]}
                                     className="flex items-center gap-1 text-[8px] font-mono uppercase tracking-widest px-1.5 py-0.5 rounded border transition-all hover:opacity-80 disabled:opacity-50"
                                     style={{ borderColor: `${group.accent}44`, color: group.accent, background: `${group.accent}0a` }}>
                               {busy[ep.path] ? <Loader2 size={8} className="animate-spin" /> : <Zap size={8} />} Try
                             </button>
                           )}
+                          {ep.method === "POST" && (
+                            <button onClick={() => toggle(ep.path)}
+                                    className="flex items-center gap-1 text-[8px] font-mono uppercase tracking-widest px-1.5 py-0.5 rounded border transition-all hover:opacity-80"
+                                    style={{ borderColor: `${group.accent}44`, color: group.accent, background: `${group.accent}0a` }}>
+                              <Zap size={8} /> {expanded[ep.path] ? "Close" : "Try"}
+                            </button>
+                          )}
                         </div>
                       </div>
                       <p className="text-[9px] font-mono text-cyber-muted mt-1 leading-relaxed">{ep.desc}</p>
+
+                      {/* POST request editor (body + Execute) */}
+                      {ep.method === "POST" && expanded[ep.path] && (
+                        <div className="mt-2 rounded p-2" style={{ border: `1px solid ${group.accent}33`, background: `${group.accent}06` }}>
+                          {POST_BODY[ep.path] !== undefined && (
+                            <>
+                              <div className="text-[8px] font-mono uppercase tracking-widest text-cyber-muted mb-1">Request body (JSON)</div>
+                              <textarea
+                                value={reqBody[ep.path] ?? POST_BODY[ep.path]}
+                                onChange={e => setReqBody(b => ({ ...b, [ep.path]: e.target.value }))}
+                                spellCheck={false} rows={POST_BODY[ep.path].split("\n").length}
+                                className="w-full font-mono text-[9px] p-2 rounded outline-none resize-y"
+                                style={{ color: "#cfe", background: "rgba(0,0,0,0.55)", border: "1px solid rgba(255,255,255,0.1)" }}
+                              />
+                            </>
+                          )}
+                          <div className="flex items-center justify-between mt-2 gap-2">
+                            <span className="text-[8px] font-mono" style={{ color: "#FF9F0Aaa" }}>⚠ POST mutates server state</span>
+                            <button onClick={() => runReq(ep)} disabled={busy[ep.path]}
+                                    className="flex items-center gap-1 text-[9px] font-mono font-bold uppercase tracking-widest px-2.5 py-1 rounded transition-all hover:opacity-85 disabled:opacity-50"
+                                    style={{ background: group.accent, color: "#000" }}>
+                              {busy[ep.path] ? <Loader2 size={9} className="animate-spin" /> : <Zap size={9} />} Execute
+                            </button>
+                          </div>
+                        </div>
+                      )}
 
                       {/* Inline response panel (mini-Swagger) */}
                       {res?.body !== undefined && (
