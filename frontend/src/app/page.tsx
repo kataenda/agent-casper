@@ -346,14 +346,14 @@ export default function DashboardPage() {
           >
             <Store size={11} /> x402
           </Link>
-          <a
-            href={`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/docs`}
-            target="_blank" rel="noopener noreferrer"
+          <Link
+            href="/api"
             className="flex items-center gap-1 px-2 py-1 rounded border font-mono text-[9px] uppercase tracking-widest transition-opacity hover:opacity-70"
             style={{ borderColor: "rgba(191,90,242,0.35)", color: "#BF5AF2", background: "rgba(191,90,242,0.07)" }}
+            title="API reference — endpoints + live try it"
           >
             API
-          </a>
+          </Link>
           <StatusBadge connected={connected} />
         </div>
       </header>
