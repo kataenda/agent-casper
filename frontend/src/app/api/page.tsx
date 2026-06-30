@@ -187,7 +187,7 @@ export default function ApiPage() {
       </div>
 
       {/* ── Endpoint groups ─────────────────────────────────────── */}
-      <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(420px, 1fr))" }}>
+      <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(420px, 1fr))", alignItems: "start" }}>
         {GROUPS.map(group => (
           <Card key={group.title} accent={group.accent}>
             <div className="p-4">
