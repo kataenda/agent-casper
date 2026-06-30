@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { Play, Square, Loader } from "lucide-react";
+import { adminHeaders } from "@/lib/adminAuth";
 
 const BACKEND = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -28,8 +29,12 @@ export function AgentControls({ isRegistered = false }: { isRegistered?: boolean
     setLoading(true);
     try {
       const action = running ? "pause" : "resume";
-      await fetch(`${BACKEND}/agent/${action}`, { method: "POST" });
-      setRunning(!running);
+      const r = await fetch(`${BACKEND}/agent/${action}`, { method: "POST", headers: adminHeaders() });
+      if (r.status === 401) {
+        alert("Admin token required. Open the API page and paste the admin token to control the agent.");
+      } else if (r.ok) {
+        setRunning(!running);
+      }
     } catch {}
     setLoading(false);
   };

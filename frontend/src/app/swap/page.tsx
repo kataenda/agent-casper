@@ -6,6 +6,7 @@ import {
   Repeat, ArrowDown, ArrowLeft, ShieldCheck, ExternalLink, Loader2,
   History, Bot, Hand, RefreshCw, Activity,
 } from "lucide-react";
+import { adminHeaders } from "@/lib/adminAuth";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const ACCENT = "#FF4D6D"; // CSPR.trade-flavored accent
@@ -127,9 +128,10 @@ export default function SwapPage() {
     setLoading(true); setErr(null);
     try {
       const r = await fetch(`${API}/defi/swap`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST", headers: adminHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ token_in: "CSPR", token_out: tokenOut, amount, execute: true }),
       });
+      if (r.status === 401) throw new Error("Admin token required — paste it on the API page to execute swaps.");
       const d = await r.json();
       if (!r.ok) throw new Error(d.detail || "swap failed");
       setResult(d);

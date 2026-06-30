@@ -15,7 +15,7 @@ from typing import Optional
 # Ensure we always load .env from the backend/ directory regardless of cwd
 os.chdir(Path(__file__).parent)
 
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, HTTPException, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -43,6 +43,11 @@ class Settings(BaseSettings):
     vault_contract_hash: str = "hash-demo"
     vault_contract_version_hash: str = ""
     agent_account_hash: str = "account-hash-demo"
+    # Shared secret protecting state-mutating endpoints (pause/resume/rebalance/
+    # swap/deploy/admin-setup). When empty, those endpoints stay open (backward
+    # compatible); set ADMIN_TOKEN in the environment to require the X-Admin-Token
+    # header on every privileged call. Read-only endpoints are never gated.
+    admin_token: str = ""
     agent_secret_key_path: str = "./agent_secret_key.pem"
     # If set, the PEM content is written to a temp file (for cloud deployments like Railway)
     agent_secret_key_content: str = ""
@@ -95,6 +100,19 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+# ── Admin auth ────────────────────────────────────────────────────────────────
+# Gate state-mutating endpoints behind a shared secret. When ADMIN_TOKEN is unset
+# the gate is a no-op (open) so existing deployments keep working until the owner
+# opts in by setting it. Read-only endpoints are never gated.
+def require_admin(x_admin_token: str = Header(default="")):
+    expected = settings.admin_token
+    if not expected:
+        return  # auth disabled — no token configured
+    if x_admin_token != expected:
+        raise HTTPException(status_code=401, detail="Admin token required or invalid")
+
 
 # If PEM content provided via env var, write to temp file
 if settings.agent_secret_key_content:
@@ -700,7 +718,7 @@ class SwapRequest(BaseModel):
     execute: bool = False   # MUST be explicitly true to spend real CSPR on mainnet
 
 
-@app.post("/defi/swap")
+@app.post("/defi/swap", dependencies=[Depends(require_admin)])
 async def defi_swap(req: SwapRequest):
     """
     Build (and, only with execute=true, broadcast) a REAL non-custodial swap on
@@ -767,7 +785,7 @@ async def get_contract_info():
     }
 
 
-@app.post("/admin/setup")
+@app.post("/admin/setup", dependencies=[Depends(require_admin)])
 async def setup_contract(req: SetupContractRequest):
     """
     Called by the frontend after deploying the contract via connected wallet.
@@ -842,7 +860,7 @@ class ManualRebalanceRequest(BaseModel):
     reasoning: str = "Manual override by operator"
 
 
-@app.post("/rebalance/manual")
+@app.post("/rebalance/manual", dependencies=[Depends(require_admin)])
 async def manual_rebalance(req: ManualRebalanceRequest):
     """Operator-triggered manual rebalance (bypasses AI decision)."""
     if req.conservative_pct + req.balanced_pct + req.aggressive_pct != 100:
@@ -910,7 +928,7 @@ async def rpc_proxy(request: Request):
     raise HTTPException(last_status, f"Casper node busy (rate-limited). Try again. — {last_detail}")
 
 
-@app.post("/deploy")
+@app.post("/deploy", dependencies=[Depends(require_admin)])
 async def submit_deploy(request: Request):
     """Submit deploy — tries anonymous then authenticated CSPR.cloud node."""
     body = await request.json()
@@ -973,7 +991,7 @@ async def get_named_keys(account_hash: str):
     return resp.json()
 
 
-@app.post("/agent/pause")
+@app.post("/agent/pause", dependencies=[Depends(require_admin)])
 async def pause_agent():
     if not agent:
         raise HTTPException(503, "Agent not initialized")
@@ -981,7 +999,7 @@ async def pause_agent():
     return {"status": "paused"}
 
 
-@app.post("/agent/resume")
+@app.post("/agent/resume", dependencies=[Depends(require_admin)])
 async def resume_agent():
     if not agent:
         raise HTTPException(503, "Agent not initialized")

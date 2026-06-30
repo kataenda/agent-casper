@@ -13,6 +13,7 @@
 import { useState, useEffect } from "react";
 import { Rocket, CheckCircle, Loader, AlertCircle, ExternalLink } from "lucide-react";
 import { useWalletStore } from "@/lib/walletStore";
+import { adminHeaders } from "@/lib/adminAuth";
 
 const BACKEND = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const CHAIN   = "casper-test";
@@ -142,7 +143,7 @@ export function DeployPanel() {
       const agentHash = agentData.agent_account_hash ?? pubKey.accountHash().toPrefixedString();
       await fetch(`${BACKEND}/admin/setup`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: adminHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ vault_contract_hash: hash, agent_account_hash: agentHash }),
       });
 

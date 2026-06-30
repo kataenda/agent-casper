@@ -3,8 +3,9 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import {
-  Code2, ArrowLeft, ExternalLink, Zap, Loader2, Server, Activity, BookOpen, X,
+  Code2, ArrowLeft, ExternalLink, Zap, Loader2, Server, Activity, BookOpen, X, KeyRound,
 } from "lucide-react";
+import { getAdminToken, setAdminToken, adminHeaders } from "@/lib/adminAuth";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const ACCENT = "#BF5AF2";
@@ -127,6 +128,9 @@ export default function ApiPage() {
 
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [reqBody, setReqBody] = useState<Record<string, string>>({});
+  const [token, setToken] = useState("");
+
+  useEffect(() => { setToken(getAdminToken()); }, []);
 
   const clearResult = useCallback((path: string) => {
     setResults(s => { const n = { ...s }; delete n[path]; return n; });
@@ -144,7 +148,9 @@ export default function ApiPage() {
       const opts: RequestInit = { method: ep.method };
       if (ep.method === "POST") {
         const bodyStr = (reqBody[ep.path] ?? POST_BODY[ep.path] ?? "").trim();
-        if (bodyStr) { opts.headers = { "Content-Type": "application/json" }; opts.body = bodyStr; }
+        const headers = adminHeaders();           // adds X-Admin-Token when set
+        if (bodyStr) { headers["Content-Type"] = "application/json"; opts.body = bodyStr; }
+        opts.headers = headers;
       }
       const r = await fetch(`${API}${ep.path}`, opts);
       const raw = await r.text();
@@ -189,6 +195,28 @@ export default function ApiPage() {
           <BookOpen size={12} /> Open Swagger /docs <ExternalLink size={10} />
         </a>
       </header>
+
+      {/* ── Admin token (owner-only — gates POST/mutating endpoints) ── */}
+      <div className="flex items-center gap-2 mb-5 p-2.5 rounded flex-wrap"
+           style={{ background: `${ACCENT}06`, border: `1px solid ${ACCENT}22` }}>
+        <KeyRound size={13} style={{ color: ACCENT }} />
+        <span className="font-mono text-[9px] uppercase tracking-widest" style={{ color: ACCENT }}>Admin token</span>
+        <input
+          type="password"
+          value={token}
+          onChange={e => { setToken(e.target.value); setAdminToken(e.target.value); }}
+          placeholder="paste to unlock POST / mutating actions"
+          className="flex-1 min-w-[180px] bg-transparent font-mono text-[10px] px-2 py-1 rounded outline-none"
+          style={{ color: "#fff", border: "1px solid rgba(255,255,255,0.12)" }}
+        />
+        <span className="font-mono text-[8px] uppercase tracking-widest"
+              style={{ color: token ? "#00FF94" : "#FF9F0A" }}>
+          {token ? "● unlocked" : "○ locked"}
+        </span>
+        <span className="font-mono text-[8px] text-cyber-muted w-full sm:w-auto">
+          stored locally · sent as X-Admin-Token · leave empty if the backend has no ADMIN_TOKEN set
+        </span>
+      </div>
 
       {/* ── Stat strip ──────────────────────────────────────────── */}
       <div className="grid grid-cols-3 gap-3 mb-5">
