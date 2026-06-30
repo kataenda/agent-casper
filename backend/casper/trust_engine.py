@@ -56,7 +56,49 @@ def _clamp(v: float) -> float:
     return max(0.0, min(100.0, v))
 
 
-def compute_trust(stats: dict, history: list[dict], swaps: list[dict]) -> dict:
+# Per-action deltas for the live/dynamic view. Derived deterministically from the
+# real action stream (swaps + cycle history) so the "live score" is reproducible,
+# not a mutable counter that can drift.
+EVENT_DELTAS = {
+    "swap_success": +0.2,
+    "swap_fail": -0.3,
+    "rebalance": +0.1,
+    "cycle_error": -0.1,
+    "liquidation": -5.0,
+}
+EVENT_LABELS = {
+    "swap_success": "Swap executed",
+    "swap_fail": "Swap failed",
+    "rebalance": "Rebalance executed",
+    "cycle_error": "Cycle error / RPC timeout",
+    "liquidation": "Liquidation",
+}
+
+
+def compute_events(history: list[dict], swaps: list[dict]) -> tuple[list[dict], float]:
+    """Build the chronological event feed (with ± deltas) and recent momentum.
+    Newest first. Every event maps to a real recorded action."""
+    events: list[dict] = []
+    for s in swaps:
+        t = "swap_success" if s.get("executed") else "swap_fail"
+        events.append({"ts": s.get("ts") or "", "type": t, "label": EVENT_LABELS[t],
+                       "delta": EVENT_DELTAS[t], "tx": s.get("tx_hash")})
+    for c in history:
+        if c.get("error"):
+            events.append({"ts": c.get("timestamp") or "", "type": "cycle_error",
+                           "label": EVENT_LABELS["cycle_error"], "delta": EVENT_DELTAS["cycle_error"], "tx": None})
+        dec = c.get("decision") or {}
+        if dec.get("action") == "REBALANCE" and c.get("tx_hash"):
+            events.append({"ts": c.get("timestamp") or "", "type": "rebalance",
+                           "label": EVENT_LABELS["rebalance"], "delta": EVENT_DELTAS["rebalance"], "tx": c.get("tx_hash")})
+    # newest first (ISO timestamps sort lexically)
+    events.sort(key=lambda e: e["ts"], reverse=True)
+    momentum = round(sum(e["delta"] for e in events[:10]), 2)
+    return events[:15], momentum
+
+
+def compute_trust(stats: dict, history: list[dict], swaps: list[dict],
+                  last_anchor: Optional[dict] = None) -> dict:
     """Compute the composite trust score from real agent data. Pure + deterministic."""
     total_cycles = int(stats.get("total_cycles", 0) or 0)
 
@@ -114,6 +156,10 @@ def compute_trust(stats: dict, history: list[dict], swaps: list[dict]) -> dict:
     score = round(sum(f["value"] * f["weight"] for f in factors) / 100, 1)
     label, badge, color, stars = _tier(score)
 
+    # ── Dynamic / live view — event feed + bounded momentum ──────────────────
+    events, momentum = compute_events(history, swaps)
+    live_score = round(_clamp(score + max(-3.0, min(3.0, momentum))), 1)
+
     # ── Explainability — concrete, real reasons ──────────────────────────────
     reasons = []
     if swap_total:
@@ -132,6 +178,10 @@ def compute_trust(stats: dict, history: list[dict], swaps: list[dict]) -> dict:
 
     return {
         "score": score,
+        "live_score": live_score,
+        "momentum": momentum,
+        "events": events,
+        "last_anchor": last_anchor,
         "max": 100,
         "tier": label,
         "badge": badge,

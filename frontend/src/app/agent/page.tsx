@@ -28,9 +28,13 @@ interface AgentInfo {
   contract_deployed?: boolean;
 }
 interface TrustFactor { name: string; weight: number; value: number; detail: string }
+interface TrustEvent { ts: string; type: string; label: string; delta: number; tx?: string | null }
+interface TrustAnchor { score: number; encoded_id: number; tx_hash: string; explorer_url: string; ts: string; note?: string }
 interface Trust {
-  score: number; max: number; tier: string; badge: string; badge_color: string; stars: number;
-  factors: TrustFactor[]; reasons: string[]; method?: string; roadmap?: string;
+  score: number; live_score?: number; momentum?: number; max: number;
+  tier: string; badge: string; badge_color: string; stars: number;
+  factors: TrustFactor[]; reasons: string[]; events?: TrustEvent[];
+  last_anchor?: TrustAnchor | null; method?: string; roadmap?: string;
 }
 
 function Card({ children, accent = ACCENT }: { children: React.ReactNode; accent?: string }) {
@@ -62,7 +66,10 @@ export default function AgentPage() {
   const [info, setInfo] = useState<AgentInfo | null>(null);
   const [trust, setTrust] = useState<Trust | null>(null);
   const [busy, setBusy] = useState(false);
+  const [anchoring, setAnchoring] = useState(false);
+  const [anchorErr, setAnchorErr] = useState<string | null>(null);
   const [gateOpen, setGateOpen] = useState(false);
+  const [pending, setPending] = useState<"toggle" | "anchor" | null>(null);
 
   const loadStatus = useCallback(async () => {
     try { const r = await fetch(`${API}/agent/status`); setStatus(await r.json()); } catch { /* keep */ }
@@ -86,10 +93,28 @@ export default function AgentPage() {
     try {
       const action = running ? "pause" : "resume";
       const r = await fetch(`${API}/agent/${action}`, { method: "POST", headers: adminHeaders() });
-      if (r.status === 401) { setGateOpen(true); return; }
+      if (r.status === 401) { setPending("toggle"); setGateOpen(true); return; }
       if (r.ok) await loadStatus();
     } catch { /* ignore */ } finally { setBusy(false); }
   }, [status, running, loadStatus]);
+
+  const anchor = useCallback(async () => {
+    setAnchoring(true); setAnchorErr(null);
+    try {
+      const r = await fetch(`${API}/agent/trust/anchor`, { method: "POST", headers: adminHeaders() });
+      if (r.status === 401) { setPending("anchor"); setGateOpen(true); return; }
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.detail || "anchor failed");
+      await loadTrust();
+    } catch (e: any) { setAnchorErr(e.message); } finally { setAnchoring(false); }
+  }, [loadTrust]);
+
+  const onUnlock = useCallback(() => {
+    setGateOpen(false);
+    if (pending === "toggle") toggle();
+    else if (pending === "anchor") anchor();
+    setPending(null);
+  }, [pending, toggle, anchor]);
 
   const explorer = info?.agent_account_hash
     ? `https://testnet.cspr.live/account/${info.agent_account_hash.replace("account-hash-", "")}`
@@ -233,6 +258,16 @@ export default function AgentPage() {
                   <div className="w-full mt-3 h-1.5 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.08)" }}>
                     <div className="h-full rounded-full" style={{ width: `${trust.score}%`, background: trust.badge_color, boxShadow: `0 0 10px ${trust.badge_color}` }} />
                   </div>
+                  {/* live momentum */}
+                  {trust.live_score != null && (
+                    <div className="flex items-center gap-1.5 mt-2 font-mono text-[8px] uppercase tracking-widest text-cyber-muted">
+                      <Activity size={9} style={{ color: trust.badge_color }} />
+                      Live {trust.live_score}
+                      <span style={{ color: (trust.momentum ?? 0) >= 0 ? "#00FF94" : "#FF6B82" }}>
+                        {(trust.momentum ?? 0) >= 0 ? "↑ +" : "↓ "}{trust.momentum ?? 0}
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Factor breakdown */}
@@ -273,17 +308,72 @@ export default function AgentPage() {
                 )}
               </div>
             )}
+
+            {/* Live Activity (dynamic event feed) + On-chain anchor */}
+            {trust && (
+              <div className="grid gap-4 mt-5 pt-4" style={{ gridTemplateColumns: "1fr 1fr", borderTop: `1px solid ${trust.badge_color}15` }}>
+                {/* Event feed */}
+                <div>
+                  <div className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-widest text-cyber-muted mb-2">
+                    <Activity size={11} style={{ color: trust.badge_color }} /> Live Activity
+                  </div>
+                  <div className="flex flex-col gap-1 overflow-y-auto" style={{ maxHeight: 150, scrollbarWidth: "thin", scrollbarColor: `${trust.badge_color}40 transparent` }}>
+                    {(trust.events && trust.events.length) ? trust.events.map((e, i) => (
+                      <div key={i} className="flex items-center gap-2 font-mono text-[9px]">
+                        <span className="font-bold w-9 shrink-0" style={{ color: e.delta >= 0 ? "#00FF94" : "#FF6B82" }}>
+                          {e.delta >= 0 ? "+" : ""}{e.delta}
+                        </span>
+                        <span className="text-white/80 truncate">{e.label}</span>
+                        {e.tx && (
+                          <a href={`https://cspr.live/transaction/${e.tx}`} target="_blank" rel="noreferrer"
+                             className="ml-auto shrink-0 hover:opacity-75" style={{ color: "#00D4FF" }}>
+                            <ExternalLink size={8} />
+                          </a>
+                        )}
+                      </div>
+                    )) : <span className="font-mono text-[9px] text-cyber-muted">no events yet</span>}
+                  </div>
+                </div>
+
+                {/* On-chain anchor */}
+                <div>
+                  <div className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-widest text-cyber-muted mb-2">
+                    <ShieldCheck size={11} style={{ color: trust.badge_color }} /> On-chain Anchor
+                  </div>
+                  {trust.last_anchor ? (
+                    <a href={trust.last_anchor.explorer_url} target="_blank" rel="noreferrer"
+                       className="block p-2 rounded mb-2 hover:opacity-90"
+                       style={{ background: `${trust.badge_color}06`, border: `1px solid ${trust.badge_color}22` }}>
+                      <div className="flex items-center justify-between font-mono text-[9px]">
+                        <span className="text-white">score {trust.last_anchor.score} anchored</span>
+                        <span className="flex items-center gap-1" style={{ color: "#00D4FF" }}>{trust.last_anchor.tx_hash.slice(0,10)}… <ExternalLink size={8} /></span>
+                      </div>
+                      <div className="font-mono text-[8px] text-cyber-muted/70 mt-0.5">transfer-id {trust.last_anchor.encoded_id} = score×100 · verifiable on cspr.live</div>
+                    </a>
+                  ) : (
+                    <p className="font-mono text-[9px] text-cyber-muted mb-2">not anchored yet — record the score on-chain so other agents can verify it.</p>
+                  )}
+                  <button onClick={anchor} disabled={anchoring}
+                          className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-mono text-[9px] font-bold uppercase tracking-widest transition-all hover:opacity-85 disabled:opacity-50"
+                          style={{ background: `${trust.badge_color}14`, border: `1px solid ${trust.badge_color}50`, color: trust.badge_color }}>
+                    {anchoring ? <Loader2 size={10} className="animate-spin" /> : <ShieldCheck size={10} />} Anchor on-chain
+                    <Lock size={9} className="opacity-60" />
+                  </button>
+                  {anchorErr && <div className="font-mono text-[8px] text-red-400 mt-1 break-words">⚠ {anchorErr}</div>}
+                </div>
+              </div>
+            )}
           </div>
         </Card>
       </div>
 
       <AdminTokenModal
         open={gateOpen}
-        onClose={() => setGateOpen(false)}
-        onUnlock={() => { setGateOpen(false); toggle(); }}
+        onClose={() => { setGateOpen(false); setPending(null); }}
+        onUnlock={onUnlock}
         accent={ACCENT}
         title="Admin token required"
-        message="Starting or stopping the agent is a protected action. Paste the admin token to continue."
+        message="This is a protected action (agent control / on-chain anchor). Paste the admin token to continue."
       />
     </div>
   );

@@ -377,15 +377,41 @@ async def agent_history(limit: int = 20):
 @app.get("/agent/trust")
 async def agent_trust():
     """Composite, explainable trust/reputation score computed from real agent data
-    (cycle history, swap log, on-chain activity). Rule-based + deterministic."""
+    (cycle history, swap log, on-chain activity). Rule-based + deterministic. Includes
+    a live event feed (momentum) and the last on-chain anchor, if any."""
     if not agent:
         raise HTTPException(503, "Agent not initialized")
     from casper.trust_engine import compute_trust
-    from casper import swap_log
+    from casper import swap_log, trust_state
     stats = agent.get_stats()
     history = [c.model_dump() for c in agent.get_history(1000)]
     swaps = swap_log.load_swaps(1000)
-    return compute_trust(stats, history, swaps)
+    return compute_trust(stats, history, swaps, last_anchor=trust_state.get_last_anchor())
+
+
+@app.post("/agent/trust/anchor", dependencies=[Depends(require_admin)])
+async def agent_trust_anchor():
+    """Anchor the current trust score on-chain: a real native self-transfer whose
+    transfer-id encodes score×100, verifiable on cspr.live. Admin-gated + rate-limited."""
+    if not agent:
+        raise HTTPException(503, "Agent not initialized")
+    from casper.trust_engine import compute_trust
+    from casper import swap_log, trust_state
+    stats = agent.get_stats()
+    history = [c.model_dump() for c in agent.get_history(1000)]
+    swaps = swap_log.load_swaps(1000)
+    trust = compute_trust(stats, history, swaps)
+    try:
+        record = await trust_state.anchor_onchain(
+            score=trust["score"],
+            key_path=settings.agent_secret_key_path,
+            node_url=settings.casper_node_url,
+            cloud_api_key=settings.cspr_cloud_api_key,
+            chain_name="casper-test",
+        )
+    except Exception as exc:
+        raise HTTPException(400, f"anchor failed: {exc}")
+    return {"anchored": True, "score": trust["score"], **record}
 
 
 @app.get("/portfolio")
