@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
-import { TrendingUp, RefreshCw, Activity, Zap, AlertTriangle, Wallet, ArrowDownCircle, Repeat } from "lucide-react";
+import { TrendingUp, RefreshCw, Activity, Zap, AlertTriangle, Wallet, ArrowDownCircle, Repeat, Store } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 
@@ -28,10 +28,6 @@ const AgentControls = dynamic(
 );
 const ChatBox = dynamic(
   () => import("@/components/ChatBox").then((m) => ({ default: m.ChatBox })),
-  { ssr: false }
-);
-const X402Services = dynamic(
-  () => import("@/components/X402Services").then((m) => ({ default: m.X402Services })),
   { ssr: false }
 );
 import { useAgentStore } from "@/lib/store";
@@ -342,7 +338,14 @@ export default function DashboardPage() {
           >
             <Repeat size={11} /> Swap
           </Link>
-          <X402Services />
+          <Link
+            href="/x402"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded border font-mono text-[9px] uppercase tracking-widest transition-all hover:opacity-80"
+            style={{ borderColor: "#00FF9455", color: "#00FF94", background: "#00FF940d", boxShadow: "0 0 10px #00FF9422" }}
+            title="x402 agent economy — services this agent sells + on-chain settlement proof"
+          >
+            <Store size={11} /> x402
+          </Link>
           <a
             href={`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/docs`}
             target="_blank" rel="noopener noreferrer"
