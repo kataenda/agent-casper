@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
-import { TrendingUp, RefreshCw, Activity, Zap, AlertTriangle, Wallet, ArrowDownCircle, Repeat, Store } from "lucide-react";
+import { TrendingUp, RefreshCw, Activity, Zap, AlertTriangle, Wallet, ArrowDownCircle, Repeat, Store, Bot } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 
@@ -22,16 +22,11 @@ const DepositButton = dynamic(
   () => import("@/components/VaultControls").then((m) => ({ default: m.DepositButton })),
   { ssr: false }
 );
-const AgentControls = dynamic(
-  () => import("@/components/AgentControls").then((m) => ({ default: m.AgentControls })),
-  { ssr: false }
-);
 const ChatBox = dynamic(
   () => import("@/components/ChatBox").then((m) => ({ default: m.ChatBox })),
   { ssr: false }
 );
 import { useAgentStore } from "@/lib/store";
-import { useWalletStore } from "@/lib/walletStore";
 import { useAgentWebSocket } from "@/lib/useWebSocket";
 import { StatusBadge } from "@/components/StatusBadge";
 import { PortfolioChart } from "@/components/PortfolioChart";
@@ -222,7 +217,6 @@ export default function DashboardPage() {
   useAgentWebSocket();
 
   const { connected, latestCycle, cycles, depositedMotes, vaultTxs } = useAgentStore();
-  const { agentRegistered } = useWalletStore();
 
   // Gate the client-driven dashboard behind a mount flag so the server-rendered
   // HTML and the first client render match exactly. The store rehydrates persisted
@@ -328,7 +322,14 @@ export default function DashboardPage() {
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap justify-end">
-          <AgentControls isRegistered={agentRegistered} />
+          <Link
+            href="/agent"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded border font-mono text-[9px] uppercase tracking-widest transition-all hover:opacity-80"
+            style={{ borderColor: "rgba(0,245,255,0.45)", color: "#00F5FF", background: "rgba(0,245,255,0.08)", boxShadow: "0 0 10px rgba(0,245,255,0.15)" }}
+            title="Agent control — status, run / stop (admin)"
+          >
+            <Bot size={11} /> Agent
+          </Link>
           <WalletWidget />
           <Link
             href="/swap"
