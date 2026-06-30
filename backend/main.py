@@ -374,6 +374,20 @@ async def agent_history(limit: int = 20):
     return [c.model_dump() for c in agent.get_history(limit)]
 
 
+@app.get("/agent/trust")
+async def agent_trust():
+    """Composite, explainable trust/reputation score computed from real agent data
+    (cycle history, swap log, on-chain activity). Rule-based + deterministic."""
+    if not agent:
+        raise HTTPException(503, "Agent not initialized")
+    from casper.trust_engine import compute_trust
+    from casper import swap_log
+    stats = agent.get_stats()
+    history = [c.model_dump() for c in agent.get_history(1000)]
+    swaps = swap_log.load_swaps(1000)
+    return compute_trust(stats, history, swaps)
+
+
 @app.get("/portfolio")
 async def get_portfolio():
     if not agent:

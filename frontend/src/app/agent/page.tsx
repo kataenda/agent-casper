@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import {
   Bot, ArrowLeft, Play, Square, Loader2, Activity, Zap, RefreshCw,
-  ExternalLink, Cpu, Clock, Lock,
+  ExternalLink, Cpu, Clock, Lock, Star, ShieldCheck, Check, Gauge,
 } from "lucide-react";
 import { adminHeaders } from "@/lib/adminAuth";
 import { AdminTokenModal } from "@/components/AdminTokenModal";
@@ -26,6 +26,11 @@ interface AgentInfo {
   agent_public_key?: string;
   vault_contract_hash?: string | null;
   contract_deployed?: boolean;
+}
+interface TrustFactor { name: string; weight: number; value: number; detail: string }
+interface Trust {
+  score: number; max: number; tier: string; badge: string; badge_color: string; stars: number;
+  factors: TrustFactor[]; reasons: string[]; method?: string; roadmap?: string;
 }
 
 function Card({ children, accent = ACCENT }: { children: React.ReactNode; accent?: string }) {
@@ -55,19 +60,23 @@ function Stat({ icon: Icon, label, value, accent = ACCENT }: { icon: React.Eleme
 export default function AgentPage() {
   const [status, setStatus] = useState<Status | null>(null);
   const [info, setInfo] = useState<AgentInfo | null>(null);
+  const [trust, setTrust] = useState<Trust | null>(null);
   const [busy, setBusy] = useState(false);
   const [gateOpen, setGateOpen] = useState(false);
 
   const loadStatus = useCallback(async () => {
     try { const r = await fetch(`${API}/agent/status`); setStatus(await r.json()); } catch { /* keep */ }
   }, []);
+  const loadTrust = useCallback(async () => {
+    try { const r = await fetch(`${API}/agent/trust`); if (r.ok) setTrust(await r.json()); } catch { /* keep */ }
+  }, []);
 
   useEffect(() => {
-    loadStatus();
+    loadStatus(); loadTrust();
     fetch(`${API}/admin/agent-address`).then(r => r.json()).then(setInfo).catch(() => {});
-    const t = setInterval(loadStatus, 5000);
+    const t = setInterval(() => { loadStatus(); loadTrust(); }, 8000);
     return () => clearInterval(t);
-  }, [loadStatus]);
+  }, [loadStatus, loadTrust]);
 
   const running = !!status?.running;
 
@@ -178,6 +187,95 @@ export default function AgentPage() {
           </p>
         </div>
       </Card>
+
+      {/* ── AI Trust Engine ── */}
+      <div className="mt-4">
+        <Card accent={trust?.badge_color || "#BF5AF2"}>
+          <div className="p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <Gauge size={14} style={{ color: trust?.badge_color || "#BF5AF2" }} />
+              <span className="font-mono font-bold uppercase tracking-[0.18em] text-[11px]" style={{ color: trust?.badge_color || "#BF5AF2" }}>
+                AI Trust Engine
+              </span>
+              <div className="flex-1 h-px" style={{ background: `linear-gradient(90deg, ${(trust?.badge_color || "#BF5AF2")}55, transparent)` }} />
+              <span className="font-mono text-[8px] text-cyber-muted uppercase tracking-widest">deterministic · from real data</span>
+            </div>
+
+            {!trust ? (
+              <div className="flex items-center gap-2 py-10 justify-center font-mono text-[10px] text-cyber-muted">
+                <Loader2 size={12} className="animate-spin" /> computing trust score…
+              </div>
+            ) : (
+              <div className="grid gap-5" style={{ gridTemplateColumns: "minmax(0, 240px) 1fr" }}>
+                {/* Score hero */}
+                <div className="flex flex-col items-center justify-center text-center px-2 py-3 rounded"
+                     style={{ background: `${trust.badge_color}08`, border: `1px solid ${trust.badge_color}22` }}>
+                  <span className="font-mono uppercase tracking-[0.25em] text-[8px] text-cyber-muted mb-1">Trust Score</span>
+                  <div className="font-mono font-black leading-none" style={{ fontSize: 52, color: trust.badge_color, textShadow: `0 0 22px ${trust.badge_color}aa` }}>
+                    {trust.score}
+                  </div>
+                  <span className="font-mono text-[10px] text-cyber-muted mb-2">/ {trust.max}</span>
+                  <div className="flex gap-0.5 mb-2">
+                    {[1,2,3,4,5].map(i => (
+                      <Star key={i} size={14}
+                            fill={i <= trust.stars ? trust.badge_color : "transparent"}
+                            style={{ color: trust.badge_color, opacity: i <= trust.stars ? 1 : 0.3 }} />
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono font-bold uppercase tracking-widest text-[11px]" style={{ color: trust.badge_color }}>{trust.tier}</span>
+                    <span className="inline-flex items-center gap-1 font-mono text-[9px] uppercase tracking-widest px-2 py-0.5 rounded"
+                          style={{ color: trust.badge_color, background: `${trust.badge_color}14`, border: `1px solid ${trust.badge_color}40` }}>
+                      <ShieldCheck size={9} /> {trust.badge}
+                    </span>
+                  </div>
+                  {/* overall bar */}
+                  <div className="w-full mt-3 h-1.5 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.08)" }}>
+                    <div className="h-full rounded-full" style={{ width: `${trust.score}%`, background: trust.badge_color, boxShadow: `0 0 10px ${trust.badge_color}` }} />
+                  </div>
+                </div>
+
+                {/* Factor breakdown */}
+                <div className="flex flex-col gap-2.5 justify-center">
+                  {trust.factors.map(f => (
+                    <div key={f.name}>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-mono text-[10px] text-white">{f.name}
+                          <span className="text-cyber-muted ml-1.5 text-[8px]">· {f.weight}%</span>
+                        </span>
+                        <span className="font-mono text-[10px] font-bold" style={{ color: trust.badge_color }}>{f.value}</span>
+                      </div>
+                      <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.06)" }}>
+                        <div className="h-full rounded-full transition-all" style={{ width: `${f.value}%`, background: trust.badge_color, opacity: 0.85 }} />
+                      </div>
+                      <p className="text-[8px] font-mono text-cyber-muted/70 mt-0.5">{f.detail}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Explainability */}
+            {trust && (
+              <div className="mt-5 pt-4" style={{ borderTop: `1px solid ${trust.badge_color}15` }}>
+                <div className="font-mono text-[10px] uppercase tracking-widest text-cyber-muted mb-2">Why {trust.score}?</div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-1.5">
+                  {trust.reasons.map((r, i) => (
+                    <div key={i} className="flex items-center gap-1.5 font-mono text-[10px] text-white/85">
+                      <Check size={11} style={{ color: "#00FF94" }} /> {r}
+                    </div>
+                  ))}
+                </div>
+                {trust.roadmap && (
+                  <p className="text-[8px] font-mono text-cyber-muted/60 mt-3">
+                    {trust.method} · {trust.roadmap}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        </Card>
+      </div>
 
       <AdminTokenModal
         open={gateOpen}
