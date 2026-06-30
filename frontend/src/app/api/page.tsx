@@ -186,10 +186,11 @@ export default function ApiPage() {
         ))}
       </div>
 
-      {/* ── Endpoint groups ─────────────────────────────────────── */}
-      <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(420px, 1fr))", alignItems: "start" }}>
+      {/* ── Endpoint groups (masonry — cards pack tightly, no row-height gaps) ── */}
+      <div style={{ columns: "460px 2", columnGap: "1rem" }}>
         {GROUPS.map(group => (
-          <Card key={group.title} accent={group.accent}>
+          <div key={group.title} style={{ breakInside: "avoid", WebkitColumnBreakInside: "avoid", marginBottom: "1rem" }}>
+          <Card accent={group.accent}>
             <div className="p-4">
               <div className="flex items-center gap-2 mb-3">
                 <span className="font-mono font-bold uppercase tracking-[0.18em] text-[11px]" style={{ color: group.accent }}>
@@ -239,6 +240,7 @@ export default function ApiPage() {
               </div>
             </div>
           </Card>
+          </div>
         ))}
       </div>
 
