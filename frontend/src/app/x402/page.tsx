@@ -251,7 +251,8 @@ export default function X402Page() {
               buyer agent paying this agent, settled by the facilitator. The machine economy, literally on-chain.
             </p>
 
-            <div className="flex flex-col gap-2.5">
+            <div className="flex flex-col gap-2.5 overflow-y-auto pr-1"
+                 style={{ maxHeight: 360, scrollbarWidth: "thin", scrollbarColor: "rgba(0,245,255,0.3) transparent" }}>
               {PROOFS.map(p => (
                 <a key={p.tx} href={`${TESTNET}/transaction/${p.tx}`} target="_blank" rel="noreferrer"
                    className="relative p-3 transition-all hover:opacity-90 group"
