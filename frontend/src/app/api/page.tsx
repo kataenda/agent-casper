@@ -189,7 +189,7 @@ export default function ApiPage() {
       {/* ── Endpoint groups (masonry — cards pack tightly, no row-height gaps) ── */}
       <div style={{ columns: "460px 2", columnGap: "1rem" }}>
         {GROUPS.map(group => (
-          <div key={group.title} style={{ breakInside: "avoid", WebkitColumnBreakInside: "avoid", marginBottom: "1rem" }}>
+          <div key={group.title} style={{ breakInside: "avoid", marginBottom: "1rem" }}>
           <Card accent={group.accent}>
             <div className="p-4">
               <div className="flex items-center gap-2 mb-3">
