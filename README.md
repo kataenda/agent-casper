@@ -393,6 +393,14 @@ AGENT_SECRET_KEY_PATH=./agent_secret_key.pem
 # (replace newlines with \n)
 # AGENT_SECRET_KEY_CONTENT=-----BEGIN PRIVATE KEY-----\nxxxx\n-----END PRIVATE KEY-----
 
+# ── Admin auth (optional, recommended for public deployments) ──────────────
+# Shared secret gating state-mutating endpoints (/agent/pause, /agent/resume,
+# /rebalance/manual, /admin/setup, /defi/swap, /deploy). Leave EMPTY to keep them
+# open; set a long random value to require the X-Admin-Token header on every
+# privileged call. Paste the same value into the dashboard's /api "Admin token"
+# field to operate those actions. Read-only endpoints are never gated.
+ADMIN_TOKEN=
+
 # ── Agent Configuration ───────────────────────────────────────────────────
 AGENT_POLL_INTERVAL_SECONDS=300  # how often the agent looks (60 in demo, 300 in prod)
 MAX_REBALANCES_PER_DAY=5         # Maximum rebalances allowed per day
@@ -523,8 +531,15 @@ Both backend and frontend are deployed on a self-hosted VPS using [Coolify](http
    | `AGENT_SECRET_KEY_CONTENT` | PEM content with `\n` for newlines |
    | `MAX_REBALANCES_PER_DAY` | `5` |
    | `AGENT_POLL_INTERVAL_SECONDS` | `300` (use `60` for a live demo) |
+   | `ADMIN_TOKEN` | long random secret — gates pause/resume/rebalance/swap/deploy/setup (leave empty to keep open) |
    | `PORT` | `8000` |
    | `DEBUG` | `false` |
+
+   > **Admin auth:** set `ADMIN_TOKEN` to a long random value to stop anonymous
+   > visitors triggering privileged actions from the public dashboard. After
+   > redeploying, paste the same value into the dashboard's **API page → Admin token**
+   > field (kept in your browser only) to operate those actions. Never commit the
+   > real value — keep it in Coolify env only.
 
    > **Tip for `AGENT_SECRET_KEY_CONTENT`:**
    > PowerShell: `(Get-Content agent_secret_key.pem -Raw) -replace "\`r\`n","\n" -replace "\`n","\n"`
