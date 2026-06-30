@@ -750,33 +750,46 @@ REBALANCE EXECUTED!
 ```
 agent-casper/
 ├── contracts/
-│   ├── src/yield_vault.rs      # YieldVault Odra contract (Rust)
-│   ├── Cargo.toml              # Odra 2.7.2 dependencies
-│   ├── Dockerfile.build        # WASM compilation
-│   └── wasm/yield_vault.wasm   # Built by CI
+│   ├── src/yield_vault.rs        # YieldVault Odra contract (Rust)
+│   ├── Cargo.toml                # Odra 2.7.2 dependencies
+│   ├── Dockerfile.build          # WASM compilation
+│   ├── wasm/yield_vault.wasm     # Built by CI
+│   └── x402/Cep18X402.wasm       # CEP-18 X402 token (make-software/casper-x402)
 ├── backend/
-│   ├── main.py                 # FastAPI + WebSocket + agent lifecycle
-│   ├── .env.example            # Configuration template
+│   ├── main.py                   # FastAPI + WebSocket + agent lifecycle + admin auth
+│   ├── .env.example              # Configuration template (incl. ADMIN_TOKEN)
 │   ├── agent/
-│   │   ├── yield_agent.py      # Autonomous agent loop (configurable interval)
-│   │   └── decision_engine.py  # Claude AI with MCP tools
+│   │   ├── yield_agent.py        # Autonomous agent loop (configurable interval)
+│   │   └── decision_engine.py    # Claude AI with MCP tools
 │   └── casper/
-│       ├── client.py           # CSPR.cloud REST client
-│       ├── deployer.py         # Transaction signing (pycspr)
-│       ├── rwa_oracle.py       # PAXG / UST10Y / WTI price feeds
-│       ├── mcp_server.py       # MCP server — blockchain tools for Claude
-│       ├── x402.py             # x402 micropayment handler (consumer + provider)
-│       └── cspr_trade.py       # CSPR.trade MCP — real non-custodial DeFi swaps
+│       ├── client.py             # CSPR.cloud REST client
+│       ├── deployer.py           # Transaction signing (pycspr)
+│       ├── rwa_oracle.py         # PAXG / UST10Y / WTI price feeds
+│       ├── mcp_server.py         # MCP server — blockchain tools for Claude
+│       ├── x402.py               # x402 micropayment handler (consumer + provider)
+│       ├── cspr_trade.py         # CSPR.trade MCP — real non-custodial DeFi swaps
+│       └── swap_log.py           # Persistent on-chain swap history
 ├── frontend/src/
-│   ├── app/page.tsx            # Main cyber dashboard
-│   └── components/
-│       ├── DeployPanel.tsx     # Contract deployment
-│       ├── VaultControls.tsx   # Register agent + deposit
-│       ├── RWAPanel.tsx        # Real-world asset display
-│       ├── DecisionLog.tsx     # AI decision history
-│       └── ChatBox.tsx         # AI chat
+│   ├── app/
+│   │   ├── page.tsx              # Main cyber dashboard
+│   │   ├── swap/page.tsx         # DeFi swap + live swap history (mainnet)
+│   │   ├── x402/page.tsx         # x402 service catalog + agent-to-agent proof
+│   │   └── api/page.tsx          # API reference + live "try it" (GET + POST)
+│   ├── lib/
+│   │   ├── adminAuth.ts          # Admin-token storage for privileged calls
+│   │   ├── store.ts              # Agent state store
+│   │   └── useWebSocket.ts       # Live WebSocket feed
+│   └── components/               # DeployPanel, VaultControls, RWAPanel,
+│       └── …                     #   DecisionLog, ChatBox, AgentControls, etc.
+├── scripts/
+│   ├── deploy_x402_token.py      # Deploy the CEP-18 X402 token (agent holds supply)
+│   ├── fund_buyer.py             # Fund a buyer agent with X402 tokens
+│   ├── buyer_pays_agent.py       # REAL agent-to-agent on-chain settlement
+│   ├── x402_settle_real.py       # Self-settle via the CSPR.cloud facilitator
+│   └── deploy_testnet.{sh,ps1}   # Vault contract deploy helpers
+├── demo_buyer_agent.py           # Independent x402 buyer agent (own ed25519 key)
 └── .github/workflows/
-    └── deploy-contract.yml     # CI: auto-build WASM
+    └── deploy-contract.yml       # CI: auto-build WASM
 ```
 
 ---
