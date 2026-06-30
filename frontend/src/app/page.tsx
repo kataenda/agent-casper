@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
-import { TrendingUp, RefreshCw, Activity, Zap, AlertTriangle, Wallet, ArrowDownCircle } from "lucide-react";
+import { TrendingUp, RefreshCw, Activity, Zap, AlertTriangle, Wallet, ArrowDownCircle, Repeat } from "lucide-react";
 import Image from "next/image";
+import Link from "next/link";
 
 const WalletWidget = dynamic(
   () => import("@/components/WalletWidget").then((m) => ({ default: m.WalletWidget })),
@@ -33,11 +34,6 @@ const X402Services = dynamic(
   () => import("@/components/X402Services").then((m) => ({ default: m.X402Services })),
   { ssr: false }
 );
-const DefiSwap = dynamic(
-  () => import("@/components/DefiSwap").then((m) => ({ default: m.DefiSwap })),
-  { ssr: false }
-);
-
 import { useAgentStore } from "@/lib/store";
 import { useWalletStore } from "@/lib/walletStore";
 import { useAgentWebSocket } from "@/lib/useWebSocket";
@@ -338,7 +334,14 @@ export default function DashboardPage() {
         <div className="flex items-center gap-2 flex-wrap justify-end">
           <AgentControls isRegistered={agentRegistered} />
           <WalletWidget />
-          <DefiSwap />
+          <Link
+            href="/swap"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded border font-mono text-[9px] uppercase tracking-widest transition-all hover:opacity-80"
+            style={{ borderColor: "#FF4D6D55", color: "#FF4D6D", background: "#FF4D6D0d", boxShadow: "0 0 10px #FF4D6D22" }}
+            title="Real DeFi swap + history on Casper mainnet via CSPR.trade MCP"
+          >
+            <Repeat size={11} /> Swap
+          </Link>
           <X402Services />
           <a
             href={`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/docs`}
