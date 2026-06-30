@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import {
-  Code2, ArrowLeft, ExternalLink, Zap, Loader2, Server, Activity, BookOpen,
+  Code2, ArrowLeft, ExternalLink, Zap, Loader2, Server, Activity, BookOpen, X,
 } from "lucide-react";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -105,8 +105,10 @@ function MethodBadge({ m }: { m: Method }) {
   );
 }
 
+interface TryResult { status: number | string; ok: boolean; body: string; ms: number; }
+
 export default function ApiPage() {
-  const [results, setResults] = useState<Record<string, { status: number | string; ok: boolean }>>({});
+  const [results, setResults] = useState<Record<string, TryResult>>({});
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [online, setOnline] = useState<boolean | null>(null);
 
@@ -114,14 +116,23 @@ export default function ApiPage() {
     fetch(`${API}/`).then(r => setOnline(r.ok)).catch(() => setOnline(false));
   }, []);
 
+  const clearResult = useCallback((path: string) => {
+    setResults(s => { const n = { ...s }; delete n[path]; return n; });
+  }, []);
+
   const tryIt = useCallback(async (ep: Endpoint) => {
     setBusy(b => ({ ...b, [ep.path]: true }));
+    const t0 = performance.now();
     try {
       const r = await fetch(`${API}${ep.path}`);
+      const raw = await r.text();
+      let body = raw;
+      try { body = JSON.stringify(JSON.parse(raw), null, 2); } catch { /* not JSON */ }
+      if (body.length > 6000) body = body.slice(0, 6000) + "\n… (truncated)";
       const ok = ep.expect402 ? r.status === 402 : r.ok;
-      setResults(s => ({ ...s, [ep.path]: { status: r.status, ok } }));
-    } catch {
-      setResults(s => ({ ...s, [ep.path]: { status: "ERR", ok: false } }));
+      setResults(s => ({ ...s, [ep.path]: { status: r.status, ok, body, ms: Math.round(performance.now() - t0) } }));
+    } catch (e: any) {
+      setResults(s => ({ ...s, [ep.path]: { status: "ERR", ok: false, body: String(e?.message || e), ms: Math.round(performance.now() - t0) } }));
     } finally {
       setBusy(b => ({ ...b, [ep.path]: false }));
     }
@@ -234,6 +245,29 @@ export default function ApiPage() {
                         </div>
                       </div>
                       <p className="text-[9px] font-mono text-cyber-muted mt-1 leading-relaxed">{ep.desc}</p>
+
+                      {/* Inline response panel (mini-Swagger) */}
+                      {res?.body !== undefined && (
+                        <div className="mt-2 rounded overflow-hidden" style={{ border: `1px solid ${res.ok ? "#00FF9433" : "#FF9F0A33"}` }}>
+                          <div className="flex items-center justify-between px-2 py-1"
+                               style={{ background: `${res.ok ? "#00FF94" : "#FF9F0A"}0d` }}>
+                            <span className="font-mono text-[8px] uppercase tracking-widest flex items-center gap-1.5"
+                                  style={{ color: res.ok ? "#00FF94" : "#FF9F0A" }}>
+                              Response · {res.status}{ep.expect402 && res.ok ? " ✓" : ""}
+                              <span className="text-cyber-muted">· {res.ms}ms</span>
+                            </span>
+                            <button onClick={() => clearResult(ep.path)}
+                                    className="text-cyber-muted hover:text-white transition-colors" title="Close">
+                              <X size={11} />
+                            </button>
+                          </div>
+                          <pre className="overflow-auto font-mono text-[9px] leading-relaxed p-2 m-0"
+                               style={{ maxHeight: 220, color: "#cfe", background: "rgba(0,0,0,0.5)",
+                                        scrollbarWidth: "thin", scrollbarColor: "rgba(191,90,242,0.3) transparent" }}>
+                            {res.body || "(empty body)"}
+                          </pre>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
