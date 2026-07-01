@@ -385,14 +385,21 @@ class X402Handler:
         fac = await self.facilitator_settle(payload, requirements)
         tx = (fac or {}).get("transaction") or (fac or {}).get("txHash") if fac else None
         if tx:
-            logger.info("x402 provider settlement via facilitator on %s — %s", self.chain, tx[:16])
-            return {
-                "settled": True,
-                "tx_hash": tx,
-                "settlement": "facilitator",
-                "network": self.chain,
-                "explorer_url": explorer_base + tx,
-            }
+            # A returned hash is only a submission — verify the on-chain result before
+            # claiming the provider was actually paid.
+            ok = await self._verify_settlement(tx)
+            logger.info("x402 provider settlement submitted on %s — %s (verified=%s)",
+                        self.chain, tx[:16], ok)
+            if ok is not False:  # True (confirmed) or None (pending) — surface honestly
+                return {
+                    "settled": ok is True,
+                    "tx_hash": tx,
+                    "settlement": "facilitator" if ok is True else "facilitator_submitted",
+                    "network": self.chain,
+                    "explorer_url": explorer_base + tx,
+                    **({} if ok is True else {"note": "submitted; on-chain result not yet final"}),
+                }
+            logger.info("x402 provider: facilitator settlement %s reverted on-chain", tx[:16])
 
         # Facilitator couldn't settle — check whether the payer included the deploy
         # hash of a REAL on-chain transfer it already submitted to payTo. If that
@@ -576,6 +583,45 @@ class X402Handler:
                 return False
         return None
 
+    async def _verify_settlement(self, tx_hash: str) -> Optional[bool]:
+        """Verify a facilitator settlement actually executed on-chain. Returns True on
+        Success, False if it reverted, None if not yet final / unknown. Handles both
+        Casper 2.x TransactionV1 (what transfer_with_authorization is) and legacy Deploy —
+        the facilitator only returns a hash on *submission*, which can still revert."""
+        headers = {"Content-Type": "application/json"}
+        if self.cloud_api_key:
+            headers["Authorization"] = self.cloud_api_key
+        try:
+            async with httpx.AsyncClient(timeout=15, headers=headers) as client:
+                for method, params in (
+                    ("info_get_transaction", {"transaction_hash": {"Version1": tx_hash}}),
+                    ("info_get_deploy", {"deploy_hash": tx_hash}),
+                ):
+                    try:
+                        resp = await client.post(self.settle_node_url, json={
+                            "id": 1, "jsonrpc": "2.0", "method": method, "params": params})
+                        data = resp.json()
+                    except Exception:
+                        continue
+                    if "error" in data:
+                        continue
+                    res = data.get("result", {}) or {}
+                    # Casper 2.x TransactionV1: execution_info.execution_result.Version2
+                    er = (res.get("execution_info") or {}).get("execution_result") or {}
+                    v2 = er.get("Version2")
+                    if isinstance(v2, dict):
+                        return v2.get("error_message") is None   # None => success
+                    # Legacy Deploy: execution_results[].result Success/Failure
+                    for e in (res.get("execution_results") or []):
+                        rr = e.get("result") or {}
+                        if "Success" in rr:
+                            return True
+                        if "Failure" in rr:
+                            return False
+        except Exception:
+            return None
+        return None
+
     async def _put_deploy(self, deploy_dict: dict) -> str:
         headers = {"Content-Type": "application/json"}
         if self.cloud_api_key:
@@ -653,8 +699,19 @@ class X402Handler:
             fac = await self.facilitator_settle(payload, requirements)
             tx = (fac or {}).get("transaction") or (fac or {}).get("txHash")
             if tx:
-                record.update(settled=True, tx_hash=tx, settlement="facilitator")
+                # The facilitator returning a hash only means SUBMITTED — the on-chain
+                # transfer_with_authorization can still revert. Never claim "settled"
+                # without verifying the actual execution result.
+                ok = await self._verify_settlement(tx)
                 self._last_settle_ts = now
+                if ok is True:
+                    record.update(settled=True, tx_hash=tx, settlement="facilitator")
+                elif ok is False:
+                    record.update(settled=False, tx_hash=tx, settlement="facilitator_failed",
+                                  note="facilitator settlement reverted on-chain")
+                else:
+                    record.update(settled=False, tx_hash=tx, settlement="facilitator_submitted",
+                                  note="submitted to facilitator; on-chain result not yet final")
             elif fac is not None:
                 record["settlement"] = "facilitator_error"
                 record["note"] = str(fac)[:200]
