@@ -56,15 +56,16 @@ const CLIP_INNER = `polygon(
 )`;
 
 /* ── Panel wrapper — cyberpunk chamfered border ────────────────── */
-function Panel({ children, className = "", style, accent = "#00F5FF" }: {
+function Panel({ children, className = "", outerClassName = "", style, accent = "#00F5FF" }: {
   children: React.ReactNode;
   className?: string;
+  outerClassName?: string;   // grid placement / responsive utilities on the grid-item
   style?: React.CSSProperties;
   accent?: string;
 }) {
   return (
     /* Outer: accent color fills chamfer shape → becomes the visible border */
-    <div style={{
+    <div className={outerClassName} style={{
       clipPath: CLIP_OUTER,
       background: accent,
       filter: `drop-shadow(0 0 18px ${accent}) drop-shadow(0 0 6px ${accent}ee) drop-shadow(0 0 40px ${accent}66)`,
@@ -277,8 +278,8 @@ export default function DashboardPage() {
   }
 
   return (
-    /* Full viewport — no scroll */
-    <div className="h-screen overflow-hidden flex flex-col px-3 py-2 md:px-5 md:py-3"
+    /* Mobile: natural height + scroll · Desktop (lg+): fixed one-screen cockpit */
+    <div className="min-h-screen lg:h-screen lg:overflow-hidden flex flex-col px-3 py-2 md:px-5 md:py-3"
          style={{ maxWidth: 1700, margin: "0 auto" }}>
 
       {/* ── HUD screen corners ──────────────────────────────────── */}
@@ -398,14 +399,10 @@ export default function DashboardPage() {
         Row1: RWA | Portfolio  | Allocation | Log
         Row2: RWA | Yield (span col2-3)      | Log
       */}
-      <div className="flex-1 min-h-0 gap-2" style={{
-        display: "grid",
-        gridTemplateColumns: "1fr 2fr 1.5fr 1fr",
-        gridTemplateRows: "minmax(0,0.9fr) minmax(0,0.95fr) minmax(0,0.75fr)",
-      }}>
+      <div className="flex-1 min-h-0 gap-2 grid grid-cols-1 lg:grid-cols-[1fr_2fr_1.5fr_1fr] lg:grid-rows-[minmax(0,0.9fr)_minmax(0,0.95fr)_minmax(0,0.75fr)]">
 
         {/* RWA Oracle — col 1, rows 1–2 */}
-        <Panel accent="#FF9F0A" className="flex flex-col overflow-hidden" style={{ gridColumn: "1", gridRow: "1 / 3" }}>
+        <Panel accent="#FF9F0A" className="flex flex-col overflow-hidden" outerClassName="min-h-[340px] lg:min-h-0 lg:[grid-column:1] lg:[grid-row:1/3]">
           <PanelLabel text="RWA Oracle — Real-World Assets" accent="#FF9F0A" />
           <div className="flex-1 min-h-0 overflow-y-auto">
             <RWAPanel />
@@ -413,7 +410,7 @@ export default function DashboardPage() {
         </Panel>
 
         {/* Vault Actions — col 1, row 3 */}
-        <Panel accent="#00D4FF" className="flex flex-col justify-between overflow-hidden" style={{ gridColumn: "1", gridRow: "3" }}>
+        <Panel accent="#00D4FF" className="flex flex-col justify-between overflow-hidden" outerClassName="min-h-[240px] lg:min-h-0 lg:[grid-column:1] lg:[grid-row:3]">
           <PanelLabel text="Vault Actions" accent="#00D4FF" />
 
           {/* Agent wallet info */}
@@ -475,7 +472,7 @@ export default function DashboardPage() {
         </Panel>
 
         {/* Portfolio Trajectory — col 2, rows 1–2 */}
-        <Panel accent="#00F5FF" className="flex flex-col min-h-0" style={{ gridColumn: "2", gridRow: "1 / 3" }}>
+        <Panel accent="#00F5FF" className="flex flex-col min-h-0" outerClassName="min-h-[300px] lg:min-h-0 lg:[grid-column:2] lg:[grid-row:1/3]">
           <PanelLabel text="Portfolio Trajectory" accent="#00F5FF" />
           <div className="flex-1 min-h-0">
             <PortfolioChart />
@@ -483,7 +480,7 @@ export default function DashboardPage() {
         </Panel>
 
         {/* On-Chain Proof — col 3, row 1 */}
-        <Panel accent="#00FF94" className="flex flex-col min-h-0" style={{ gridColumn: "3", gridRow: "1" }}>
+        <Panel accent="#00FF94" className="flex flex-col min-h-0" outerClassName="min-h-[240px] lg:min-h-0 lg:[grid-column:3] lg:[grid-row:1]">
           <PanelLabel text="On-Chain Proof" accent="#00FF94" />
           <div className="flex flex-col gap-2 flex-1 justify-center">
             <DeployPanel />
@@ -493,7 +490,7 @@ export default function DashboardPage() {
         </Panel>
 
         {/* Allocation Matrix — col 3, row 2 */}
-        <Panel accent="#BF5AF2" className="flex flex-col min-h-0" style={{ gridColumn: "3", gridRow: "2" }}>
+        <Panel accent="#BF5AF2" className="flex flex-col min-h-0" outerClassName="min-h-[260px] lg:min-h-0 lg:[grid-column:3] lg:[grid-row:2]">
           <PanelLabel text="Allocation Matrix" accent="#BF5AF2" />
           <div className="flex-1 min-h-0 flex items-center justify-center">
             {hasContract && displayPortfolio
@@ -504,7 +501,7 @@ export default function DashboardPage() {
         </Panel>
 
         {/* Neural Decision Log — col 2–3, row 3 */}
-        <Panel accent="#BF5AF2" className="flex flex-col min-h-0" style={{ gridColumn: "2 / 4", gridRow: "3" }}>
+        <Panel accent="#BF5AF2" className="flex flex-col min-h-0" outerClassName="min-h-[280px] lg:min-h-0 lg:[grid-column:2/4] lg:[grid-row:3]">
           <div className="flex items-center gap-2 mb-2 shrink-0">
             <div className="w-0.5 h-3 rounded-full bg-cyber-plasma"
                  style={{ boxShadow: "0 0 5px #BF5AF2" }} />
@@ -528,7 +525,7 @@ export default function DashboardPage() {
         </Panel>
 
         {/* Yield Intelligence — col 4, rows 1–2 */}
-        <Panel accent="#00FF94" className="flex flex-col min-h-0" style={{ gridColumn: "4", gridRow: "1 / 3" }}>
+        <Panel accent="#00FF94" className="flex flex-col min-h-0" outerClassName="min-h-[300px] lg:min-h-0 lg:[grid-column:4] lg:[grid-row:1/3]">
           <PanelLabel text="Yield Intelligence" accent="#00FF94" />
           <div className="flex-1 min-h-0 overflow-y-auto">
             <YieldRatesPanel />
@@ -536,7 +533,7 @@ export default function DashboardPage() {
         </Panel>
 
         {/* AI Chat — col 4, row 3 */}
-        <Panel accent="#BF5AF2" className="flex flex-col min-h-0" style={{ gridColumn: "4", gridRow: "3" }}>
+        <Panel accent="#BF5AF2" className="flex flex-col min-h-0" outerClassName="min-h-[300px] lg:min-h-0 lg:[grid-column:4] lg:[grid-row:3]">
           <PanelLabel text="Ask AI Agent" accent="#BF5AF2" />
           <div className="flex-1 min-h-0">
             <ChatBox />
