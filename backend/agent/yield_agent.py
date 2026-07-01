@@ -190,11 +190,15 @@ class YieldAgent:
         rwa_tx_hashes = dict(self._last_rwa_tx_hashes)
 
         # x402 micropayment — agent pays per request for the premium RWA risk feed.
-        # A real ed25519-signed payment proof is produced every cycle; on-chain
-        # settlement is rate-limited inside the handler to conserve agent funds.
+        # A real ed25519-signed payment PROOF is produced every cycle (the HTTP-native,
+        # free part). We intentionally do NOT attempt facilitator on-chain settlement per
+        # cycle: the CSPR.cloud facilitator's transfer_with_authorization reverts with the
+        # token contract's `User error: 37003`, burning ~6 CSPR gas each time on a failed
+        # tx. Real on-chain settlement is instead demonstrated by the agent-to-agent
+        # provider flow (an independent funded buyer → this agent), which succeeds on-chain.
         x402_payment: dict = {}
         try:
-            x402_payment = await self.x402.pay(resource="rwa-risk-feed")
+            x402_payment = await self.x402.pay(resource="rwa-risk-feed", settle=False)
             if x402_payment.get("tx_hash"):
                 logger.info("x402 micropayment settled on-chain — %s", x402_payment["tx_hash"][:16])
         except Exception as exc:
