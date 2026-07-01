@@ -1,12 +1,39 @@
-# Agent Casper AI — Autonomous DeFi Yield Agent on Casper Network
+<p align="center">
+  <img src="docs/screenshots/banner.png" alt="Agent Casper — Autonomous DeFi Yield Infrastructure for AI Agents" width="100%" />
+</p>
+
+<h1 align="center">Agent Casper AI</h1>
+<p align="center"><b>Autonomous DeFi Yield Agent on Casper Network</b></p>
 
 > **Casper Agentic AI Buildathon 2026** · Build Direction #1: Autonomous Yield-Routing Agent via MCP
 
-[![Casper Testnet](https://img.shields.io/badge/Casper-Testnet-00F5FF)](https://testnet.cspr.live)
-[![Smart Contract](https://img.shields.io/badge/Contract-hash--f6ba9dfa-00FF94)](https://testnet.cspr.live)
-[![License: MIT](https://img.shields.io/badge/License-MIT-BF5AF2.svg)](LICENSE)
-[![Demo Video](https://img.shields.io/badge/Demo-YouTube-FF0000)](https://youtu.be/a20ls_stpDU)
-[![Live Demo](https://img.shields.io/badge/Live%20Demo-VPS-00F5FF)](https://casper.soenic.com)
+<p align="center">
+<a href="https://testnet.cspr.live"><img src="https://img.shields.io/badge/Casper-Testnet-00F5FF" alt="Casper Testnet" /></a>
+<a href="https://testnet.cspr.live"><img src="https://img.shields.io/badge/Contract-hash--f6ba9dfa-00FF94" alt="Smart Contract" /></a>
+<a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-BF5AF2.svg" alt="License: MIT" /></a>
+<a href="https://youtu.be/a20ls_stpDU"><img src="https://img.shields.io/badge/Demo-YouTube-FF0000" alt="Demo Video" /></a>
+<a href="https://casper.soenic.com"><img src="https://img.shields.io/badge/Live%20Demo-VPS-00F5FF" alt="Live Demo" /></a>
+</p>
+
+## Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/dashboard.png" alt="Autonomous cyber dashboard" width="90%" /><br/>
+  <em>Autonomous cyber dashboard — live AI decisions, portfolio trajectory, RWA oracle, on-chain proof</em>
+</p>
+
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/agent-trust.png" alt="AI Trust Engine" /><br/><em>AI Trust Engine — explainable, on-chain-anchored reputation</em></td>
+<td width="50%"><img src="docs/screenshots/x402.png" alt="x402 agent economy" /><br/><em>x402 — agent-to-agent economy + on-chain settlement proof</em></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/screenshots/swap-history.png" alt="Real DeFi swaps" /><br/><em>Real non-custodial DeFi swaps on Casper mainnet (CSPR.trade)</em></td>
+<td width="50%"><img src="docs/screenshots/api.png" alt="API reference" /><br/><em>Live API reference — REST + x402, in-page "Try it"</em></td>
+</tr>
+</table>
+
+
 
 ---
 
