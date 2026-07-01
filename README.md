@@ -315,6 +315,22 @@ reason, so the dashboard still shows *why* the agent chose to hold. In short: sw
 **event-driven** (an economic threshold is crossed), not schedule-driven — the poll
 interval only sets how often the agent *looks*, never how often it *trades*.
 
+**Tuning `DEFI_MIN_NET_GAIN_BPS`** — the minimum annualized APY uplift (bps) required to
+justify a swap's cost:
+
+| Value | Behaviour | When to use |
+|---|---|---|
+| **`50`** (0.5%) | Healthy default — swap only when clearly profitable | ✅ **Production (use this)** |
+| `100` (1%) | More frugal — swaps very selectively | Minimise transactions |
+| `25` (0.25%) | More aggressive — swaps more often | When you trust swap costs are low |
+| `0` | Swap on any rebalance that doesn't *lower* APY | Semi-demo |
+| `-1000` | Always swap, including de-risk moves (APY drops) | Demo only |
+
+> A **de-risk / flight-to-safety** rebalance lowers APY, so with any positive threshold it
+> won't swap (by design — you don't trade into a lower-yield allocation for yield reasons).
+> Genuine high-risk moves still execute via the **De-risk bypass** above. For a live demo,
+> set `-1000` to force the swap, then restore `50` for honest, cost-aware behaviour.
+
 **Operator-tunable (no code change).** The thresholds are plain environment variables, so
 the agent's posture is switched live — the **production / real default is the strict
 "discipline" profile**:
