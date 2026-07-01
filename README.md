@@ -417,6 +417,23 @@ X402_FACILITATOR_URL=https://x402-facilitator.cspr.cloud
 X402_PAY_TO=0181d557c9dcaadea97c34d79bf7b6af07aa9d760e5dd1aabf78a45fb39e072c3a
 X402_SETTLE_INTERVAL_SECONDS=3600   # rate-limit on-chain settlement
 
+# ── Real DeFi — autonomous swap on rebalance (CSPR.trade, mainnet) ─────────
+# When the AI decides REBALANCE, optionally route a small, capped, non-custodial
+# swap on Casper mainnet. OFF by default (spends the agent's own mainnet CSPR).
+DEFI_EXECUTE_ON_REBALANCE=false  # true = agent swaps autonomously on rebalance
+DEFI_SWAP_AMOUNT_CSPR=5          # fixed size per swap
+DEFI_SWAP_TOKEN_IN=CSPR
+DEFI_SWAP_TOKEN_OUT=sCSPR
+DEFI_MAX_SWAPS_PER_DAY=1         # per-day safety cap (raise for repeat demos)
+DEFI_MIN_DRIFT_PCT=10           # min allocation drift (pp) to bother swapping — anti-churn
+DEFI_MIN_NET_GAIN_BPS=50        # min estimated APY uplift (bps) to justify gas+impact
+CSPR_TRADE_MAX_AMOUNT_CSPR=25   # hard cap on input size per swap
+CSPR_TRADE_MAX_PRICE_IMPACT_PCT=2.0  # abort a swap whose price impact exceeds this
+# Demo tip: to make an autonomous swap fire during a short demo, set
+# DEFI_EXECUTE_ON_REBALANCE=true, DEFI_MIN_DRIFT_PCT=5, DEFI_MIN_NET_GAIN_BPS=0,
+# AGENT_POLL_INTERVAL_SECONDS=60 — and ensure the agent wallet holds mainnet CSPR
+# and ANTHROPIC_API_KEY is valid (a swap only fires when the AI decides REBALANCE).
+
 # ── App ───────────────────────────────────────────────────────────────────
 APP_HOST=0.0.0.0
 APP_PORT=8000
