@@ -56,6 +56,21 @@ def _clamp(v: float) -> float:
     return max(0.0, min(100.0, v))
 
 
+# Cycle "error" states that are NOT failures — the agent deliberately skipping work:
+# the daily rebalance cap is reached (QUOTA), or the operator paused it (PAUSED).
+# These reflect discipline, so they must not count against Execution Reliability nor
+# appear as errors in the event feed. Only genuine faults (TX_FAILED, RPC/exception)
+# are real errors.
+_BENIGN_CYCLE_STATES = ("QUOTA", "PAUSED")
+
+
+def _is_real_error(err) -> bool:
+    if not err:
+        return False
+    e = str(err).strip().upper()
+    return not any(e.startswith(b) for b in _BENIGN_CYCLE_STATES)
+
+
 # Per-action deltas for the live/dynamic view. Derived deterministically from the
 # real action stream (swaps + cycle history) so the "live score" is reproducible,
 # not a mutable counter that can drift.
@@ -84,7 +99,7 @@ def compute_events(history: list[dict], swaps: list[dict]) -> tuple[list[dict], 
         events.append({"ts": s.get("ts") or "", "type": t, "label": EVENT_LABELS[t],
                        "delta": EVENT_DELTAS[t], "tx": s.get("tx_hash")})
     for c in history:
-        if c.get("error"):
+        if _is_real_error(c.get("error")):
             events.append({"ts": c.get("timestamp") or "", "type": "cycle_error",
                            "label": EVENT_LABELS["cycle_error"], "delta": EVENT_DELTAS["cycle_error"], "tx": None})
         dec = c.get("decision") or {}
@@ -103,7 +118,7 @@ def compute_trust(stats: dict, history: list[dict], swaps: list[dict],
     total_cycles = int(stats.get("total_cycles", 0) or 0)
 
     # ── Raw signals (all from real records) ──────────────────────────────────
-    error_cycles = sum(1 for c in history if c.get("error"))
+    error_cycles = sum(1 for c in history if _is_real_error(c.get("error")))
     sampled = len(history)
     err_free_rate = (1.0 - error_cycles / sampled) if sampled else 1.0
 
