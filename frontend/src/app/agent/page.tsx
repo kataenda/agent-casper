@@ -325,7 +325,10 @@ export default function AgentPage() {
                         </span>
                         <span className="text-white/80 truncate">{e.label}</span>
                         {e.tx && (
-                          <a href={`https://cspr.live/transaction/${e.tx}`} target="_blank" rel="noreferrer"
+                          <a href={e.type === "swap_success" || e.type === "swap_fail"
+                                     ? `https://cspr.live/transaction/${e.tx}`
+                                     : `https://testnet.cspr.live/deploy/${e.tx}`}
+                             target="_blank" rel="noreferrer"
                              className="ml-auto shrink-0 hover:opacity-75" style={{ color: "#00D4FF" }}>
                             <ExternalLink size={8} />
                           </a>
