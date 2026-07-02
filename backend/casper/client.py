@@ -147,12 +147,12 @@ class CasperClient:
         m = re.search(r"[0-9a-fA-F]{64}", s)
         return f"account-hash-{m.group(0).lower()}" if m else None
 
-    async def get_registered_agent(self, package_hash: str) -> Optional[str]:
-        """Return the account-hash ('account-hash-<hex>') of the agent currently
-        registered on the vault, read from the latest successful `register_agent`
-        deploy on CSPR.cloud. ODRA keeps `agent` in internal storage, so we
-        reconstruct it from the on-chain call args (same approach as allocation).
-        Returns None if never registered or the index is unreadable.
+    async def get_registered_agent(self, package_hash: str) -> Optional[dict]:
+        """Return the currently registered agent read from the latest successful
+        `register_agent` deploy on CSPR.cloud, as {"agent_hash", "tx_hash"}. ODRA
+        keeps `agent` in internal storage, so we reconstruct it from the on-chain
+        call args (same approach as allocation). None if never registered or the
+        index is unreadable.
         """
         if self._is_placeholder(package_hash):
             return None
@@ -174,7 +174,8 @@ class CasperClient:
                         continue
                     ah = self._extract_account_hash(args["agent"].get("parsed"))
                     if ah:
-                        return ah
+                        return {"agent_hash": ah,
+                                "tx_hash": item.get("deploy_hash") or item.get("hash")}
         except Exception:
             return None
         return None

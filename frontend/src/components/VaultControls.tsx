@@ -109,6 +109,7 @@ export function RegisterAgentButton({ contractHash }: { contractHash: string }) 
   // On-chain registration status — avoids re-registering (and paying gas) on every
   // wallet connect. Read from the vault's latest register_agent deploy, not a local flag.
   const [alreadyRegistered, setAlreadyRegistered] = useState(false);
+  const [registeredUrl, setRegisteredUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (!contractHash) return;
@@ -119,6 +120,7 @@ export function RegisterAgentButton({ contractHash }: { contractHash: string }) 
         const d = await r.json();
         if (!cancelled && d.registered && d.matches_current) {
           setAlreadyRegistered(true);
+          setRegisteredUrl(d.explorer_url ?? null);
           setAgentRegistered(true);
         }
       } catch { /* indexer unreachable — fall back to manual register button */ }
@@ -191,14 +193,26 @@ export function RegisterAgentButton({ contractHash }: { contractHash: string }) 
   );
 
   // Already registered on-chain (detected on load) — no need to register again.
-  if (alreadyRegistered) return (
-    <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border"
-         style={{ borderColor: "rgba(0,255,148,0.35)", background: "rgba(0,255,148,0.06)" }}>
-      <CheckCircle size={11} style={{ color: "#00FF94", flexShrink: 0 }} />
-      <span className="text-[10px] font-mono font-bold" style={{ color: "#00FF94" }}>AGENT REGISTERED</span>
-      <span className="text-[8px] font-mono text-cyber-muted">on-chain</span>
-    </div>
-  );
+  // Clickable when we have the register_agent deploy hash, so the owner can verify it.
+  if (alreadyRegistered) {
+    const Badge = (
+      <>
+        <CheckCircle size={11} style={{ color: "#00FF94", flexShrink: 0 }} />
+        <span className="text-[10px] font-mono font-bold" style={{ color: "#00FF94" }}>AGENT REGISTERED</span>
+        <span className="text-[8px] font-mono text-cyber-muted">on-chain</span>
+        {registeredUrl && <ExternalLink size={10} style={{ color: "#00F5FF" }} className="ml-auto shrink-0" />}
+      </>
+    );
+    const cls = "flex items-center gap-2 px-3 py-1.5 rounded-xl border";
+    const st  = { borderColor: "rgba(0,255,148,0.35)", background: "rgba(0,255,148,0.06)" };
+    return registeredUrl ? (
+      <a href={registeredUrl} target="_blank" rel="noopener noreferrer"
+         className={`${cls} hover:opacity-80 transition-opacity`} style={st}
+         title="View register_agent tx on testnet.cspr.live">{Badge}</a>
+    ) : (
+      <div className={cls} style={st}>{Badge}</div>
+    );
+  }
 
   return (
     <div className="flex items-center gap-2">

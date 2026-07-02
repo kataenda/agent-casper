@@ -834,9 +834,11 @@ async def vault_agent_registered():
     current = settings.agent_account_hash
     contract_hash = (agent.vault_contract_hash if agent else None) or settings.vault_contract_hash
     is_deployed = bool(contract_hash and not contract_hash.startswith("hash-demo"))
-    registered_hash = None
+    info = None
     if is_deployed and agent:
-        registered_hash = await agent.casper.get_registered_agent(contract_hash)
+        info = await agent.casper.get_registered_agent(contract_hash)
+    registered_hash = (info or {}).get("agent_hash")
+    tx_hash = (info or {}).get("tx_hash")
     norm = lambda h: (h or "").replace("account-hash-", "").lower()
     return {
         "registered": bool(registered_hash),
@@ -844,6 +846,8 @@ async def vault_agent_registered():
         "current_agent_hash": current,
         # True only when the on-chain agent matches the agent this backend runs as
         "matches_current": bool(registered_hash and norm(registered_hash) == norm(current)),
+        "register_tx": tx_hash,
+        "explorer_url": f"https://testnet.cspr.live/deploy/{tx_hash}" if tx_hash else None,
     }
 
 
