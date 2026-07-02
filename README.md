@@ -456,8 +456,10 @@ RWA_POST_INTERVAL_SECONDS=3600   # Rate-limit: post at most once per interval
 X402_ENABLED=false
 X402_PAYMENT_AMOUNT=2500000000   # 2.5 CSPR — Casper native-transfer floor
 X402_FACILITATOR_URL=https://x402-facilitator.cspr.cloud
-# Recipient public-key hex. If unset, auto-resolves to the facilitator feePayer.
-X402_PAY_TO=0181d557c9dcaadea97c34d79bf7b6af07aa9d760e5dd1aabf78a45fb39e072c3a
+# x402 payTo — a Casper account-hash address ('00' + account hash), NOT a public
+# key. A '01'+pubkey value makes the CEP-18 transfer_with_authorization revert
+# on-chain. Leave unset to default to the agent's own address.
+# X402_PAY_TO=00<recipient-account-hash>
 X402_SETTLE_INTERVAL_SECONDS=3600   # rate-limit on-chain settlement
 
 # ── Real DeFi — autonomous swap on rebalance (CSPR.trade, mainnet) ─────────
