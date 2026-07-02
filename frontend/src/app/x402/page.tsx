@@ -32,23 +32,19 @@ interface X402Info {
 
 /* Real, verified agent-to-agent on-chain settlements (Casper testnet, where the
    CEP-18 X402 token lives). These are immutable on-chain facts. */
+/* Proof CARDS — one per DISTINCT settlement category (kind must match the backend
+   log's `kind`). Each opens a modal filtered to that category, so no two cards
+   show the same history. Live buyer→provider settlements accrue under Agent→Agent. */
 const PROOFS = [
   {
     kind: "Agent → Agent",
-    label: "Independent buyer pays provider",
+    label: "Independent buyer pays provider (reproducible)",
     from: "00e2d5cd…", to: "0088cb6d…",
     tx: "eb0e914cdd902b177d95cd92a345cff3d7cdfbc33bffe8927d456d8c8a1f469e",
     accent: "#00F5FF",
   },
   {
-    kind: "Agent → Agent",
-    label: "Buyer pays provider (repeat — reproducible)",
-    from: "00e2d5cd…", to: "0088cb6d…",
-    tx: "aae75698ab2181750b8418b15597d20cdff650a0bc9ec55495f5b53a04cd71e3",
-    accent: "#00F5FF",
-  },
-  {
-    kind: "Settlement rail",
+    kind: "Settlement Rail",
     label: "transfer_with_authorization (facilitator)",
     from: "agent", to: "agent",
     tx: "e297580fc01b3bd4bfb011a592f129822b253041bf643ce16aed6c34f4443fdc",
@@ -56,6 +52,20 @@ const PROOFS = [
   },
 ];
 const TOKEN_PKG = "c61db3d7ed7565c6a770e03184c031cf6a2a10f35519726d6fed577c46d28a63";
+
+/* Fallback history used only if the live API is unreachable — mirrors the backend
+   seed so modals are never empty. Kinds MUST match PROOFS/backend exactly. */
+const SEED_SETTLEMENTS: Settlement[] = [
+  { tx_hash: "eb0e914cdd902b177d95cd92a345cff3d7cdfbc33bffe8927d456d8c8a1f469e",
+    kind: "Agent → Agent", label: "Independent buyer pays provider",
+    from: "00e2d5cd…", to: "0088cb6d…" },
+  { tx_hash: "aae75698ab2181750b8418b15597d20cdff650a0bc9ec55495f5b53a04cd71e3",
+    kind: "Agent → Agent", label: "Buyer pays provider (repeat — reproducible)",
+    from: "00e2d5cd…", to: "0088cb6d…" },
+  { tx_hash: "e297580fc01b3bd4bfb011a592f129822b253041bf643ce16aed6c34f4443fdc",
+    kind: "Settlement Rail", label: "transfer_with_authorization (facilitator)",
+    from: "agent", to: "agent" },
+];
 
 /* ── Chamfered panel ──────────────────────────────────────────────── */
 function Card({ children, className = "", accent = ACCENT }: {
@@ -112,9 +122,7 @@ export default function X402Page() {
 
   // History for the open modal: filter by the card's kind (null = all settlements).
   const modalRows: Settlement[] = (() => {
-    const src = settlements.length ? settlements
-      : PROOFS.map(p => ({ tx_hash: p.tx, kind: p.kind, label: p.label, from: p.from, to: p.to,
-                           explorer_url: `${TESTNET}/transaction/${p.tx}` }));
+    const src = settlements.length ? settlements : SEED_SETTLEMENTS;
     return modal?.kind ? src.filter(s => s.kind === modal.kind) : src;
   })();
 
@@ -167,7 +175,7 @@ export default function X402Page() {
       <div className="grid grid-cols-3 gap-3 mb-5">
         {[
           { icon: Store, label: "Services Sold", value: String(services.length), accent: ACCENT },
-          { icon: ShieldCheck, label: "On-Chain Settlements", value: String(PROOFS.length), accent: "#00F5FF" },
+          { icon: ShieldCheck, label: "On-Chain Settlements", value: String(settlements.length || SEED_SETTLEMENTS.length), accent: "#00F5FF" },
           { icon: Network, label: "Scheme", value: (info?.scheme || "exact").toUpperCase(), accent: "#BF5AF2" },
         ].map(({ icon: Icon, label, value, accent }) => (
           <div key={label} className="relative px-4 py-3"
@@ -275,7 +283,7 @@ export default function X402Page() {
               {PROOFS.map(p => {
                 const count = (settlements.length
                   ? settlements.filter(s => s.kind === p.kind)
-                  : PROOFS.filter(x => x.kind === p.kind)).length;
+                  : SEED_SETTLEMENTS.filter(x => x.kind === p.kind)).length;
                 return (
                 <button key={p.tx} onClick={() => setModal({ title: p.label, kind: p.kind })}
                    className="relative p-3 text-left w-full transition-all hover:opacity-90 group cursor-pointer"
