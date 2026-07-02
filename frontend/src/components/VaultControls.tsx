@@ -7,7 +7,7 @@
  * org API-key rate limit), fallback to backend /rpc proxy.
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { UserPlus, ArrowDownCircle, Loader, CheckCircle, AlertCircle, ExternalLink } from "lucide-react";
 import { useWalletStore } from "@/lib/walletStore";
 import { useAgentStore } from "@/lib/store";
@@ -106,6 +106,25 @@ export function RegisterAgentButton({ contractHash }: { contractHash: string }) 
   const [step, setStep]     = useState<Step>("idle");
   const [error, setError]   = useState<string | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
+  // On-chain registration status — avoids re-registering (and paying gas) on every
+  // wallet connect. Read from the vault's latest register_agent deploy, not a local flag.
+  const [alreadyRegistered, setAlreadyRegistered] = useState(false);
+
+  useEffect(() => {
+    if (!contractHash) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(`${BACKEND}/vault/agent-registered`);
+        const d = await r.json();
+        if (!cancelled && d.registered && d.matches_current) {
+          setAlreadyRegistered(true);
+          setAgentRegistered(true);
+        }
+      } catch { /* indexer unreachable — fall back to manual register button */ }
+    })();
+    return () => { cancelled = true; };
+  }, [contractHash, setAgentRegistered]);
 
   const doRegister = async () => {
     if (!account || !contractHash) return;
@@ -168,6 +187,16 @@ export function RegisterAgentButton({ contractHash }: { contractHash: string }) 
           <ExternalLink size={10} style={{ color: "#00F5FF" }} />
         </a>
       </div>
+    </div>
+  );
+
+  // Already registered on-chain (detected on load) — no need to register again.
+  if (alreadyRegistered) return (
+    <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border"
+         style={{ borderColor: "rgba(0,255,148,0.35)", background: "rgba(0,255,148,0.06)" }}>
+      <CheckCircle size={11} style={{ color: "#00FF94", flexShrink: 0 }} />
+      <span className="text-[10px] font-mono font-bold" style={{ color: "#00FF94" }}>AGENT REGISTERED</span>
+      <span className="text-[8px] font-mono text-cyber-muted">on-chain</span>
     </div>
   );
 

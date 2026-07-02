@@ -825,6 +825,28 @@ async def get_contract_info():
     }
 
 
+@app.get("/vault/agent-registered")
+async def vault_agent_registered():
+    """Whether the vault already has an agent registered on-chain, read from the
+    latest `register_agent` deploy. Lets the UI show 'AGENT REGISTERED' and avoid a
+    redundant (gas-costing) re-register on every wallet connect. On read failure
+    (e.g. indexer quota) returns registered=false so the manual button still works."""
+    current = settings.agent_account_hash
+    contract_hash = (agent.vault_contract_hash if agent else None) or settings.vault_contract_hash
+    is_deployed = bool(contract_hash and not contract_hash.startswith("hash-demo"))
+    registered_hash = None
+    if is_deployed and agent:
+        registered_hash = await agent.casper.get_registered_agent(contract_hash)
+    norm = lambda h: (h or "").replace("account-hash-", "").lower()
+    return {
+        "registered": bool(registered_hash),
+        "registered_agent_hash": registered_hash,
+        "current_agent_hash": current,
+        # True only when the on-chain agent matches the agent this backend runs as
+        "matches_current": bool(registered_hash and norm(registered_hash) == norm(current)),
+    }
+
+
 @app.post("/admin/setup", dependencies=[Depends(require_admin)])
 async def setup_contract(req: SetupContractRequest):
     """

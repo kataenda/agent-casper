@@ -137,6 +137,49 @@ class CasperClient:
             return None
 
 
+    @staticmethod
+    def _extract_account_hash(parsed) -> Optional[str]:
+        """Normalise a Key CLValue's `parsed` field to 'account-hash-<64hex>'."""
+        import re
+        if isinstance(parsed, dict):
+            parsed = parsed.get("Account") or parsed.get("account") or next(iter(parsed.values()), "")
+        s = str(parsed or "")
+        m = re.search(r"[0-9a-fA-F]{64}", s)
+        return f"account-hash-{m.group(0).lower()}" if m else None
+
+    async def get_registered_agent(self, package_hash: str) -> Optional[str]:
+        """Return the account-hash ('account-hash-<hex>') of the agent currently
+        registered on the vault, read from the latest successful `register_agent`
+        deploy on CSPR.cloud. ODRA keeps `agent` in internal storage, so we
+        reconstruct it from the on-chain call args (same approach as allocation).
+        Returns None if never registered or the index is unreadable.
+        """
+        if self._is_placeholder(package_hash):
+            return None
+        pkg_hex = package_hash.replace("hash-", "").replace("package-", "")
+        url = f"{self.cloud_base_url}/deploys"
+        params = {"contract_package_hash": pkg_hex, "limit": 50, "page": 1}
+        try:
+            async with httpx.AsyncClient(headers=self.headers, timeout=12) as client:
+                resp = await client.get(url, params=params)
+                if resp.status_code != 200:
+                    return None
+                for item in resp.json().get("data", []):   # newest first
+                    if item.get("error_message"):
+                        continue
+                    args = item.get("args", {})
+                    # register_agent's only arg is `agent` (a Key); rebalance /
+                    # update_rwa_price use different args, so this is unambiguous.
+                    if "agent" not in args:
+                        continue
+                    ah = self._extract_account_hash(args["agent"].get("parsed"))
+                    if ah:
+                        return ah
+        except Exception:
+            return None
+        return None
+
+
     _STRATEGY_NAMES = {0: "Conservative", 1: "Balanced", 2: "Aggressive"}
 
     def _is_placeholder(self, value: str) -> bool:
