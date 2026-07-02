@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import {
   Store, ArrowLeft, Zap, ArrowDownLeft, ArrowUpRight, ShieldCheck,
-  ExternalLink, Bot, Repeat, Coins, Network,
+  ExternalLink, Bot, Repeat, Coins, Network, X as XIcon,
 } from "lucide-react";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -13,6 +13,11 @@ const CLIP = "polygon(14px 0,100% 0,100% calc(100% - 14px),calc(100% - 14px) 100
 const TESTNET = "https://testnet.cspr.live";
 
 interface Service { resource: string; amount: number; description: string; }
+interface Settlement {
+  tx_hash: string; kind: string; label: string;
+  from?: string; to?: string; amount?: string; ts?: string;
+  explorer_url?: string; verified?: boolean;
+}
 interface X402Info {
   enabled: boolean;
   scheme?: string;
@@ -94,10 +99,24 @@ function fmtPrice(amount: number, decimals = 9, symbol = "X402") {
 export default function X402Page() {
   const [info, setInfo] = useState<X402Info | null>(null);
   const [probe, setProbe] = useState<Record<string, string>>({});
+  // Live settlement history (falls back to the seeded PROOFS if the API is down).
+  const [settlements, setSettlements] = useState<Settlement[]>([]);
+  // Which proof card's history modal is open (null = closed).
+  const [modal, setModal] = useState<{ title: string; kind: string | null } | null>(null);
 
   useEffect(() => {
     fetch(`${API}/x402/info`).then(r => r.json()).then(setInfo).catch(() => {});
+    fetch(`${API}/x402/settlements?limit=100`).then(r => r.json())
+      .then(d => Array.isArray(d) && setSettlements(d)).catch(() => {});
   }, []);
+
+  // History for the open modal: filter by the card's kind (null = all settlements).
+  const modalRows: Settlement[] = (() => {
+    const src = settlements.length ? settlements
+      : PROOFS.map(p => ({ tx_hash: p.tx, kind: p.kind, label: p.label, from: p.from, to: p.to,
+                           explorer_url: `${TESTNET}/transaction/${p.tx}` }));
+    return modal?.kind ? src.filter(s => s.kind === modal.kind) : src;
+  })();
 
   const probeEndpoint = useCallback(async (resource: string) => {
     setProbe(p => ({ ...p, [resource]: "…" }));
@@ -253,9 +272,13 @@ export default function X402Page() {
 
             <div className="flex flex-col gap-2.5 overflow-y-auto pr-1"
                  style={{ maxHeight: 360, scrollbarWidth: "thin", scrollbarColor: "rgba(0,245,255,0.3) transparent" }}>
-              {PROOFS.map(p => (
-                <a key={p.tx} href={`${TESTNET}/transaction/${p.tx}`} target="_blank" rel="noreferrer"
-                   className="relative p-3 transition-all hover:opacity-90 group"
+              {PROOFS.map(p => {
+                const count = (settlements.length
+                  ? settlements.filter(s => s.kind === p.kind)
+                  : PROOFS.filter(x => x.kind === p.kind)).length;
+                return (
+                <button key={p.tx} onClick={() => setModal({ title: p.label, kind: p.kind })}
+                   className="relative p-3 text-left w-full transition-all hover:opacity-90 group cursor-pointer"
                    style={{ background: `${p.accent}06`, border: `1px solid ${p.accent}22`,
                             clipPath: "polygon(10px 0,100% 0,100% calc(100% - 10px),calc(100% - 10px) 100%,0 100%,0 10px)" }}>
                   <div className="flex items-center justify-between gap-2">
@@ -264,7 +287,7 @@ export default function X402Page() {
                       {p.kind === "Agent → Agent" ? <Bot size={9} /> : <ShieldCheck size={9} />} {p.kind}
                     </span>
                     <span className="flex items-center gap-1 font-mono text-[9px] group-hover:opacity-75" style={{ color: "#00D4FF" }}>
-                      {p.tx.slice(0, 10)}… <ExternalLink size={9} />
+                      {count} tx <Repeat size={9} />
                     </span>
                   </div>
                   <p className="text-[10px] font-mono text-white/80 mt-1.5">{p.label}</p>
@@ -275,17 +298,18 @@ export default function X402Page() {
                       <span style={{ color: ACCENT }}>{p.to}</span>
                     </div>
                   )}
-                </a>
-              ))}
+                  <span className="mt-1.5 block font-mono text-[8px] text-cyber-muted/70">click to view history →</span>
+                </button>
+              ); })}
 
-              {/* Token */}
-              <a href={`${TESTNET}/contract-package/${TOKEN_PKG}`} target="_blank" rel="noreferrer"
-                 className="flex items-center justify-between p-2.5 font-mono text-[9px] transition-all hover:opacity-90"
+              {/* Token — opens the full settlement history (all X402 transfers) */}
+              <button onClick={() => setModal({ title: "CEP-18 X402 token — all settlements", kind: null })}
+                 className="flex items-center justify-between p-2.5 w-full font-mono text-[9px] transition-all hover:opacity-90 cursor-pointer"
                  style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.08)",
                           clipPath: "polygon(10px 0,100% 0,100% calc(100% - 10px),calc(100% - 10px) 100%,0 100%,0 10px)" }}>
                 <span className="flex items-center gap-1.5 text-cyber-muted"><Coins size={10} style={{ color: ACCENT }} /> CEP-18 X402 token</span>
-                <span className="flex items-center gap-1" style={{ color: "#00D4FF" }}>{TOKEN_PKG.slice(0, 10)}… <ExternalLink size={9} /></span>
-              </a>
+                <span className="flex items-center gap-1" style={{ color: "#00D4FF" }}>{TOKEN_PKG.slice(0, 10)}… <Repeat size={9} /></span>
+              </button>
             </div>
 
             <div className="mt-auto pt-3 text-[9px] font-mono" style={{ borderTop: "1px solid rgba(0,245,255,0.15)", color: "rgba(255,255,255,0.45)" }}>
@@ -296,6 +320,66 @@ export default function X402Page() {
           </div>
         </Card>
       </div>
+
+      {/* ── Settlement history modal ─────────────────────────────── */}
+      {modal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+             style={{ background: "rgba(0,0,0,0.72)", backdropFilter: "blur(3px)" }}
+             onClick={() => setModal(null)}>
+          <div className="relative w-full max-w-lg" style={{ maxHeight: "80vh" }}
+               onClick={e => e.stopPropagation()}>
+            <Card accent="#00F5FF">
+              <div className="p-5 flex flex-col" style={{ maxHeight: "80vh" }}>
+                <div className="flex items-center gap-2 mb-1">
+                  <Bot size={13} style={{ color: "#00F5FF" }} />
+                  <span className="font-mono font-bold uppercase tracking-[0.15em] text-[11px]" style={{ color: "#00F5FF" }}>
+                    {modal.title}
+                  </span>
+                  <button onClick={() => setModal(null)} className="ml-auto hover:opacity-70" title="Close">
+                    <XIcon size={16} style={{ color: "#00F5FF" }} />
+                  </button>
+                </div>
+                <p className="text-[9px] font-mono text-cyber-muted mb-3">
+                  {modalRows.length} settlement{modalRows.length === 1 ? "" : "s"} · click any tx to open it on testnet.cspr.live
+                </p>
+                <div className="flex flex-col gap-2 overflow-y-auto pr-1"
+                     style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(0,245,255,0.3) transparent" }}>
+                  {modalRows.length === 0 && (
+                    <p className="text-[10px] font-mono text-cyber-muted py-4 text-center">No settlements yet.</p>
+                  )}
+                  {modalRows.map(s => (
+                    <a key={s.tx_hash} href={s.explorer_url || `${TESTNET}/transaction/${s.tx_hash}`}
+                       target="_blank" rel="noreferrer"
+                       className="relative p-3 transition-all hover:opacity-90 group"
+                       style={{ background: "rgba(0,245,255,0.06)", border: "1px solid rgba(0,245,255,0.22)",
+                                clipPath: "polygon(10px 0,100% 0,100% calc(100% - 10px),calc(100% - 10px) 100%,0 100%,0 10px)" }}>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="inline-flex items-center gap-1 font-mono text-[9px] font-bold uppercase tracking-widest" style={{ color: "#00F5FF" }}>
+                          {s.kind === "Agent → Agent" ? <Bot size={9} /> : <ShieldCheck size={9} />} {s.kind}
+                        </span>
+                        <span className="flex items-center gap-1 font-mono text-[9px] group-hover:opacity-75" style={{ color: "#00D4FF" }}>
+                          {s.tx_hash.slice(0, 12)}… <ExternalLink size={9} />
+                        </span>
+                      </div>
+                      <p className="text-[10px] font-mono text-white/80 mt-1.5">{s.label}</p>
+                      <div className="flex items-center justify-between mt-1.5 font-mono text-[9px] text-cyber-muted">
+                        {s.from && s.from !== "agent" ? (
+                          <span className="flex items-center gap-1.5">
+                            <span style={{ color: "#00D4FF" }}>{s.from}</span>
+                            <ArrowUpRight size={9} style={{ color: "#00F5FF" }} />
+                            <span style={{ color: ACCENT }}>{s.to}</span>
+                          </span>
+                        ) : <span />}
+                        {s.ts && <span className="text-cyber-muted/60">{new Date(s.ts).toLocaleString()}</span>}
+                      </div>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            </Card>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

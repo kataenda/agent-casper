@@ -26,6 +26,7 @@ from casper.rwa_oracle import RWAOracle
 from casper.x402 import X402Handler, CHAIN_TESTNET, CHAIN_MAINNET
 from casper.cspr_trade import CsprTradeMCP, CsprTradeError
 from casper import swap_log
+from casper import x402_settle_log
 from agent.decision_engine import DecisionEngine
 from agent.yield_agent import YieldAgent, AgentCycleResult
 
@@ -849,6 +850,59 @@ async def vault_agent_registered():
         "register_tx": tx_hash,
         "explorer_url": f"https://testnet.cspr.live/deploy/{tx_hash}" if tx_hash else None,
     }
+
+
+@app.get("/x402/settlements")
+async def x402_settlements(limit: int = 50):
+    """Live history of agent-to-agent x402 settlements (newest first) for the
+    dashboard proof panel. Seeded with the already-verified proofs."""
+    return x402_settle_log.load_settlements(limit)
+
+
+class SettlementRecord(BaseModel):
+    tx_hash: str
+    kind: str = "Agent → Agent"
+    label: str = "Buyer pays provider"
+    frm: str = ""
+    to: str = ""
+    amount: str = ""
+
+
+async def _tx_succeeded_on_public_node(tx_hash: str) -> bool:
+    """Confirm a Casper 2.0 transaction executed without error, via the public
+    testnet node (no CSPR.cloud key/quota needed). Only real, green settlements
+    get logged — this keeps the proof panel honest and un-spoofable."""
+    import httpx
+    node = "https://node.testnet.casper.network/rpc"
+    payload = {"id": 1, "jsonrpc": "2.0", "method": "info_get_transaction",
+               "params": {"transaction_hash": {"Version1": tx_hash}}}
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            r = await client.post(node, json=payload)
+            d = r.json()
+            if "error" in d:
+                return False
+            ei = (d.get("result") or {}).get("execution_info") or {}
+            er = ei.get("execution_result") or {}
+            v2 = er.get("Version2") or er
+            return bool(ei.get("block_height")) and not v2.get("error_message")
+    except Exception:
+        return False
+
+
+@app.post("/x402/settlements")
+async def record_x402_settlement(rec: SettlementRecord):
+    """Record a settlement in the live proof history — but only after verifying the
+    tx actually succeeded on-chain (public node). Called by scripts/buyer_pays_agent.py
+    after a successful settle. Returns {recorded, verified}."""
+    verified = await _tx_succeeded_on_public_node(rec.tx_hash)
+    if not verified:
+        raise HTTPException(422, "transaction not found or reverted on-chain — not recorded")
+    newly = x402_settle_log.record_settlement(
+        rec.tx_hash, kind=rec.kind, label=rec.label,
+        frm=rec.frm, to=rec.to, amount=rec.amount, verified=True,
+    )
+    return {"recorded": newly, "verified": True, "tx_hash": rec.tx_hash}
 
 
 @app.post("/admin/setup", dependencies=[Depends(require_admin)])

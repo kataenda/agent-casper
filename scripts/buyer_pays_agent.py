@@ -34,6 +34,8 @@ ASSET = os.getenv("X402_ASSET", "")
 NAME = os.getenv("X402_TOKEN_NAME", "Casper X402 Token")
 VERSION = os.getenv("X402_TOKEN_VERSION", "1")
 DECIMALS = int(os.getenv("X402_TOKEN_DECIMALS", "9"))
+# Live backend to record the settlement in the dashboard proof history.
+LIVE_BASE = os.getenv("X402_LIVE_BASE", "https://agentcasper.soenic.com")
 
 
 def agent_address() -> str:
@@ -81,6 +83,19 @@ def main():
         if d.get("success") and tx:
             print(f"\n  [REAL AGENT-TO-AGENT SETTLE] transfer_with_authorization tx: {tx}")
             print(f"  https://testnet.cspr.live/transaction/{tx}")
+            # Record it in the live dashboard proof history (backend re-verifies the
+            # tx on-chain before accepting it, so only real green settlements show up).
+            try:
+                short = lambda a: (a[:8] + "…") if a else ""
+                rr = httpx.post(f"{LIVE_BASE}/x402/settlements", timeout=30, json={
+                    "tx_hash": tx, "kind": "Agent → Agent",
+                    "label": "Independent buyer pays provider",
+                    "frm": short(h.address), "to": short(reqs["payTo"]),
+                    "amount": str(args.amount),
+                })
+                print(f"  dashboard log -> HTTP {rr.status_code} {rr.text[:120]}")
+            except Exception as e:
+                print(f"  dashboard log skipped: {e}")
         else:
             print(f"\n  settle not successful: {d.get('errorReason') or d.get('error')}")
     except Exception as e:
