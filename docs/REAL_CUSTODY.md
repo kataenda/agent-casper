@@ -16,18 +16,14 @@ wire the UI**, which needs a build toolchain and your funded Testnet key.
 
 ## 1. Build the contract wasm
 
-**Option A — CI (recommended, no local toolchain):**
-1. GitHub → **Actions** → **Build YieldVault WASM** → **Run workflow** (or it runs on push to `contracts/**`).
-2. If the run is green, the contract **compiles** (this is the compile-verification we can't do locally).
-3. Download the `yield_vault-wasm` artifact → place it at `contracts/wasm/yield_vault.wasm`.
+**Already done for you.** The `deploy-contract.yml` GitHub Action builds the contract
+(via Docker) and **commits the wasm on every push to master**. The current payable
+contract is already compiled at [`contracts/wasm/yield_vault.wasm`](../contracts/wasm/yield_vault.wasm)
+— verified to contain the new `get_tvl`/payable code. Nothing to build locally.
 
-**Option B — local:** install **Build Tools for Visual Studio 2022** with the *Desktop
-development with C++* workload, then from a **Developer PowerShell** (not Git Bash):
-```powershell
-cd contracts
-cargo install cargo-odra --locked
-cargo odra build -b casper      # outputs contracts/wasm/yield_vault.wasm
-```
+*(Local alternative, if ever needed: install **Build Tools for Visual Studio 2022**
+with the *Desktop development with C++* workload, then from a **Developer PowerShell** —
+not Git Bash — run `cd contracts && cargo install cargo-odra --locked && cargo odra build -b casper`.)*
 
 ### Also grab the proxy-caller wasm (for browser deposits)
 The payable `deposit()` is called from the browser via Odra's **proxy-caller** wasm.
