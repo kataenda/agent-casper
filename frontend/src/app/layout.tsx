@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { StarField } from "@/components/StarField";
+import { CSPRClickProvider } from "@/providers/CSPRClickProvider";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -20,7 +21,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         style={{ fontFamily: "'Segoe UI', system-ui, sans-serif" }}
       >
         <StarField />
-        <div className="relative z-10">{children}</div>
+        {/* CSPR.click provider — wallet connect / sign / event handling for the
+            whole app (Casper AI Toolkit component). SSR-safe (client-only inside). */}
+        <CSPRClickProvider>
+          <div className="relative z-10">{children}</div>
+        </CSPRClickProvider>
       </body>
     </html>
   );

@@ -158,12 +158,24 @@ The system transforms a passive smart contract vault into a **self-driving portf
 
 ## Casper AI Toolkit Used
 
+**Buildathon requirement — every required [AI Toolkit](https://www.casper.network/ai) component is used:**
+
+| Required component | ✓ | Where in this project |
+|---|---|---|
+| **x402 Micropayments** | ✅ | [`x402.py`](backend/casper/x402.py) — consumer **and** provider; on-chain CEP-18 `transfer_with_authorization` settlement (`eb0e914c…`) |
+| **MCP Servers** (Casper MCP + CSPR.trade MCP) | ✅ | [`mcp_server.py`](backend/casper/mcp_server.py) (5 tools, driven by Claude) + [`cspr_trade.py`](backend/casper/cspr_trade.py) (live **mainnet** swaps) |
+| **CSPR.click AI Agent Skill** | ✅ | `@make-software/csprclick-ui` mounted app-wide ([`layout.tsx`](frontend/src/app/layout.tsx) → `CSPRClickProvider`) for wallet connect + signing; the **agent also creates & signs its own txs non-custodially** (`deployer.py`, `cspr_trade.py`) — the same capability the skill provides, keys stay local |
+| **CSPR.cloud APIs** | ✅ | [`client.py`](backend/casper/client.py) — REST + Node RPC (balances, deploys, tx verification) |
+| **Odra Framework** | ✅ | [`yield_vault.rs`](contracts/src/yield_vault.rs) — **upgradable, payable** real-custody vault |
+
+Detailed breakdown:
+
 | Tool | Usage |
 |------|-------|
 | **CSPR.cloud** | Block data, deploy status, account balances |
 | **Odra Framework 2.7.2** | YieldVault smart contract (Rust → WASM) |
 | **casper-js-sdk v5** | Frontend deploy signing, wallet integration |
-| **CSPR.click** | Frontend wallet-connect SDK (`@make-software/csprclick-ui`) — Casper Wallet / Ledger / Torus, account session + in-dashboard transaction signing |
+| **CSPR.click** | `@make-software/csprclick-ui` **mounted app-wide** (`CSPRClickProvider` in `layout.tsx`) — Casper Wallet / Ledger / Torus connect, account session + transaction signing |
 | **x402 Protocol** | HTTP-native pay-per-request, **official CSPR.cloud `exact` scheme** — EIP-712 (`casper-eip-712`) typed-data signed with the agent's ed25519 key, CEP-18 `transfer_with_authorization` settlement, **verified against the live facilitator `/verify` (`isValid: true`)**. Enable via `X402_ENABLED=true` |
 | **MCP Server** | Custom Casper MCP server exposes 5 blockchain tools to Claude (block height, yield rates, vault portfolio, RWA prices, account balance) |
 | **CSPR.trade MCP** | **Real non-custodial DeFi** on Casper mainnet (`https://mcp.cspr.trade/mcp`, 24 tools). The agent uses it for live swap quotes **and execution** — `build_swap` → sign with the agent's own ed25519 key → broadcast via `account_put_transaction`. Funds never leave the agent's account. Exposed via `/defi/quote`, `/defi/markets`, `/defi/swap` |
@@ -176,9 +188,9 @@ The system transforms a passive smart contract vault into a **self-driving portf
 
 **Deployed on Casper Testnet:**
 ```
-Contract Hash: hash-f6ba9dfa2a236dcc253436c3350f06931465ca94290fad689dfc7c9058c559da
+Contract Hash: hash-486a161bf2d5d2b36b2cfda25557adf3c7b70ec1cda7cfb01dec0ba1545ac5ea
 Network:       casper-test
-Framework:     Odra 2.7.2 (Rust → WASM)
+Framework:     Odra 2.7.2 (Rust → WASM), upgradable + payable (real CSPR custody)
 ```
 
 ### Entry Points
