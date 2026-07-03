@@ -971,6 +971,10 @@ async def get_wasm():
     import os
     from fastapi.responses import Response
     wasm_paths = [
+        # Bundled inside the backend image (the Docker context is backend/, so the
+        # contracts/ dir isn't copied — CI mirrors the wasm here). Checked first.
+        str(Path(__file__).parent / "yield_vault.wasm"),
+        "yield_vault.wasm",
         "../contracts/wasm/yield_vault.wasm",
         "contracts/wasm/yield_vault.wasm",
     ]
