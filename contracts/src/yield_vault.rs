@@ -115,9 +115,14 @@ impl YieldVault {
         self.fee_bps.set(bps);
     }
 
-    pub fn deposit(&mut self, amount: U512) {
+    /// Payable: the caller attaches real CSPR, which Odra moves into the vault's
+    /// contract purse. The attached amount is read via `attached_value()` — the
+    /// vault now genuinely custodies deposited funds on-chain (TVL = purse balance).
+    #[odra(payable)]
+    pub fn deposit(&mut self) {
         self.not_paused();
         let caller = self.env().caller();
+        let amount = self.env().attached_value();
         if amount == U512::zero() { self.env().revert(VaultError::ZeroDeposit); }
 
         // Management/entry fee: a `fee_bps` cut is credited to the protocol owner
@@ -147,9 +152,14 @@ impl YieldVault {
         if balance < amount { self.env().revert(VaultError::InsufficientBalance); }
         self.balances.set(&caller, balance - amount);
         let total = self.total_deposited.get_or_default();
-        self.total_deposited.set(total - amount);
+        self.total_deposited.set(total.saturating_sub(amount));
+        // Send the real CSPR back to the caller from the vault's contract purse.
+        self.env().transfer_tokens(&caller, &amount);
         self.env().emit_event(Withdrawn { withdrawer: caller, amount, timestamp: self.env().get_block_time() });
     }
+
+    /// Live total value locked = the vault's actual contract-purse balance (real CSPR).
+    pub fn get_tvl(&self) -> U512 { self.env().self_balance() }
 
     pub fn rebalance(
         &mut self,
