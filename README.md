@@ -65,7 +65,7 @@
 
 The system transforms a passive smart contract vault into a **self-driving portfolio manager**, uniting the three pillars of the Casper Innovation Track — **Agentic AI · DeFi · RWA** — and closes the loop with **agent-to-agent commerce**: an independent buyer agent (its own ed25519 identity) pays Agent Casper over x402 and settles **on-chain** — a real CEP-18 `transfer_with_authorization` between two distinct agents ([`eb0e914c…`](https://testnet.cspr.live/transaction/eb0e914cdd902b177d95cd92a345cff3d7cdfbc33bffe8927d456d8c8a1f469e), Casper testnet) — putting the **machine economy** to work, not just describing it.
 
-> **What's live vs. roadmap (honest scope).** The Testnet **YieldVault is the agent's *decision + on-chain proof layer*** — it records AI-driven allocation changes and verified RWA prices on-chain, but does **not** itself custody or route depositor capital into yield-bearing positions yet. What *is* real today: the agent **actively manages its own on-chain capital**, executing every allocation decision as a **real, directional mainnet swap** (de-risk vs risk-on, sized by drift), signed with its own key. Routing *depositor* capital directly into live DeFi positions requires payable deposits + on-chain staking and is **Phase 2 (Q3 2026)**. We keep this distinction explicit rather than claim the vault "generates depositor yield" today.
+> **What's live vs. roadmap (honest scope).** The Testnet **YieldVault is the agent's *decision + on-chain proof layer*** — it records AI-driven allocation changes and verified RWA prices on-chain, and now **custodies real depositor CSPR on-chain** — a payable `deposit()` lands CSPR in the contract purse (verified [`86fd83a6…`](https://testnet.cspr.live/deploy/86fd83a683dccb7484c063accb0e90e0e3ae859daddf270573453bce365bbaee), 700 CSPR). The agent also **actively manages its own on-chain capital**, executing every allocation decision as a **real, directional mainnet swap** (de-risk vs risk-on, sized by drift), signed with its own key. What is **not** live yet: routing the custodied capital into yield-bearing positions (on-chain staking/LP) — that is **Phase 2 (Q3 2026)**. We keep this distinction explicit rather than claim the vault "generates depositor yield" today.
 
 > Built using the [Casper AI Toolkit](https://www.casper.network/ai) — MCP Servers (Casper MCP + **CSPR.trade MCP**), CSPR.cloud, Odra Framework, x402, casper-js-sdk v5
 
@@ -95,7 +95,8 @@ The system transforms a passive smart contract vault into a **self-driving portf
 | AI-driven allocation decisions | ✅ Real | Claude via MCP tools, stored on-chain |
 | Directional mainnet execution | ✅ Real | CSPR ⟷ sCSPR swaps on CSPR.trade ([`f28a4051…`](https://cspr.live/transaction/f28a4051e17a67f4a6bd9951802cfb64a062b1daa01b59945b444fb25a052eb5)) |
 | Agent-to-agent x402 settlement | ✅ Real | CEP-18 `transfer_with_authorization` ([`eb0e914c…`](https://testnet.cspr.live/transaction/eb0e914cdd902b177d95cd92a345cff3d7cdfbc33bffe8927d456d8c8a1f469e)) |
-| Custody & routing of *depositor* funds | 🔜 Phase 2 | Payable deposits + on-chain staking (Q3 2026) |
+| **Custody of depositor CSPR** (contract purse) | ✅ **Real** | Payable `deposit()` lands CSPR in the contract purse — verified [`86fd83a6…`](https://testnet.cspr.live/deploy/86fd83a683dccb7484c063accb0e90e0e3ae859daddf270573453bce365bbaee) (700 CSPR, `attached_value`, no revert) |
+| Routing custodied capital into yield positions | 🔜 Phase 2 | On-chain staking / LP so it earns (Q3 2026) |
 
 ---
 
@@ -105,8 +106,8 @@ The system transforms a passive smart contract vault into a **self-driving portf
 
 | Phase | Timeline | Milestones |
 |---|---|---|
-| **1 — Autonomous agent (now)** | ✅ Shipped | AI decision + on-chain proof layer, real mainnet execution of agent capital, x402 provider economy, live dashboard |
-| **2 — Real depositor vault** | Q3 2026 | Payable deposits (real CSPR custody), on-chain staking into sCSPR, allocation backed by actual positions, withdrawal accounting |
+| **1 — Autonomous agent + real custody (now)** | ✅ Shipped | AI decision + on-chain proof layer, real mainnet execution of agent capital, x402 provider economy, **upgradable payable vault that custodies real depositor CSPR** ([`86fd83a6…`](https://testnet.cspr.live/deploy/86fd83a683dccb7484c063accb0e90e0e3ae859daddf270573453bce365bbaee)), live dashboard |
+| **2 — Yield-bearing vault** | Q3 2026 | Route the already-custodied CSPR into on-chain staking (sCSPR)/LP so it earns, allocation backed by real positions, withdrawal accounting |
 | **3 — Multi-asset + mainnet launch** | Q4 2026 | Multi-token strategies (LP pools, stables), mainnet contract deploy, third-party **security audit**, risk caps & circuit breakers |
 | **4 — Ecosystem & governance** | 2027 | DAO governance over agent policy, an **x402 agent marketplace** (agents buy/sell each other's signals), SDK for others to deploy their own Casper agents |
 

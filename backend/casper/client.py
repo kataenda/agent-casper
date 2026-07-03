@@ -235,12 +235,47 @@ class CasperClient:
             _log.debug("fetch_allocation_from_deploys error: %s", exc)
         return 0, 0, 0, "HOLDING", 0
 
+    async def _fetch_tvl_from_deploys(self, package_hash: str) -> int:
+        """Real vault TVL (motes) = CSPR actually custodied by the contract, summed
+        from successful on-chain `deposit()` calls minus `withdraw()`s. The payable
+        deposit routes through the Odra proxy, so `deposit` shows up as the
+        `entry_point` arg with an `attached_value`; direct `withdraw(amount)` calls
+        subtract. This reflects the contract purse, not the agent's wallet."""
+        if self._is_placeholder(package_hash):
+            return 0
+        pkg_hex = package_hash.replace("hash-", "").replace("package-", "")
+        url = f"{self.cloud_base_url}/deploys"
+        params = {"contract_package_hash": pkg_hex, "limit": 100, "page": 1}
+        total = 0
+        try:
+            async with httpx.AsyncClient(headers=self.headers, timeout=12) as client:
+                resp = await client.get(url, params=params)
+                if resp.status_code != 200:
+                    return 0
+                for item in resp.json().get("data", []):
+                    if item.get("error_message"):
+                        continue
+                    args = item.get("args", {})
+                    ep_arg = (args.get("entry_point") or {}).get("parsed")
+                    ep_top = item.get("entry_point") or item.get("name")
+                    if ep_arg == "deposit":
+                        av = (args.get("attached_value") or args.get("amount") or {}).get("parsed")
+                        if av:
+                            total += int(av)
+                    elif ep_top == "withdraw":
+                        amt = (args.get("amount") or {}).get("parsed")
+                        if amt:
+                            total -= int(amt)
+        except Exception:
+            return max(0, total)
+        return max(0, total)
+
     async def get_vault_portfolio(self, contract_hash: str, agent_account_hash: str = "") -> PortfolioState:
         """
         Reads portfolio state from YieldVault contract.
         Allocation (con/bal/agg %) is reconstructed from the latest successful
         rebalance() deploy on CSPR.cloud — 100% on-chain data.
-        TVL comes from agent account balance.
+        TVL = sum of on-chain deposits held by the contract (real custody).
         """
         if self._is_placeholder(contract_hash):
             return PortfolioState(
@@ -257,21 +292,12 @@ class CasperClient:
             else (0, 0, 0, "HOLDING", 0)
         )
 
-        # ── TVL from agent account balance (CSPR.cloud REST) ─────────────────
-        total_value = 0
-        if agent_account_hash and not self._is_placeholder(agent_account_hash):
-            acct_hex = agent_account_hash.replace("account-hash-", "")
-            try:
-                async with httpx.AsyncClient(headers=self.headers, timeout=10) as client:
-                    r = await client.get(f"{self.cloud_base_url}/accounts/{acct_hex}")
-                    if r.status_code == 200:
-                        obj = r.json().get("data", r.json())
-                        bal = obj.get("balance") or obj.get("main_purse_balance")
-                        if bal:
-                            total_value = int(bal)
-            except Exception as exc:
-                _log.warning("agent account balance error: %s — using 100 CSPR fallback", exc)
-                total_value = 100_000_000_000
+        # ── TVL = real CSPR custodied by the vault (sum of on-chain deposits) ──
+        # The payable deposit() lands CSPR in the contract purse; we reconstruct the
+        # custodied total from successful deposit deploys (the contract-purse RPC read
+        # is unreliable on this node). This is the vault's real on-chain TVL — NOT the
+        # agent's wallet balance.
+        total_value = await self._fetch_tvl_from_deploys(contract_hash)
 
         return PortfolioState(
             total_value_motes=total_value,
