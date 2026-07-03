@@ -17,7 +17,7 @@
 const BACKEND      = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const PACKAGE_HASH = process.env.NEXT_PUBLIC_VAULT_PACKAGE_HASH || "";
 const CHAIN        = "casper-test";
-const GAS_DEPOSIT  = "6000000000"; // 6 CSPR — running the proxy wasm costs more than a plain call
+const GAS_DEPOSIT  = "60000000000"; // 60 CSPR — executing the ~184KB Odra proxy wasm is gas-heavy (6 CSPR OOG'd)
 const GAS_WITHDRAW = "3000000000"; // 3 CSPR
 
 export function isRealVaultEnabled(): boolean {
