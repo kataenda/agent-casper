@@ -76,9 +76,15 @@ export function DeployPanel() {
       header.timestamp    = new Timestamp(new Date());
       header.dependencies = [];
 
+      // Unique package key name per deploy: the original contract was installed
+      // non-upgradable under "yield_vault", so re-using that name reverts with
+      // CannotOverrideKeys (64641). A fresh name installs the new (payable) code
+      // as a brand-new package with its own hash.
+      const pkgKey = `yield_vault_${Date.now().toString(36)}`;
+
       const payment = ExecutableDeployItem.standardPayment(PAYMENT);
       const session = ExecutableDeployItem.newModuleBytes(wasmBytes, Args.fromMap({
-        "odra_cfg_package_hash_key_name": CLValue.newCLString("yield_vault"),
+        "odra_cfg_package_hash_key_name": CLValue.newCLString(pkgKey),
         "odra_cfg_allow_key_override":    CLValue.newCLValueBool(false),
         "odra_cfg_is_upgradable":         CLValue.newCLValueBool(false),
         "odra_cfg_is_upgrade":            CLValue.newCLValueBool(false),
@@ -134,7 +140,7 @@ export function DeployPanel() {
       setStep("waiting");
       // Strip "account-hash-" prefix — RPC key format is "account-hash-{hex}"
       const callerHash = pubKey.accountHash().toPrefixedString().replace("account-hash-", "");
-      const hash = await pollForContractHash(dHash, callerHash);
+      const hash = await pollForContractHash(dHash, callerHash, pkgKey);
       setContractHash(hash);
 
       // Use agent address from backend (PEM key), not deployer address
@@ -156,68 +162,75 @@ export function DeployPanel() {
 
   const displayHash = contractHash ?? existingHash;
   const EXPLORER    = "https://testnet.cspr.live/contract-package";
-
-  if (displayHash) {
-    return (
-      <div className="flex flex-col gap-1.5">
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border"
-             style={{ borderColor: "rgba(0,255,148,0.35)", background: "rgba(0,255,148,0.06)" }}>
-          <CheckCircle size={11} style={{ color: "#00FF94", flexShrink: 0 }} />
-          <span className="text-[10px] font-mono font-bold" style={{ color: "#00FF94" }}>
-            CONTRACT LIVE
-          </span>
-          {contractHash && (
-            <span className="text-[9px] font-mono text-cyber-muted ml-1">✓ just deployed</span>
-          )}
-        </div>
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border"
-             style={{ borderColor: "rgba(0,245,255,0.2)", background: "rgba(0,245,255,0.04)" }}>
-          <span className="text-[9px] font-mono text-cyber-muted shrink-0">HASH</span>
-          <span className="text-[9px] font-mono truncate max-w-[160px]"
-                style={{ color: "#00F5FF" }} title={displayHash}>
-            {displayHash.replace("hash-", "").slice(0, 20)}…
-          </span>
-          <a href={`${EXPLORER}/${displayHash.replace("hash-", "")}`}
-             target="_blank" rel="noopener noreferrer"
-             className="ml-auto hover:opacity-75 transition-opacity shrink-0"
-             title="View on testnet.cspr.live">
-            <ExternalLink size={10} style={{ color: "#00F5FF" }} />
-          </a>
-        </div>
-      </div>
-    );
-  }
+  const inProgress  = step !== "idle" && step !== "error" && step !== "done";
+  const btnLabel    = step === "error" ? "Retry Deploy"
+                    : contractHash      ? "Deployed ✓"
+                    : displayHash       ? "Deploy New (payable)"
+                    : "Deploy Contract";
 
   return (
-    <div className="flex items-center gap-2">
-      {step !== "idle" && step !== "error" && (
-        <span className="flex items-center gap-1.5 text-[9px] font-mono text-cyber-muted">
-          <Loader size={9} className="animate-spin" />
-          {STEP_LABEL[step]}
-        </span>
+    <div className="flex flex-col gap-1.5">
+      {displayHash && (
+        <>
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border"
+               style={{ borderColor: "rgba(0,255,148,0.35)", background: "rgba(0,255,148,0.06)" }}>
+            <CheckCircle size={11} style={{ color: "#00FF94", flexShrink: 0 }} />
+            <span className="text-[10px] font-mono font-bold" style={{ color: "#00FF94" }}>
+              CONTRACT LIVE
+            </span>
+            <span className="text-[9px] font-mono text-cyber-muted ml-1">
+              {contractHash ? "✓ just deployed" : "(existing)"}
+            </span>
+          </div>
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border"
+               style={{ borderColor: "rgba(0,245,255,0.2)", background: "rgba(0,245,255,0.04)" }}>
+            <span className="text-[9px] font-mono text-cyber-muted shrink-0">HASH</span>
+            <span className="text-[9px] font-mono truncate max-w-[160px]"
+                  style={{ color: "#00F5FF" }} title={displayHash}>
+              {displayHash.replace("hash-", "").slice(0, 20)}…
+            </span>
+            <a href={`${EXPLORER}/${displayHash.replace("hash-", "")}`}
+               target="_blank" rel="noopener noreferrer"
+               className="ml-auto hover:opacity-75 transition-opacity shrink-0"
+               title="View on testnet.cspr.live">
+              <ExternalLink size={10} style={{ color: "#00F5FF" }} />
+            </a>
+          </div>
+        </>
       )}
-      {step === "error" && error && (
-        <span className="flex items-center gap-1 text-[9px] font-mono text-red-400 max-w-[200px] truncate" title={error}>
-          <AlertCircle size={9} /> {error.slice(0, 50)}
-        </span>
-      )}
-      <button
-        onClick={doDeploy}
-        disabled={!account || (step !== "idle" && step !== "error")}
-        title={!account ? "Connect wallet first" : "Deploy YieldVault contract to Casper Testnet"}
-        className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[10px] font-mono font-bold uppercase tracking-widest transition-all duration-300 disabled:opacity-30"
-        style={{ background: "rgba(191,90,242,0.07)", borderColor: "rgba(191,90,242,0.35)", color: "#BF5AF2" }}
-      >
-        <Rocket size={10} />
-        {step === "error" ? "Retry Deploy" : "Deploy Contract"}
-      </button>
+
+      <div className="flex items-center gap-2 mt-0.5">
+        {inProgress && (
+          <span className="flex items-center gap-1.5 text-[9px] font-mono text-cyber-muted">
+            <Loader size={9} className="animate-spin" />
+            {STEP_LABEL[step]}
+          </span>
+        )}
+        {step === "error" && error && (
+          <span className="flex items-center gap-1 text-[9px] font-mono text-red-400 max-w-[220px] truncate" title={error}>
+            <AlertCircle size={9} /> {error.slice(0, 60)}
+          </span>
+        )}
+        <button
+          onClick={doDeploy}
+          disabled={!account || inProgress || step === "done"}
+          title={!account ? "Connect wallet first"
+                : displayHash ? "Deploy the new payable YieldVault as a fresh package"
+                : "Deploy YieldVault contract to Casper Testnet"}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[10px] font-mono font-bold uppercase tracking-widest transition-all duration-300 disabled:opacity-30"
+          style={{ background: "rgba(191,90,242,0.07)", borderColor: "rgba(191,90,242,0.35)", color: "#BF5AF2" }}
+        >
+          <Rocket size={10} />
+          {btnLabel}
+        </button>
+      </div>
     </div>
   );
 }
 
 // ── Poll until deploy finalized + return contract hash ─────────────────────────
 
-async function pollForContractHash(deployHash: string, callerHash: string): Promise<string> {
+async function pollForContractHash(deployHash: string, callerHash: string, pkgKey = "yield_vault"): Promise<string> {
   const base     = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
   const deadline = Date.now() + 300_000; // 5 min
 
@@ -252,7 +265,7 @@ async function pollForContractHash(deployHash: string, callerHash: string): Prom
           body: JSON.stringify({
             id: 1, jsonrpc: "2.0",
             method: "query_global_state",
-            params: { key: `account-hash-${callerHash}`, path: ["yield_vault"] },
+            params: { key: `account-hash-${callerHash}`, path: [pkgKey] },
           }),
         });
         const rpcData = await rpcRes.json();
@@ -277,9 +290,9 @@ async function pollForContractHash(deployHash: string, callerHash: string): Prom
           sv?.Account?.named_keys ??
           sv?.AddressableEntity?.named_keys ??
           sv?.Entity?.named_keys ?? [];
-        const vaultEntry = namedKeys.find((k: {name: string}) => k.name === "yield_vault");
+        const vaultEntry = namedKeys.find((k: {name: string}) => k.name === pkgKey);
         if (vaultEntry?.key) return vaultEntry.key as string;
-        throw new Error(`Named key 'yield_vault' tidak ditemukan. Keys: ${namedKeys.map((k: {name: string}) => k.name).join(", ")}`);
+        throw new Error(`Named key '${pkgKey}' tidak ditemukan. Keys: ${namedKeys.map((k: {name: string}) => k.name).join(", ")}`);
       }
     } catch (e) {
       if (e instanceof Error && (e.message.startsWith("On-chain") || e.message.startsWith("Deploy") || e.message.startsWith("Deploy berhasil"))) throw e;
