@@ -115,3 +115,17 @@ body::before {
   0%   { transform: translateX(-100%); }
   100% { transform: translateX(100%);  }
 }
+
+/* ── Kill the white focus outline browsers draw on Recharts SVG ──── */
+/* Clicking a pie slice / chart surface focuses the SVG element and draws
+   a default outline (the "white line"). Suppress it on the chart elements. */
+.recharts-wrapper,
+.recharts-surface,
+.recharts-sector,
+.recharts-layer,
+.recharts-wrapper :focus,
+.recharts-wrapper :focus-visible,
+.recharts-surface:focus,
+.recharts-sector:focus {
+  outline: none !important;
+}
