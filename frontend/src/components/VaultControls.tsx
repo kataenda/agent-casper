@@ -11,6 +11,7 @@ import { useState, useEffect } from "react";
 import { UserPlus, ArrowDownCircle, Loader, CheckCircle, AlertCircle, ExternalLink } from "lucide-react";
 import { useWalletStore } from "@/lib/walletStore";
 import { useAgentStore } from "@/lib/store";
+import { buildDepositDeploy, isRealVaultEnabled } from "@/lib/vaultDeposit";
 
 const BACKEND = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const CHAIN   = "casper-test";
@@ -252,27 +253,36 @@ export function DepositButton({ contractHash }: { contractHash: string }) {
     setStep("building"); setError(null);
 
     try {
-      const agentRes  = await fetch(`${BACKEND}/admin/agent-address`);
-      const agentData = await agentRes.json();
-      const agentPubKey: string = agentData.agent_public_key ?? "";
-      if (!agentPubKey) throw new Error("Agent public key tidak ditemukan");
-
-      const sdk = await import("casper-js-sdk") as any;
-      const { Deploy, DeployHeader, ExecutableDeployItem, PublicKey, Duration, Timestamp, TransferDeployItem } = sdk;
-
       const amountMotes = BigInt(Math.floor(parseFloat(amount) * 1_000_000_000));
-      const agentKey    = PublicKey.fromHex(agentPubKey);
-      const xfer        = TransferDeployItem.newTransfer(String(amountMotes), agentKey, null, 1);
-      const session     = new ExecutableDeployItem();
-      session.transfer  = xfer;
+      let deploy: unknown;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let sdk: any;
 
-      const pubKey = PublicKey.fromHex(account.publicKey);
-      const header = new DeployHeader();
-      header.account = pubKey; header.chainName = CHAIN;
-      header.gasPrice = 1; header.ttl = new Duration(1800000);
-      header.timestamp = new Timestamp(new Date()); header.dependencies = [];
+      if (isRealVaultEnabled()) {
+        // Real custody: attach CSPR to the vault's payable deposit() via the Odra
+        // proxy caller — funds land in the contract purse, not the agent account.
+        ({ deploy, sdk } = await buildDepositDeploy(account.publicKey, amount));
+      } else {
+        // Fallback (pre-payable vault): native transfer to the agent account.
+        const agentRes  = await fetch(`${BACKEND}/admin/agent-address`);
+        const agentData = await agentRes.json();
+        const agentPubKey: string = agentData.agent_public_key ?? "";
+        if (!agentPubKey) throw new Error("Agent public key tidak ditemukan");
 
-      const deploy = Deploy.makeDeploy(header, ExecutableDeployItem.standardPayment(GAS), session);
+        sdk = await import("casper-js-sdk") as any;
+        const { Deploy, DeployHeader, ExecutableDeployItem, PublicKey, Duration, Timestamp, TransferDeployItem } = sdk;
+        const agentKey   = PublicKey.fromHex(agentPubKey);
+        const xfer       = TransferDeployItem.newTransfer(String(amountMotes), agentKey, null, 1);
+        const session    = new ExecutableDeployItem();
+        session.transfer = xfer;
+
+        const pubKey = PublicKey.fromHex(account.publicKey);
+        const header = new DeployHeader();
+        header.account = pubKey; header.chainName = CHAIN;
+        header.gasPrice = 1; header.ttl = new Duration(1800000);
+        header.timestamp = new Timestamp(new Date()); header.dependencies = [];
+        deploy = Deploy.makeDeploy(header, ExecutableDeployItem.standardPayment(GAS), session);
+      }
 
       setStep("signing");
       const deployBody = await signDeploy(deploy, account.publicKey, sdk);

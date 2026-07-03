@@ -211,7 +211,11 @@ function StatCard({
   );
 }
 
-const CONTRACT_HASH = "hash-f6ba9dfa2a236dcc253436c3350f06931465ca94290fad689dfc7c9058c559da";
+// Read from env (12-factor config) so the whole dashboard follows the deployed
+// contract without code changes; falls back to the original hash if unset.
+const RAW_CONTRACT_HASH = process.env.NEXT_PUBLIC_VAULT_PACKAGE_HASH
+  || "f6ba9dfa2a236dcc253436c3350f06931465ca94290fad689dfc7c9058c559da";
+const CONTRACT_HASH = RAW_CONTRACT_HASH.startsWith("hash-") ? RAW_CONTRACT_HASH : `hash-${RAW_CONTRACT_HASH}`;
 
 /* ── Main page ─────────────────────────────────────────────────── */
 export default function DashboardPage() {
