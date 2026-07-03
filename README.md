@@ -61,13 +61,64 @@
 3. Lets **Claude AI autonomously query** on-chain + RWA data via MCP tools and decide
 4. Autonomously executes on-chain rebalancing transactions when needed
 5. Posts verified RWA prices on-chain (auditable oracle trail), and both **pays for** and **sells** premium data via **x402** micropayments — a service provider on Casper mainnet, not just a consumer
-6. Executes **real, non-custodial DeFi swaps on Casper mainnet** via the **CSPR.trade MCP** — the agent fetches live quotes, builds the transaction, signs it with its own key, and broadcasts it (verified live: [`f28a4051…`](https://cspr.live/transaction/f28a4051e17a67f4a6bd9951802cfb64a062b1daa01b59945b444fb25a052eb5))
+6. Executes **real, non-custodial DeFi swaps on Casper mainnet** via the **CSPR.trade MCP**, and the swap now **mirrors the AI's decision**: de-risking stakes **CSPR → sCSPR**, risk-on unwinds **sCSPR → CSPR**, sized by how far the allocation drifts — the agent fetches live quotes, builds the transaction, signs it with its own key, and broadcasts it (verified live: [`f28a4051…`](https://cspr.live/transaction/f28a4051e17a67f4a6bd9951802cfb64a062b1daa01b59945b444fb25a052eb5))
 
 The system transforms a passive smart contract vault into a **self-driving portfolio manager**, uniting the three pillars of the Casper Innovation Track — **Agentic AI · DeFi · RWA** — and closes the loop with **agent-to-agent commerce**: an independent buyer agent (its own ed25519 identity) pays Agent Casper over x402 and settles **on-chain** — a real CEP-18 `transfer_with_authorization` between two distinct agents ([`eb0e914c…`](https://testnet.cspr.live/transaction/eb0e914cdd902b177d95cd92a345cff3d7cdfbc33bffe8927d456d8c8a1f469e), Casper testnet) — putting the **machine economy** to work, not just describing it.
 
-> **What's live vs. roadmap (honest scope).** The Testnet **YieldVault is the agent's *decision + on-chain proof layer*** — it records AI-driven allocation changes and verified RWA prices on-chain, but does **not** itself route deposited capital into yield-bearing positions yet. Real, non-custodial **execution** runs on **mainnet** via the **CSPR.trade MCP** (verified swaps), signed with the agent's own key. Routing the vault's deposited capital directly into live DeFi positions is **Phase 2 (Q3 2026)**. We deliberately keep this distinction explicit rather than claim the vault "generates yield" today.
+> **What's live vs. roadmap (honest scope).** The Testnet **YieldVault is the agent's *decision + on-chain proof layer*** — it records AI-driven allocation changes and verified RWA prices on-chain, but does **not** itself custody or route depositor capital into yield-bearing positions yet. What *is* real today: the agent **actively manages its own on-chain capital**, executing every allocation decision as a **real, directional mainnet swap** (de-risk vs risk-on, sized by drift), signed with its own key. Routing *depositor* capital directly into live DeFi positions requires payable deposits + on-chain staking and is **Phase 2 (Q3 2026)**. We keep this distinction explicit rather than claim the vault "generates depositor yield" today.
 
 > Built using the [Casper AI Toolkit](https://www.casper.network/ai) — MCP Servers (Casper MCP + **CSPR.trade MCP**), CSPR.cloud, Odra Framework, x402, casper-js-sdk v5
+
+---
+
+## Real-World Applicability & Impact
+
+**The problem.** On-chain yield allocation is still manual and macro-blind. Treasuries and LPs rebalance by hand, ignore real-world signals (rates, gold, oil) that move risk appetite, and can't react to 24/7 markets while they sleep. There is no round-the-clock, explainable, on-chain agent that ties *real-world data* to *on-chain action*.
+
+**The solution.** Agent Casper is an autonomous, RWA-aware allocation agent that runs continuously, reasons over live macro + validator data with Claude, records every decision on-chain for audit, and **executes those decisions with real capital** on Casper mainnet.
+
+**Who benefits — concrete users:**
+
+| User | Value delivered |
+|---|---|
+| **DAO / protocol treasuries** | Hands-off, policy-driven rebalancing with an on-chain audit trail of *why* each move was made |
+| **Retail LPs & stakers** | A 24/7 agent that de-risks on flight-to-safety signals (gold ↑, Treasury ↑) they'd otherwise miss |
+| **Other AI agents** | Buy Agent Casper's RWA-aware decisions & verified feeds over **x402** — a paid, machine-to-machine data service |
+| **Casper validators** | Autonomous, RWA-driven flows into liquid staking (sCSPR) add real, recurring on-chain volume |
+
+**What is genuinely real today (not simulated):**
+
+| Capability | Status | Proof |
+|---|---|---|
+| RWA market data (gold, UST10Y, WTI) | ✅ Real | CoinGecko + Yahoo Finance live APIs |
+| On-chain RWA oracle trail | ✅ Real | `update_rwa_price` deploys on Testnet |
+| AI-driven allocation decisions | ✅ Real | Claude via MCP tools, stored on-chain |
+| Directional mainnet execution | ✅ Real | CSPR ⟷ sCSPR swaps on CSPR.trade ([`f28a4051…`](https://cspr.live/transaction/f28a4051e17a67f4a6bd9951802cfb64a062b1daa01b59945b444fb25a052eb5)) |
+| Agent-to-agent x402 settlement | ✅ Real | CEP-18 `transfer_with_authorization` ([`eb0e914c…`](https://testnet.cspr.live/transaction/eb0e914cdd902b177d95cd92a345cff3d7cdfbc33bffe8927d456d8c8a1f469e)) |
+| Custody & routing of *depositor* funds | 🔜 Phase 2 | Payable deposits + on-chain staking (Q3 2026) |
+
+---
+
+## Roadmap & Long-Term Vision
+
+**Vision:** the default autonomous, RWA-aware treasury layer for Casper — where any DAO, protocol, or agent can delegate 24/7 yield decisions to a transparent, on-chain AI whose every move is auditable and whose data is itself a sellable x402 service.
+
+| Phase | Timeline | Milestones |
+|---|---|---|
+| **1 — Autonomous agent (now)** | ✅ Shipped | AI decision + on-chain proof layer, real mainnet execution of agent capital, x402 provider economy, live dashboard |
+| **2 — Real depositor vault** | Q3 2026 | Payable deposits (real CSPR custody), on-chain staking into sCSPR, allocation backed by actual positions, withdrawal accounting |
+| **3 — Multi-asset + mainnet launch** | Q4 2026 | Multi-token strategies (LP pools, stables), mainnet contract deploy, third-party **security audit**, risk caps & circuit breakers |
+| **4 — Ecosystem & governance** | 2027 | DAO governance over agent policy, an **x402 agent marketplace** (agents buy/sell each other's signals), SDK for others to deploy their own Casper agents |
+
+**Deployment plan.** Frontend + backend already run 24/7 on a VPS ([casper.soenic.com](https://casper.soenic.com) · [agentcasper.soenic.com](https://agentcasper.soenic.com)); Testnet contract is live. Phase 2 adds a mainnet contract behind the same operational stack, containerized (Coolify/Docker) with a backup CSPR.cloud key for quota resilience.
+
+**Adoption & growth strategy.**
+- **Wedge:** onboard 1–2 Casper-native DAOs/protocols as pilot treasuries for policy-driven rebalancing.
+- **Network effect:** each agent that sells signals over x402 makes the marketplace more valuable — data compounds.
+- **Developer pull:** open-source the agent framework so teams fork it for their own strategies (grows Casper on-chain activity).
+- **Sustainability:** the vault's on-chain fee (`fee_bps`) + x402 provider revenue fund continuous operation — the agent is designed to pay for its own gas.
+
+**Community & socials.** [X / Twitter](https://x.com/kata_enda) · [Telegram](https://t.me/soesoe14) · Discord `mas_end_47419` · [GitHub](https://github.com/kataenda) · [Demo video](https://youtu.be/a20ls_stpDU)
 
 ---
 
