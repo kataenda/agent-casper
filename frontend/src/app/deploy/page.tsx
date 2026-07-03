@@ -1,18 +1,17 @@
 "use client";
 
 /**
- * /deploy — a focused admin menu for deploying the (payable) YieldVault and
- * registering the agent, with live status so you know exactly what state you're in.
- * The heavy lifting is reused from DeployPanel + RegisterAgentButton.
+ * /deploy — focused admin menu to deploy the (payable) YieldVault and register
+ * the agent, styled to match /x402 and /swap. Reuses DeployPanel + RegisterAgentButton.
  */
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { ArrowLeft, CheckCircle2, AlertTriangle, RefreshCw, Rocket, UserPlus, ExternalLink } from "lucide-react";
+import { ArrowLeft, CheckCircle2, AlertTriangle, RefreshCw, Rocket, ExternalLink } from "lucide-react";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-const ACCENT = "#00FF94";
+const ACCENT = "#FFB347";
 const CLIP = "polygon(14px 0,100% 0,100% calc(100% - 14px),calc(100% - 14px) 100%,0 100%,0 14px)";
 // The pre-custody contract. If the live hash still equals this, the payable vault
 // hasn't been deployed yet.
@@ -26,9 +25,13 @@ const RegisterAgentButton = dynamic(
   () => import("@/components/VaultControls").then((m) => ({ default: m.RegisterAgentButton })),
   { ssr: false, loading: () => <Placeholder label="Loading register…" /> },
 );
+const WalletWidget = dynamic(
+  () => import("@/components/WalletWidget").then((m) => ({ default: m.WalletWidget })),
+  { ssr: false, loading: () => <Placeholder label="wallet…" /> },
+);
 
 function Placeholder({ label }: { label: string }) {
-  return <div className="font-mono text-[11px] text-white/40 py-4">{label}</div>;
+  return <div className="font-mono text-[11px] text-white/40 py-2">{label}</div>;
 }
 
 function Panel({ children }: { children: React.ReactNode }) {
@@ -39,11 +42,18 @@ function Panel({ children }: { children: React.ReactNode }) {
   );
 }
 
+function StepBadge({ n }: { n: number }) {
+  return (
+    <span className="flex h-5 w-5 items-center justify-center rounded-full font-mono text-[10px] font-bold"
+      style={{ background: `${ACCENT}22`, color: ACCENT }}>{n}</span>
+  );
+}
+
 interface Status {
-  backendUpdated: boolean | null; // proxy-wasm endpoint present (new code live)
+  backendUpdated: boolean | null;
   contractHash: string | null;
   deployed: boolean;
-  isPayable: boolean | null;      // hash differs from OLD_HASH
+  isPayable: boolean | null;
 }
 
 export default function DeployMenu() {
@@ -53,13 +63,23 @@ export default function DeployMenu() {
   const refresh = async () => {
     setLoading(true);
     try {
-      const [info, proxy] = await Promise.all([
-        fetch(`${API}/admin/contract-info`).then((r) => r.json()).catch(() => ({})),
-        fetch(`${API}/vault/proxy-wasm`).then((r) => r.status).catch(() => 0),
-      ]);
+      // Backend "updated" = the /vault/proxy-wasm route exists. It returns 200 (file
+      // present) OR 404 with a "proxy_caller.wasm not present" detail (route exists,
+      // file missing) — both mean the new code is live. A plain 404 = old backend.
+      const info = await fetch(`${API}/admin/contract-info`).then((r) => r.json()).catch(() => ({}));
+      let backendUpdated = false;
+      try {
+        const pr = await fetch(`${API}/vault/proxy-wasm`);
+        if (pr.status === 200) backendUpdated = true;
+        else if (pr.status === 404) {
+          const j = await pr.json().catch(() => ({}));
+          backendUpdated = typeof j?.detail === "string" && j.detail.includes("proxy_caller");
+        }
+      } catch { /* backend unreachable */ }
+
       const hash = (info?.vault_contract_hash || "").replace(/^hash-/, "");
       setS({
-        backendUpdated: proxy === 200,
+        backendUpdated,
         contractHash: info?.vault_contract_hash || null,
         deployed: !!info?.contract_deployed,
         isPayable: hash ? hash !== OLD_HASH : null,
@@ -72,103 +92,111 @@ export default function DeployMenu() {
   useEffect(() => { refresh(); }, []);
 
   return (
-    <main className="min-h-screen bg-black text-white px-4 py-8 md:px-10">
-      <div className="mx-auto max-w-3xl">
-        <Link href="/" className="inline-flex items-center gap-1.5 font-mono text-[11px] text-white/50 hover:text-white mb-6">
-          <ArrowLeft size={12} /> back to dashboard
-        </Link>
-
-        <div className="flex items-center gap-2 mb-1">
-          <Rocket size={18} style={{ color: ACCENT }} />
-          <h1 className="font-mono text-lg font-bold tracking-wide">Deploy YieldVault</h1>
-        </div>
-        <p className="font-mono text-[11px] text-white/50 mb-6">
-          Deploy the real-custody (payable) vault and register the agent — all from your wallet, no CLI.
-        </p>
-
-        {/* ── Live status ─────────────────────────────────────────── */}
-        <Panel>
-          <div className="flex items-center justify-between mb-3">
-            <span className="font-mono text-[10px] uppercase tracking-widest text-white/50">Status</span>
-            <button onClick={refresh} disabled={loading}
-              className="inline-flex items-center gap-1 font-mono text-[10px] text-white/60 hover:text-white disabled:opacity-40">
-              <RefreshCw size={11} className={loading ? "animate-spin" : ""} /> refresh
-            </button>
-          </div>
-          <StatusRow ok={s.backendUpdated}
-            good="Backend updated (new code live)"
-            bad="Backend NOT updated yet — redeploy backend on Coolify first"
-            pending="checking backend…" />
-          <StatusRow ok={s.deployed}
-            good="A contract is deployed"
-            bad="No contract deployed yet"
-            pending="checking contract…" />
-          <StatusRow ok={s.isPayable}
-            good="Deployed contract is the NEW payable vault"
-            bad="Still the pre-custody contract — deploy the payable one below"
-            pending="checking contract version…" />
-          {s.contractHash && (
-            <a href={`https://testnet.cspr.live/contract-package/${s.contractHash.replace(/^hash-/, "")}`}
-              target="_blank" rel="noreferrer"
-              className="mt-3 inline-flex items-center gap-1 font-mono text-[10px] break-all"
-              style={{ color: "#00D4FF" }}>
-              {s.contractHash} <ExternalLink size={9} />
-            </a>
-          )}
-        </Panel>
-
-        {/* ── Step 1: deploy ─────────────────────────────────────── */}
-        <div className="mt-6">
-          <div className="flex items-center gap-2 mb-2">
-            <span className="flex h-5 w-5 items-center justify-center rounded-full font-mono text-[10px] font-bold"
-              style={{ background: `${ACCENT}22`, color: ACCENT }}>1</span>
-            <span className="font-mono text-[12px] font-bold">Deploy the contract</span>
-          </div>
-          {s.backendUpdated === false && (
-            <div className="mb-3 flex items-start gap-2 p-2 font-mono text-[10px]"
-              style={{ background: "#2A1A0A", border: "1px solid #FFB02255", color: "#FFB877" }}>
-              <AlertTriangle size={12} className="mt-0.5 shrink-0" />
-              Backend still serves the old wasm. Redeploy the backend on Coolify, hit refresh, then deploy.
+    <div className="min-h-screen px-4 py-4 md:px-8 md:py-6" style={{ maxWidth: 900, margin: "0 auto" }}>
+      {/* ── Top bar (matches /x402 · /swap) ─────────────────────── */}
+      <header className="flex items-center justify-between mb-5">
+        <div className="flex items-center gap-3">
+          <Link href="/"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded border font-mono text-[10px] uppercase tracking-widest transition-opacity hover:opacity-70"
+                style={{ borderColor: "rgba(0,245,255,0.35)", color: "#00F5FF", background: "rgba(0,245,255,0.06)" }}>
+            <ArrowLeft size={12} /> Dashboard
+          </Link>
+          <div className="flex items-center gap-2">
+            <Rocket size={18} style={{ color: ACCENT, filter: `drop-shadow(0 0 8px ${ACCENT})` }} />
+            <div>
+              <h1 className="font-mono font-bold uppercase tracking-[0.15em] text-sm" style={{ color: ACCENT }}>
+                Deploy · YieldVault
+              </h1>
+              <p className="text-[9px] font-mono text-cyber-muted uppercase tracking-[0.15em]">
+                Real-custody payable vault · from your wallet, no CLI
+              </p>
             </div>
-          )}
-          <Panel><DeployPanel /></Panel>
-        </div>
-
-        {/* ── Step 2: register ───────────────────────────────────── */}
-        <div className="mt-6">
-          <div className="flex items-center gap-2 mb-2">
-            <span className="flex h-5 w-5 items-center justify-center rounded-full font-mono text-[10px] font-bold"
-              style={{ background: `${ACCENT}22`, color: ACCENT }}>2</span>
-            <span className="font-mono text-[12px] font-bold">Register the agent</span>
-            <UserPlus size={12} className="text-white/40" />
           </div>
-          <Panel><RegisterAgentButton contractHash={s.contractHash || ""} /></Panel>
         </div>
+        <WalletWidget />
+      </header>
 
-        {/* ── Step 3: hand off ───────────────────────────────────── */}
-        <div className="mt-6">
-          <div className="flex items-center gap-2 mb-2">
-            <span className="flex h-5 w-5 items-center justify-center rounded-full font-mono text-[10px] font-bold"
-              style={{ background: `${ACCENT}22`, color: ACCENT }}>3</span>
-            <span className="font-mono text-[12px] font-bold">Set env + wire the UI</span>
-          </div>
-          <Panel>
-            <p className="font-mono text-[11px] text-white/60 leading-relaxed">
-              After deploy, copy the new contract hash above and set:
-            </p>
-            <pre className="mt-2 overflow-x-auto p-2 font-mono text-[10px] text-white/80"
-              style={{ background: "#05080C", border: `1px solid ${ACCENT}18` }}>
-{`VAULT_CONTRACT_HASH=<new hash>          # backend + Coolify
-NEXT_PUBLIC_VAULT_PACKAGE_HASH=<new hash>  # frontend`}
-            </pre>
-            <p className="mt-2 font-mono text-[10px] text-white/40">
-              Then the deposit/withdraw builders in <code>lib/vaultDeposit.ts</code> activate.
-              See <code>docs/REAL_CUSTODY.md</code>.
-            </p>
-          </Panel>
+      {/* ── Live status ─────────────────────────────────────────── */}
+      <Panel>
+        <div className="flex items-center justify-between mb-3">
+          <span className="font-mono text-[10px] uppercase tracking-widest text-white/50">Status</span>
+          <button onClick={refresh} disabled={loading}
+            className="inline-flex items-center gap-1 font-mono text-[10px] text-white/60 hover:text-white disabled:opacity-40">
+            <RefreshCw size={11} className={loading ? "animate-spin" : ""} /> refresh
+          </button>
         </div>
+        <StatusRow ok={s.backendUpdated}
+          good="Backend updated (new code live)"
+          bad="Backend NOT updated yet — redeploy backend on Coolify first"
+          pending="checking backend…" />
+        <StatusRow ok={s.deployed}
+          good="A contract is deployed"
+          bad="No contract deployed yet"
+          pending="checking contract…" />
+        <StatusRow ok={s.isPayable}
+          good="Deployed contract is the NEW payable vault"
+          bad="Still the pre-custody contract — deploy the payable one below"
+          pending="checking contract version…" />
+        {s.contractHash && (
+          <a href={`https://testnet.cspr.live/contract-package/${s.contractHash.replace(/^hash-/, "")}`}
+            target="_blank" rel="noreferrer"
+            className="mt-3 inline-flex items-center gap-1 font-mono text-[10px] break-all"
+            style={{ color: "#00D4FF" }}>
+            {s.contractHash} <ExternalLink size={9} />
+          </a>
+        )}
+      </Panel>
+
+      {/* ── Step 1: deploy ─────────────────────────────────────── */}
+      <div className="mt-6">
+        <div className="flex items-center gap-2 mb-2">
+          <StepBadge n={1} />
+          <span className="font-mono text-[12px] font-bold">Deploy the contract</span>
+        </div>
+        {s.backendUpdated === false && (
+          <div className="mb-3 flex items-start gap-2 p-2 font-mono text-[10px]"
+            style={{ background: "#2A1A0A", border: "1px solid #FFB02255", color: "#FFB877" }}>
+            <AlertTriangle size={12} className="mt-0.5 shrink-0" />
+            Backend still serves the old wasm. Redeploy the backend on Coolify, hit refresh, then deploy.
+          </div>
+        )}
+        <Panel><DeployPanel /></Panel>
+        <p className="mt-2 font-mono text-[9px] text-white/40">
+          Connect your wallet (top-right) with testnet CSPR, then click <b>Deploy New (payable)</b>.
+        </p>
       </div>
-    </main>
+
+      {/* ── Step 2: register ───────────────────────────────────── */}
+      <div className="mt-6">
+        <div className="flex items-center gap-2 mb-2">
+          <StepBadge n={2} />
+          <span className="font-mono text-[12px] font-bold">Register the agent</span>
+        </div>
+        <Panel><RegisterAgentButton contractHash={s.contractHash || ""} /></Panel>
+      </div>
+
+      {/* ── Step 3: hand off ───────────────────────────────────── */}
+      <div className="mt-6 mb-10">
+        <div className="flex items-center gap-2 mb-2">
+          <StepBadge n={3} />
+          <span className="font-mono text-[12px] font-bold">Set env + wire the UI</span>
+        </div>
+        <Panel>
+          <p className="font-mono text-[11px] text-white/60 leading-relaxed">
+            After deploy, copy the new contract hash above and set:
+          </p>
+          <pre className="mt-2 overflow-x-auto p-2 font-mono text-[10px] text-white/80"
+            style={{ background: "#05080C", border: `1px solid ${ACCENT}18` }}>
+{`VAULT_CONTRACT_HASH=<new hash>             # backend + Coolify
+NEXT_PUBLIC_VAULT_PACKAGE_HASH=<new hash>  # frontend`}
+          </pre>
+          <p className="mt-2 font-mono text-[10px] text-white/40">
+            Then the deposit/withdraw builders in <code>lib/vaultDeposit.ts</code> activate.
+            See <code>docs/REAL_CUSTODY.md</code>.
+          </p>
+        </Panel>
+      </div>
+    </div>
   );
 }
 
@@ -177,7 +205,7 @@ function StatusRow({ ok, good, bad, pending }: { ok: boolean | null; good: strin
   return (
     <div className="flex items-center gap-2 py-1 font-mono text-[11px]">
       {ok
-        ? <CheckCircle2 size={13} style={{ color: ACCENT }} />
+        ? <CheckCircle2 size={13} style={{ color: "#00FF94" }} />
         : <AlertTriangle size={13} style={{ color: "#FFB022" }} />}
       <span className={ok ? "text-white/80" : "text-white/60"}>{ok ? good : bad}</span>
     </div>
