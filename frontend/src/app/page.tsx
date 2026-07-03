@@ -249,13 +249,20 @@ export default function DashboardPage() {
     ? (effectiveMotes / 1e9).toLocaleString(undefined, { maximumFractionDigits: 0 })
     : hasContract ? "0"
     : "—";
-  // Build display portfolio: use effective motes + AI allocation when on-chain is 0
+  // Build display portfolio. When the on-chain allocation is empty (HOLDING = all
+  // zero), show the AI decision's recommended split instead. Pick ONE source
+  // wholesale (never mix fields → avoids an invalid >100% donut) and use `??` so a
+  // legitimate 0% (e.g. 0% aggressive) is preserved instead of hitting a default.
+  const _portTotal = portfolio
+    ? (portfolio.conservative_pct || 0) + (portfolio.balanced_pct || 0) + (portfolio.aggressive_pct || 0)
+    : 0;
+  const _alloc = _portTotal > 0 ? portfolio : (decision ?? portfolio);
   const displayPortfolio = portfolio ? {
     ...portfolio,
     total_value_motes: effectiveMotes,
-    conservative_pct: (portfolio.conservative_pct || decision?.conservative_pct || 40),
-    balanced_pct:     (portfolio.balanced_pct     || decision?.balanced_pct     || 50),
-    aggressive_pct:   (portfolio.aggressive_pct   || decision?.aggressive_pct   || 10),
+    conservative_pct: _alloc?.conservative_pct ?? 40,
+    balanced_pct:     _alloc?.balanced_pct     ?? 40,
+    aggressive_pct:   _alloc?.aggressive_pct   ?? 20,
   } : undefined;
   const rebalances  = cycles.filter(c => c.decision.action === "REBALANCE").length;
   const latestRebalanceTx = cycles.find(c => c.decision.action === "REBALANCE" && c.tx_hash)?.tx_hash
