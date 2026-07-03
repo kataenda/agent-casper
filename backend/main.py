@@ -15,7 +15,7 @@ from typing import Optional
 # Ensure we always load .env from the backend/ directory regardless of cwd
 os.chdir(Path(__file__).parent)
 
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, HTTPException, Header, Depends
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, HTTPException, Header, Depends, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -850,6 +850,17 @@ async def vault_agent_registered():
         "register_tx": tx_hash,
         "explorer_url": f"https://testnet.cspr.live/deploy/{tx_hash}" if tx_hash else None,
     }
+
+
+@app.get("/vault/proxy-wasm")
+async def vault_proxy_wasm():
+    """Serve the Odra proxy-caller wasm the browser uses to attach real CSPR to the
+    payable deposit() call (see docs/REAL_CUSTODY.md). Drop the file produced by
+    `cargo odra build` (proxy_caller.wasm) at backend/proxy_caller.wasm."""
+    path = Path(__file__).parent / "proxy_caller.wasm"
+    if not path.is_file():
+        raise HTTPException(404, "proxy_caller.wasm not present — see docs/REAL_CUSTODY.md")
+    return Response(content=path.read_bytes(), media_type="application/wasm")
 
 
 @app.get("/x402/settlements")
