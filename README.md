@@ -9,7 +9,7 @@
 
 <p align="center">
 <a href="https://testnet.cspr.live"><img src="https://img.shields.io/badge/Casper-Testnet-00F5FF" alt="Casper Testnet" /></a>
-<a href="https://testnet.cspr.live"><img src="https://img.shields.io/badge/Contract-hash--f6ba9dfa-00FF94" alt="Smart Contract" /></a>
+<a href="https://testnet.cspr.live"><img src="https://img.shields.io/badge/Contract-hash--486a161b-00FF94" alt="Smart Contract" /></a>
 <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-BF5AF2.svg" alt="License: MIT" /></a>
 <a href="https://youtu.be/a20ls_stpDU"><img src="https://img.shields.io/badge/Demo-YouTube-FF0000" alt="Demo Video" /></a>
 <a href="https://casper.soenic.com"><img src="https://img.shields.io/badge/Live%20Demo-VPS-00F5FF" alt="Live Demo" /></a>
@@ -44,7 +44,7 @@
 | **Live Dashboard** | https://casper.soenic.com |
 | **Backend API** | https://agentcasper.soenic.com |
 | **Demo Video** | https://youtu.be/a20ls_stpDU |
-| **Smart Contract** | https://testnet.cspr.live (hash-f6ba9dfa...) |
+| **Smart Contract** | https://testnet.cspr.live (hash-486a161b...) |
 | **X / Twitter** | https://x.com/kata_enda |
 | **Telegram** | https://t.me/soesoe14 |
 | **Discord** | mas_end_47419 |
@@ -204,7 +204,7 @@ Framework:     Odra 2.7.2 (Rust → WASM), upgradable + payable (real CSPR custo
 | `rebalance(strategy, pcts, reason)` | Agent executes a portfolio rebalance |
 | `update_rwa_price(asset, price, yield)` | Agent posts verified RWA data on-chain |
 | `set_fee_bps(bps)` | Owner sets the management fee (basis points, capped at 10%) |
-| `get_portfolio()` / `get_fee_bps()` | Read current TVL/allocation and the active fee |
+| `get_portfolio()` / `get_tvl()` / `get_fee_bps()` | Read allocation, real contract-purse TVL, and the active fee |
 | `emergency_pause()` | Owner safety control |
 
 ### Events Emitted
@@ -354,7 +354,8 @@ Beyond the testnet vault, Agent Casper performs **real, non-custodial DeFi** on 
 the same cycle — turning the on-chain allocation record into actual on-chain DeFi
 execution (shown in the dashboard's decision log as a `DeFi⚡MAINNET` tx badge). This
 is **off by default** (`DEFI_EXECUTE_ON_REBALANCE=false`) and spends the **agent's own**
-mainnet CSPR, bounded by a fixed per-swap amount (`DEFI_SWAP_AMOUNT_CSPR`), a per-day cap
+mainnet CSPR, bounded by a base amount scaled by allocation drift (`DEFI_SWAP_AMOUNT_CSPR`
+base, hard-capped by `CSPR_TRADE_MAX_AMOUNT_CSPR`), a per-day cap
 (`DEFI_MAX_SWAPS_PER_DAY`), plus the amount + price-impact caps above. (Routing the
 *vault's deposited* capital this way is Phase 2 — see Honest scope.)
 
@@ -438,7 +439,7 @@ All activity is verifiable on the [Casper Testnet explorer](https://testnet.cspr
 
 | Action | Entry point | Example deploy hash |
 |--------|-------------|---------------------|
-| Smart contract (package) | — | [`f6ba9dfa…`](https://testnet.cspr.live/contract-package/f6ba9dfa2a236dcc253436c3350f06931465ca94290fad689dfc7c9058c559da) |
+| Smart contract (package) | — | [`486a161b…`](https://testnet.cspr.live/contract-package/486a161bf2d5d2b36b2cfda25557adf3c7b70ec1cda7cfb01dec0ba1545ac5ea) |
 | Autonomous rebalance | `rebalance` | [`f0352e2b…`](https://testnet.cspr.live/deploy/f0352e2b0d19a086b2b237494d23cfeb8377da3053d5c0cd074af53353428162) |
 | RWA price on-chain (gold) | `update_rwa_price` | [`b9f33ec3…`](https://testnet.cspr.live/deploy/b9f33ec3e9e1091912796beaa98b95d1b85887fd9df692067c7767bf37150d4e) |
 | RWA price on-chain (treasury) | `update_rwa_price` | [`0700586b…`](https://testnet.cspr.live/deploy/0700586b8e302123887f4f759fb2ac90156cb2f8daad6d8f9e09db2aaf7f730b) |
@@ -530,7 +531,7 @@ X402_SETTLE_INTERVAL_SECONDS=3600   # rate-limit on-chain settlement
 # When the AI decides REBALANCE, optionally route a small, capped, non-custodial
 # swap on Casper mainnet. OFF by default (spends the agent's own mainnet CSPR).
 DEFI_EXECUTE_ON_REBALANCE=false  # true = agent swaps autonomously on rebalance
-DEFI_SWAP_AMOUNT_CSPR=5          # fixed size per swap
+DEFI_SWAP_AMOUNT_CSPR=5          # base size; scaled up by allocation drift, capped by CSPR_TRADE_MAX_AMOUNT_CSPR
 DEFI_SWAP_TOKEN_IN=CSPR
 DEFI_SWAP_TOKEN_OUT=sCSPR
 DEFI_MAX_SWAPS_PER_DAY=1         # per-day safety cap (raise for repeat demos)
@@ -608,6 +609,11 @@ Create `.env.local`:
 ```env
 NEXT_PUBLIC_API_URL=http://localhost:8000
 NEXT_PUBLIC_WS_URL=ws://localhost:8000
+# Deployed vault package hash — enables the real payable deposit (contract custody)
+NEXT_PUBLIC_VAULT_PACKAGE_HASH=hash-486a161bf2d5d2b36b2cfda25557adf3c7b70ec1cda7cfb01dec0ba1545ac5ea
+# Optional — CSPR.click appId (register at https://console.cspr.build). Unset = wallet
+# connect falls back to the Casper Wallet extension; CSPR.click UI stays dormant.
+NEXT_PUBLIC_CSPRCLICK_APP_ID=
 ```
 
 Start the frontend:
@@ -691,6 +697,8 @@ Both backend and frontend are deployed on a self-hosted VPS using [Coolify](http
    |---|---|
    | `NEXT_PUBLIC_API_URL` | `https://agentcasper.yourdomain.com` |
    | `NEXT_PUBLIC_WS_URL` | `wss://agentcasper.yourdomain.com/ws` |
+   | `NEXT_PUBLIC_VAULT_PACKAGE_HASH` | `hash-486a161b...` (enables real payable deposit) |
+   | `NEXT_PUBLIC_CSPRCLICK_APP_ID` | CSPR.click appId from console.cspr.build (optional) |
 
 4. Click **Deploy**.
 
