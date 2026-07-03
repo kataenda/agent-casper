@@ -164,7 +164,7 @@ The system transforms a passive smart contract vault into a **self-driving portf
 |---|---|---|
 | **x402 Micropayments** | ✅ | [`x402.py`](backend/casper/x402.py) — consumer **and** provider; on-chain CEP-18 `transfer_with_authorization` settlement (`eb0e914c…`) |
 | **MCP Servers** (Casper MCP + CSPR.trade MCP) | ✅ | [`mcp_server.py`](backend/casper/mcp_server.py) (5 tools, driven by Claude) + [`cspr_trade.py`](backend/casper/cspr_trade.py) (live **mainnet** swaps) |
-| **CSPR.click AI Agent Skill** | ✅ | **Official skill installed** at [`.claude/skills/csprclick-skill/`](.claude/skills/csprclick-skill/SKILL.md) — the exact `SKILL.md` from `make-software/csprclick-examples` (`claude skill install cspr-click` / `npx skills add`). Its SDK-integration guidance is **applied**: `@make-software/csprclick-ui` mounted app-wide in [`layout.tsx`](frontend/src/app/layout.tsx). The agent also creates & signs its own txs non-custodially (`deployer.py`, `cspr_trade.py`), keys stay local |
+| **CSPR.click AI Agent Skill** | ✅ | **Official skill installed** at [`.claude/skills/csprclick-skill/`](.claude/skills/csprclick-skill/SKILL.md) — the exact `SKILL.md` from `make-software/csprclick-examples` (`claude skill install cspr-click` / `npx skills add`). Its SDK-integration guidance is **applied**: `@make-software/csprclick-ui` wired via [`CSPRClickProvider`](frontend/src/providers/CSPRClickProvider.tsx) (mounts app-wide once a registered `NEXT_PUBLIC_CSPRCLICK_APP_ID` is set). The agent also creates & signs its own txs non-custodially (`deployer.py`, `cspr_trade.py`), keys stay local |
 | **CSPR.cloud APIs** | ✅ | [`client.py`](backend/casper/client.py) — REST + Node RPC (balances, deploys, tx verification) |
 | **Odra Framework** | ✅ | [`yield_vault.rs`](contracts/src/yield_vault.rs) — **upgradable, payable** real-custody vault |
 
@@ -175,7 +175,7 @@ Detailed breakdown:
 | **CSPR.cloud** | Block data, deploy status, account balances |
 | **Odra Framework 2.7.2** | YieldVault smart contract (Rust → WASM) |
 | **casper-js-sdk v5** | Frontend deploy signing, wallet integration |
-| **CSPR.click** | `@make-software/csprclick-ui` **mounted app-wide** (`CSPRClickProvider` in `layout.tsx`) — Casper Wallet / Ledger / Torus connect, account session + transaction signing |
+| **CSPR.click** | `@make-software/csprclick-ui` wired via `CSPRClickProvider` (mounts when `NEXT_PUBLIC_CSPRCLICK_APP_ID` is set) — Casper Wallet / Ledger / Torus connect, account session + signing |
 | **x402 Protocol** | HTTP-native pay-per-request, **official CSPR.cloud `exact` scheme** — EIP-712 (`casper-eip-712`) typed-data signed with the agent's ed25519 key, CEP-18 `transfer_with_authorization` settlement, **verified against the live facilitator `/verify` (`isValid: true`)**. Enable via `X402_ENABLED=true` |
 | **MCP Server** | Custom Casper MCP server exposes 5 blockchain tools to Claude (block height, yield rates, vault portfolio, RWA prices, account balance) |
 | **CSPR.trade MCP** | **Real non-custodial DeFi** on Casper mainnet (`https://mcp.cspr.trade/mcp`, 24 tools). The agent uses it for live swap quotes **and execution** — `build_swap` → sign with the agent's own ed25519 key → broadcast via `account_put_transaction`. Funds never leave the agent's account. Exposed via `/defi/quote`, `/defi/markets`, `/defi/swap` |
