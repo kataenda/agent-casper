@@ -164,7 +164,7 @@ The system transforms a passive smart contract vault into a **self-driving portf
 |---|---|---|
 | **x402 Micropayments** | ✅ | [`x402.py`](backend/casper/x402.py) — consumer **and** provider; on-chain CEP-18 `transfer_with_authorization` settlement (`eb0e914c…`) |
 | **MCP Servers** (Casper MCP + CSPR.trade MCP) | ✅ | [`mcp_server.py`](backend/casper/mcp_server.py) (5 tools, driven by Claude) + [`cspr_trade.py`](backend/casper/cspr_trade.py) (live **mainnet** swaps) |
-| **CSPR.click AI Agent Skill** | ✅ | `@make-software/csprclick-ui` mounted app-wide ([`layout.tsx`](frontend/src/app/layout.tsx) → `CSPRClickProvider`) for wallet connect + signing; the **agent also creates & signs its own txs non-custodially** (`deployer.py`, `cspr_trade.py`) — the same capability the skill provides, keys stay local |
+| **CSPR.click AI Agent Skill** | ✅ | **Official skill installed** at [`.claude/skills/csprclick-skill/`](.claude/skills/csprclick-skill/SKILL.md) — the exact `SKILL.md` from `make-software/csprclick-examples` (`claude skill install cspr-click` / `npx skills add`). Its SDK-integration guidance is **applied**: `@make-software/csprclick-ui` mounted app-wide in [`layout.tsx`](frontend/src/app/layout.tsx). The agent also creates & signs its own txs non-custodially (`deployer.py`, `cspr_trade.py`), keys stay local |
 | **CSPR.cloud APIs** | ✅ | [`client.py`](backend/casper/client.py) — REST + Node RPC (balances, deploys, tx verification) |
 | **Odra Framework** | ✅ | [`yield_vault.rs`](contracts/src/yield_vault.rs) — **upgradable, payable** real-custody vault |
 
