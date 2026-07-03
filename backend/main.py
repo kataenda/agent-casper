@@ -78,8 +78,8 @@ class Settings(BaseSettings):
     cspr_trade_max_price_impact_pct: float = 2.0
     # Close the loop: when the AI decides REBALANCE, also execute a small REAL swap
     # on mainnet (decision → on-chain execution). OFF by default — spends real CSPR.
-    defi_execute_on_rebalance: bool = False
-    defi_swap_amount_cspr: float = 5.0
+    defi_execute_on_rebalance: bool = True
+    defi_swap_amount_cspr: float = 5.0   # minimum/base swap size; scaled up by drift, capped at 25
     defi_swap_token_in: str = "CSPR"
     defi_swap_token_out: str = "sCSPR"
     defi_max_swaps_per_day: int = 1

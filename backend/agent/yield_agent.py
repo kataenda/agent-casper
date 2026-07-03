@@ -90,6 +90,9 @@ class YieldAgent:
         self.paused = False           # set True to freeze rebalancing without stopping loop
         self._rebalances_today = 0
         self._defi_swaps_today = 0
+        # Running estimate of sCSPR acquired via our own de-risk swaps. Gates risk-on
+        # unwinds: you can't unstake sCSPR you never bought. Updated after each swap.
+        self._scspr_est = 0.0
         self._last_rebalance_date: Optional[date] = None
         self._last_rwa_post_ts: float = 0.0
         # Last on-chain RWA deploy hashes, carried forward across cycles so the
@@ -357,21 +360,29 @@ class YieldAgent:
         if not worth_it:
             logger.info("DeFi swap skipped — %s", reason)
             return {"executed": False, "settlement": "below_threshold", "note": reason}
+
+        # Translate the AI's allocation change into a concrete, tradable swap.
+        plan = self._plan_swap(decision, portfolio)
+        if plan is None:
+            note = "risk-on rebalance but agent holds no sCSPR position to unwind yet"
+            logger.info("DeFi swap skipped — %s", note)
+            return {"executed": False, "settlement": "no_position", "note": note}
+        token_in, token_out, amount, dir_reason = plan
+
         try:
             record = await self.cspr_trade.swap(
-                token_in=self.defi_swap_token_in,
-                token_out=self.defi_swap_token_out,
-                amount=str(self.defi_swap_amount_cspr),
-                execute=True,
+                token_in=token_in, token_out=token_out,
+                amount=str(amount), execute=True,
             )
             record["triggered_by"] = decision.new_strategy or decision.action
+            record["direction_reason"] = dir_reason
             if record.get("executed"):
                 self._defi_swaps_today += 1
+                self._update_scspr_estimate(token_in, token_out, amount, record)
                 swap_log.record_swap(record, triggered_by=record["triggered_by"])
                 logger.info(
-                    "DeFi execution on mainnet — %s %s→%s tx=%s",
-                    self.defi_swap_amount_cspr, self.defi_swap_token_in,
-                    self.defi_swap_token_out, record.get("tx_hash"),
+                    "DeFi execution on mainnet — %s %s→%s tx=%s (%s)",
+                    amount, token_in, token_out, record.get("tx_hash"), dir_reason,
                 )
             else:
                 logger.info("DeFi execution not broadcast — %s", record.get("settlement"))
@@ -379,6 +390,50 @@ class YieldAgent:
         except Exception as exc:
             logger.warning("DeFi execution error: %s", exc)
             return {"executed": False, "settlement": "error", "note": str(exc)[:200]}
+
+    # sCSPR (liquid staking) is the only deep-liquidity yield instrument on CSPR.trade,
+    # so the vault's risk axis maps to CSPR (deployable/aggressive) <-> sCSPR (staked/safe).
+    def _plan_swap(self, decision: RebalanceDecision, portfolio) -> Optional[tuple]:
+        """Translate the AI's allocation decision into (token_in, token_out, amount_cspr,
+        reason). De-risking (more conservative / HIGH risk) stakes CSPR → sCSPR; risk-on
+        (more aggressive) unwinds sCSPR → CSPR. Amount scales with allocation drift, capped
+        by the CSPR.trade safety cap. Returns None when a risk-on move has no sCSPR to unwind.
+        """
+        agg_delta  = decision.aggressive_pct   - portfolio.aggressive_pct
+        cons_delta = decision.conservative_pct - portfolio.conservative_pct
+        drift = max(abs(agg_delta), abs(cons_delta),
+                    abs(decision.balanced_pct - portfolio.balanced_pct))
+
+        cap = self.cspr_trade.max_amount_cspr if self.cspr_trade else 25.0
+        amount = min(cap, max(self.defi_swap_amount_cspr, round(drift * 0.5)))
+
+        de_risk = (str(decision.risk_level).upper() == "HIGH"
+                   or agg_delta < 0
+                   or (agg_delta == 0 and cons_delta > 0))
+        if de_risk:
+            return ("CSPR", "sCSPR", amount,
+                    f"de-risk → stake: aggressive {portfolio.aggressive_pct}%→"
+                    f"{decision.aggressive_pct}%, {amount} CSPR")
+
+        # Risk-on: unwind staking — only feasible if we hold sCSPR from a prior de-risk.
+        if self._scspr_est < 1.0:
+            return None
+        amount = round(min(amount, self._scspr_est), 3)
+        return ("sCSPR", "CSPR", amount,
+                f"risk-on → unwind stake: aggressive {portfolio.aggressive_pct}%→"
+                f"{decision.aggressive_pct}%, {amount} sCSPR")
+
+    def _update_scspr_estimate(self, token_in: str, token_out: str, amount: float, record: dict) -> None:
+        """Track our sCSPR position so risk-on unwinds stay feasible. CSPR→sCSPR adds the
+        estimated output; sCSPR→CSPR subtracts the sCSPR spent."""
+        if token_in.upper() == "CSPR" and token_out.upper() == "SCSPR":
+            try:
+                out = float((record.get("summary") or {}).get("out_estimate") or amount)
+            except (TypeError, ValueError):
+                out = amount
+            self._scspr_est += out
+        elif token_in.upper() == "SCSPR":
+            self._scspr_est = max(0.0, self._scspr_est - amount)
 
     async def force_rebalance(self, strategy: str = "balanced") -> Optional[str]:
         """
