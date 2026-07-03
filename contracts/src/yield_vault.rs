@@ -80,6 +80,12 @@ pub struct YieldVault {
 #[odra::module]
 impl YieldVault {
     pub fn init(&mut self) {
+        // Idempotent initializer: if the vault was already initialized (owner set),
+        // do NOT reset state. This makes upgrades safe — an upgrade must never wipe
+        // depositor balances, strategy, or the registered agent.
+        if self.owner.get().is_some() {
+            return;
+        }
         let caller = self.env().caller();
         self.owner.set(caller);
         self.paused.set(false);

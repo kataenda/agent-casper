@@ -76,18 +76,21 @@ export function DeployPanel() {
       header.timestamp    = new Timestamp(new Date());
       header.dependencies = [];
 
-      // Unique package key name per deploy: the original contract was installed
-      // non-upgradable under "yield_vault", so re-using that name reverts with
-      // CannotOverrideKeys (64641). A fresh name installs the new (payable) code
-      // as a brand-new package with its own hash.
-      const pkgKey = `yield_vault_${Date.now().toString(36)}`;
+      // Stable key for the production, UPGRADABLE vault. The first deploy INSTALLS
+      // it; every later deploy UPGRADES in place under the same package hash — so the
+      // env hash never changes again and depositor state is preserved (the contract's
+      // init() is idempotent). We pick install-vs-upgrade by whether the deployer
+      // account already holds this named key.
+      const pkgKey = "yield_vault_prod";
+      const callerHash = pubKey.accountHash().toPrefixedString().replace("account-hash-", "");
+      const isUpgrade = await accountHasNamedKey(callerHash, pkgKey);
 
       const payment = ExecutableDeployItem.standardPayment(PAYMENT);
       const session = ExecutableDeployItem.newModuleBytes(wasmBytes, Args.fromMap({
         "odra_cfg_package_hash_key_name": CLValue.newCLString(pkgKey),
         "odra_cfg_allow_key_override":    CLValue.newCLValueBool(false),
-        "odra_cfg_is_upgradable":         CLValue.newCLValueBool(false),
-        "odra_cfg_is_upgrade":            CLValue.newCLValueBool(false),
+        "odra_cfg_is_upgradable":         CLValue.newCLValueBool(true),
+        "odra_cfg_is_upgrade":            CLValue.newCLValueBool(isUpgrade),
       }));
       const deploy  = Deploy.makeDeploy(header, payment, session);
 
@@ -138,8 +141,7 @@ export function DeployPanel() {
 
       // ── 5. Poll + notify backend ──────────────────────────────────────
       setStep("waiting");
-      // Strip "account-hash-" prefix — RPC key format is "account-hash-{hex}"
-      const callerHash = pubKey.accountHash().toPrefixedString().replace("account-hash-", "");
+      // callerHash computed above (used for install-vs-upgrade detection too)
       const hash = await pollForContractHash(dHash, callerHash, pkgKey);
       setContractHash(hash);
 
@@ -229,6 +231,27 @@ export function DeployPanel() {
 }
 
 // ── Poll until deploy finalized + return contract hash ─────────────────────────
+
+// Whether the deployer account already holds `keyName` (⇒ this is an upgrade, not a fresh install).
+async function accountHasNamedKey(callerHash: string, keyName: string): Promise<boolean> {
+  const base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+  try {
+    const res = await fetch(`${base}/rpc`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: 1, jsonrpc: "2.0", method: "query_global_state",
+        params: { key: `account-hash-${callerHash}`, path: [] },
+      }),
+    });
+    const data = await res.json();
+    const sv = data.result?.stored_value;
+    const namedKeys: Array<{ name: string }> =
+      sv?.Account?.named_keys ?? sv?.AddressableEntity?.named_keys ?? sv?.Entity?.named_keys ?? [];
+    return namedKeys.some((k) => k.name === keyName);
+  } catch {
+    return false; // treat unknown as fresh install
+  }
+}
 
 async function pollForContractHash(deployHash: string, callerHash: string, pkgKey = "yield_vault"): Promise<string> {
   const base     = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
