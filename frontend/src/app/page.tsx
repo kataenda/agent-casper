@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
-import { TrendingUp, RefreshCw, Activity, Zap, AlertTriangle, Wallet, ArrowDownCircle, Repeat, Store, Bot } from "lucide-react";
+import { TrendingUp, RefreshCw, Activity, Zap, AlertTriangle, Wallet, ArrowDownCircle, Repeat, Store, Bot, Rocket } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 
@@ -355,6 +355,14 @@ export default function DashboardPage() {
             title="API reference — endpoints + live try it"
           >
             API
+          </Link>
+          <Link
+            href="/deploy"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded border font-mono text-[9px] uppercase tracking-widest transition-all hover:opacity-80"
+            style={{ borderColor: "#FFB02255", color: "#FFB877", background: "#FFB0220d", boxShadow: "0 0 10px #FFB02222" }}
+            title="Deploy the payable YieldVault + register agent (real on-chain custody)"
+          >
+            <Rocket size={11} /> Deploy
           </Link>
           <StatusBadge connected={connected} />
         </div>
