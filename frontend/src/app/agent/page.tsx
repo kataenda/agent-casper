@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import {
-  Bot, ArrowLeft, Play, Square, Loader2, Activity, Zap, RefreshCw,
+  Bot, ArrowLeft, Loader2, Activity, Zap, RefreshCw,
   ExternalLink, Cpu, Clock, Lock, Star, ShieldCheck, Check, Gauge,
 } from "lucide-react";
 import { adminHeaders } from "@/lib/adminAuth";
@@ -65,11 +65,10 @@ export default function AgentPage() {
   const [status, setStatus] = useState<Status | null>(null);
   const [info, setInfo] = useState<AgentInfo | null>(null);
   const [trust, setTrust] = useState<Trust | null>(null);
-  const [busy, setBusy] = useState(false);
   const [anchoring, setAnchoring] = useState(false);
   const [anchorErr, setAnchorErr] = useState<string | null>(null);
   const [gateOpen, setGateOpen] = useState(false);
-  const [pending, setPending] = useState<"toggle" | "anchor" | null>(null);
+  const [pending, setPending] = useState<"anchor" | null>(null);
 
   const loadStatus = useCallback(async () => {
     try { const r = await fetch(`${API}/agent/status`); setStatus(await r.json()); } catch { /* keep */ }
@@ -87,17 +86,6 @@ export default function AgentPage() {
 
   const running = !!status?.running;
 
-  const toggle = useCallback(async () => {
-    if (!status) return;
-    setBusy(true);
-    try {
-      const action = running ? "pause" : "resume";
-      const r = await fetch(`${API}/agent/${action}`, { method: "POST", headers: adminHeaders() });
-      if (r.status === 401) { setPending("toggle"); setGateOpen(true); return; }
-      if (r.ok) await loadStatus();
-    } catch { /* ignore */ } finally { setBusy(false); }
-  }, [status, running, loadStatus]);
-
   const anchor = useCallback(async () => {
     setAnchoring(true); setAnchorErr(null);
     try {
@@ -111,10 +99,9 @@ export default function AgentPage() {
 
   const onUnlock = useCallback(() => {
     setGateOpen(false);
-    if (pending === "toggle") toggle();
-    else if (pending === "anchor") anchor();
+    if (pending === "anchor") anchor();
     setPending(null);
-  }, [pending, toggle, anchor]);
+  }, [pending, anchor]);
 
   const explorer = info?.agent_account_hash
     ? `https://testnet.cspr.live/account/${info.agent_account_hash.replace("account-hash-", "")}`
@@ -191,24 +178,9 @@ export default function AgentPage() {
             <Stat icon={Zap} label="DeFi Swaps Today" value={status?.defi_swaps_today != null ? String(status.defi_swaps_today) : "—"} accent="#FF4D6D" />
           </div>
 
-          {/* Control */}
-          <div className="flex items-center gap-3 flex-wrap">
-            <button onClick={toggle} disabled={busy || !status}
-                    className="flex items-center justify-center gap-2 rounded-lg px-5 py-2.5 font-mono text-[12px] font-bold uppercase tracking-widest transition-all hover:opacity-85 disabled:opacity-50"
-                    style={running
-                      ? { background: "rgba(255,59,92,0.12)", border: "1px solid #FF3B5C66", color: "#FF6B82" }
-                      : { background: ACCENT, color: "#000", boxShadow: `0 0 20px ${ACCENT}55` }}>
-              {busy ? <Loader2 size={14} className="animate-spin" /> : running ? <Square size={13} /> : <Play size={13} />}
-              {running ? "Stop Agent" : "Start Agent"}
-            </button>
-            <span className="flex items-center gap-1.5 font-mono text-[9px] text-cyber-muted">
-              <Lock size={10} style={{ color: ACCENT }} /> protected — requires admin token
-            </span>
-          </div>
-
           <p className="text-[9px] font-mono text-cyber-muted/70 mt-4 pt-3" style={{ borderTop: `1px solid ${ACCENT}15` }}>
-            The agent runs autonomously by default and polls every {status?.poll_interval_seconds ?? "—"}s. Stopping it
-            halts the decision loop; starting resumes it. Only the owner (with the admin token) can change its run state.
+            The agent runs autonomously and polls every {status?.poll_interval_seconds ?? "—"}s. Run state is
+            owner-controlled via the chat commands (start / stop) or the admin API — not exposed here.
           </p>
         </div>
       </Card>
