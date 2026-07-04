@@ -244,7 +244,20 @@ export default function DashboardPage() {
   const portfolio   = latestCycle?.portfolio;
   const decision    = latestCycle?.decision;
   const hasContract = !!latestCycle;
-  const effectiveMotes = (portfolio?.total_value_motes ?? 0) + depositedMotes;
+  // Portfolio Value = multi-tenant AUM: real custodied CSPR across EVERY enrolled
+  // vault the agent services (primary + tenants), not just the primary vault.
+  const [aumMotes, setAumMotes] = useState<number | null>(null);
+  useEffect(() => {
+    const base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    const load = () => fetch(`${base}/vault/aum`)
+      .then(r => r.json())
+      .then(d => { if (typeof d.total_motes === "number") setAumMotes(d.total_motes); })
+      .catch(() => {});
+    load();
+    const t = setInterval(load, 30000);
+    return () => clearInterval(t);
+  }, []);
+  const effectiveMotes = aumMotes ?? ((portfolio?.total_value_motes ?? 0) + depositedMotes);
   const totalCspr   = hasContract && effectiveMotes > 0
     ? (effectiveMotes / 1e9).toLocaleString(undefined, { maximumFractionDigits: 0 })
     : hasContract ? "0"

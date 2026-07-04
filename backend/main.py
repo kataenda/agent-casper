@@ -1042,6 +1042,30 @@ async def get_vault_registry():
     }
 
 
+@app.get("/vault/aum")
+async def vault_aum():
+    """Assets under management: real custodied CSPR summed across EVERY enrolled
+    vault the agent services (multi-tenant AUM), with a per-vault breakdown."""
+    if not agent:
+        raise HTTPException(503, "Agent not initialized")
+    vaults = vault_registry.list_vaults()
+    if not vaults:  # fall back to the primary vault only
+        pkg = (agent.vault_contract_hash or settings.vault_contract_hash or "")
+        vaults = [{"package_hash": pkg.replace("hash-", "").lower(), "is_primary": True}]
+    out = []
+    total = 0
+    for v in vaults:
+        pkg = v.get("package_hash", "")
+        if not pkg:
+            continue
+        tvl = await agent.casper._fetch_tvl_from_deploys(pkg)   # cached per package
+        total += tvl
+        out.append({"package_hash": pkg, "is_primary": v.get("is_primary", False),
+                    "tvl_cspr": tvl / 1e9})
+    return {"total_motes": total, "total_cspr": total / 1e9,
+            "vault_count": len(out), "vaults": out}
+
+
 @app.get("/vault/state")
 async def vault_state(package: str = ""):
     """Per-tenant vault dashboard data: real custodied TVL, current on-chain
