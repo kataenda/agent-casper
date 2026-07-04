@@ -33,6 +33,9 @@ export function DeployPanel() {
   const [error, setError]                   = useState<string | null>(null);
   const [contractHash, setContractHash]     = useState<string | null>(null);
   const [existingHash, setExistingHash]     = useState<string | null>(null);
+  // The CONNECTED WALLET's own vault (from its yield_vault_prod named key).
+  // null = wallet has no vault yet; undefined = not checked / no wallet.
+  const [walletHash, setWalletHash]         = useState<string | null | undefined>(undefined);
 
   useEffect(() => {
     // Try static contract.json first (no backend dependency)
@@ -46,6 +49,27 @@ export function DeployPanel() {
       .then(d => { if (d.contract_deployed && d.vault_contract_hash) setExistingHash(d.vault_contract_hash); })
       .catch(() => {});
   }, []);
+
+  // Per-wallet read: when a wallet connects, show ITS vault (from its own named
+  // keys), like any multi-wallet dApp — not the globally configured one. This
+  // matches what doDeploy actually does (install for this wallet vs upgrade its
+  // existing vault).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!account?.publicKey) { setWalletHash(undefined); return; }
+      try {
+        const { PublicKey } = await import("casper-js-sdk");
+        const callerHash = PublicKey.fromHex(account.publicKey)
+          .accountHash().toPrefixedString().replace("account-hash-", "");
+        const pkg = await getNamedKeyPackageHash(callerHash, "yield_vault_prod");
+        if (!cancelled) setWalletHash(pkg ? `hash-${pkg}` : null);
+      } catch {
+        if (!cancelled) setWalletHash(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [account?.publicKey]);
 
   const doDeploy = async () => {
     if (!account) return;
@@ -174,12 +198,18 @@ export function DeployPanel() {
     }
   };
 
-  const displayHash = contractHash ?? existingHash;
+  // Wallet connected → show THAT wallet's vault; otherwise show the agent's
+  // configured vault as read-only context. The button always acts on the
+  // connected wallet: fresh install if it has no vault, in-place upgrade if it does.
+  const displayHash = contractHash ?? (account ? (walletHash ?? null) : existingHash);
+  const hashOwner   = contractHash ? "✓ just deployed"
+                    : account       ? "(this wallet)"
+                    : "(agent's vault — connect a wallet to see yours)";
   const EXPLORER    = "https://testnet.cspr.live/contract-package";
   const inProgress  = step !== "idle" && step !== "error" && step !== "done";
-  const btnLabel    = step === "error" ? "Retry Deploy"
-                    : contractHash      ? "Deployed ✓"
-                    : displayHash       ? "Upgrade (in-place)"
+  const btnLabel    = step === "error"            ? "Retry Deploy"
+                    : contractHash                 ? "Deployed ✓"
+                    : (account && walletHash)      ? "Upgrade (in-place)"
                     : "Deploy Contract";
 
   return (
@@ -193,7 +223,7 @@ export function DeployPanel() {
               CONTRACT LIVE
             </span>
             <span className="text-[9px] font-mono text-cyber-muted ml-1">
-              {contractHash ? "✓ just deployed" : "(existing)"}
+              {hashOwner}
             </span>
           </div>
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border"
@@ -229,8 +259,8 @@ export function DeployPanel() {
           onClick={doDeploy}
           disabled={!account || inProgress || step === "done"}
           title={!account ? "Connect wallet first"
-                : displayHash ? "Upgrade the vault in place — same package hash, state (deposits/agent) preserved"
-                : "Deploy YieldVault contract to Casper Testnet"}
+                : walletHash ? "Upgrade THIS wallet's vault in place — same package hash, state preserved"
+                : "Deploy a YieldVault owned by this wallet to Casper Testnet"}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[10px] font-mono font-bold uppercase tracking-widest transition-all duration-300 disabled:opacity-30"
           style={{ background: "rgba(191,90,242,0.07)", borderColor: "rgba(191,90,242,0.35)", color: "#BF5AF2" }}
         >
