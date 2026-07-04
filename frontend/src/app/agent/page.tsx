@@ -7,6 +7,7 @@ import {
   ExternalLink, Cpu, Clock, Lock, Star, ShieldCheck, Check, Gauge,
 } from "lucide-react";
 import { adminHeaders } from "@/lib/adminAuth";
+import { useWalletStore } from "@/lib/walletStore";
 import { AdminTokenModal } from "@/components/AdminTokenModal";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -75,6 +76,8 @@ export default function AgentPage() {
   const [gateOpen, setGateOpen] = useState(false);
   const [pending, setPending] = useState<"anchor" | null>(null);
   const [registry, setRegistry] = useState<{ count: number; vaults: EnrolledVault[] } | null>(null);
+  const { account } = useWalletStore();
+  const myPk = (account?.publicKey || "").toLowerCase();
 
   const loadStatus = useCallback(async () => {
     try { const r = await fetch(`${API}/agent/status`); setStatus(await r.json()); } catch { /* keep */ }
@@ -225,6 +228,12 @@ export default function AgentPage() {
                       <span className="font-mono text-[8px] font-bold px-1.5 py-0.5 rounded uppercase tracking-widest"
                             style={{ background: "#00FF9414", border: "1px solid #00FF9444", color: "#00FF94" }}>
                         primary · AI-managed
+                      </span>
+                    )}
+                    {myPk && (v.owner_public_key || "").toLowerCase() === myPk && (
+                      <span className="font-mono text-[8px] font-bold px-1.5 py-0.5 rounded uppercase tracking-widest"
+                            style={{ background: "#FFB34714", border: "1px solid #FFB34744", color: "#FFB347" }}>
+                        yours
                       </span>
                     )}
                     <a href={v.explorer_url} target="_blank" rel="noreferrer"
