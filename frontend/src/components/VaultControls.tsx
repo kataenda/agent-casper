@@ -11,7 +11,7 @@ import { useState, useEffect } from "react";
 import { UserPlus, ArrowDownCircle, Loader, CheckCircle, AlertCircle, ExternalLink } from "lucide-react";
 import { useWalletStore } from "@/lib/walletStore";
 import { useAgentStore } from "@/lib/store";
-import { buildDepositDeploy, isRealVaultEnabled } from "@/lib/vaultDeposit";
+import { buildDepositDeploy, isRealVaultEnabled, DEPOSIT_GAS_MOTES } from "@/lib/vaultDeposit";
 import { useWalletVault } from "@/lib/walletVault";
 
 const BACKEND = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -48,6 +48,22 @@ async function submitDeploy(deployBody: string): Promise<string> {
 }
 
 // ── Shared helpers ─────────────────────────────────────────────────────────────
+
+/** The wallet's liquid CSPR (motes), or null when the read fails (don't block). */
+async function getWalletBalanceMotes(publicKey: string): Promise<bigint | null> {
+  try {
+    const r = await fetch(`${BACKEND}/rpc`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: 1, jsonrpc: "2.0", method: "query_balance",
+        params: { purse_identifier: { main_purse_under_public_key: publicKey } },
+      }),
+    });
+    const d = await r.json();
+    const b = d.result?.balance;
+    return b ? BigInt(b) : null;
+  } catch { return null; }
+}
 
 async function buildStoredContractSession(
   contractHash: string,
@@ -292,6 +308,18 @@ export function DepositButton({ contractHash }: { contractHash: string }) {
 
     try {
       const amountMotes = BigInt(Math.floor(parseFloat(amount) * 1_000_000_000));
+
+      // Pre-flight: verify the wallet can cover deposit + gas BEFORE submitting,
+      // so an underfunded attempt fails with a clear message instead of burning
+      // the gas on an on-chain "Mint error: 0" (InsufficientFunds).
+      const gasMotes = isRealVaultEnabled(walletVault) ? DEPOSIT_GAS_MOTES : BigInt(GAS);
+      const balance = await getWalletBalanceMotes(account.publicKey);
+      if (balance !== null && balance < amountMotes + gasMotes) {
+        const have = (Number(balance) / 1e9).toFixed(2);
+        const need = (Number(amountMotes + gasMotes) / 1e9).toFixed(0);
+        throw new Error(`Saldo tidak cukup: ${have} CSPR tersedia — butuh ~${need} CSPR (deposit ${amount} + gas ${Number(gasMotes) / 1e9}). Kurangi jumlah atau isi saldo.`);
+      }
+
       let deploy: unknown;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let sdk: any;
@@ -329,6 +357,30 @@ export function DepositButton({ contractHash }: { contractHash: string }) {
       setStep("submitting");
       const hash = await submitDeploy(deployBody);
       setTxHash(hash);
+
+      // Honest status: wait for on-chain execution before claiming DEPOSITED —
+      // a reverted deploy (e.g. insufficient funds) must surface as an error.
+      setStep("waiting");
+      const deadline = Date.now() + 120_000;
+      let confirmed = false; let chainErr: string | null = null;
+      while (Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, 10_000));
+        try {
+          const res = await fetch(`${BACKEND}/deploys/${hash}`);
+          const raw = await res.json();
+          const o = raw.data ?? raw;
+          if (o.error_message) { chainErr = String(o.error_message); break; }
+          if (o.status && o.status !== "pending") { confirmed = true; break; }
+        } catch { /* transient — keep polling */ }
+      }
+      if (chainErr) {
+        const friendly = chainErr.includes("Mint error: 0")
+          ? "Saldo tidak cukup di on-chain (Mint InsufficientFunds) — kurangi jumlah deposit."
+          : chainErr;
+        throw new Error(`On-chain failure: ${friendly}`);
+      }
+      if (!confirmed) throw new Error("Belum terkonfirmasi dalam 2 menit — cek explorer");
+
       addDeposit(Number(amountMotes));
       addVaultTx({ type: "deposit", amount, hash, ts: Date.now() });
       setStep("done");

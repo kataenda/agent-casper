@@ -18,6 +18,8 @@ const BACKEND      = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const PACKAGE_HASH = process.env.NEXT_PUBLIC_VAULT_PACKAGE_HASH || "";
 const CHAIN        = "casper-test";
 const GAS_DEPOSIT  = "60000000000"; // 60 CSPR — executing the ~184KB Odra proxy wasm is gas-heavy (6 CSPR OOG'd)
+/** Gas the payable deposit needs — exported so the UI can pre-flight the balance. */
+export const DEPOSIT_GAS_MOTES = BigInt(GAS_DEPOSIT);
 const GAS_WITHDRAW = "3000000000"; // 3 CSPR
 
 export function isRealVaultEnabled(packageOverride?: string | null): boolean {
