@@ -64,7 +64,7 @@ export function DeployPanel() {
       // ── 2. Build deploy ───────────────────────────────────────────────
       setStep("building");
       const {
-        Deploy, DeployHeader, ExecutableDeployItem, Args, CLValue, PublicKey, Duration, Timestamp,
+        Deploy, DeployHeader, ExecutableDeployItem, Args, CLValue, PublicKey, Duration, Timestamp, Hash,
       } = await import("casper-js-sdk");
 
       const pubKey = PublicKey.fromHex(account.publicKey);
@@ -80,18 +80,30 @@ export function DeployPanel() {
       // it; every later deploy UPGRADES in place under the same package hash — so the
       // env hash never changes again and depositor state is preserved (the contract's
       // init() is idempotent). We pick install-vs-upgrade by whether the deployer
-      // account already holds this named key.
+      // account already holds this named key (its value = the package to upgrade).
       const pkgKey = "yield_vault_prod";
       const callerHash = pubKey.accountHash().toPrefixedString().replace("account-hash-", "");
-      const isUpgrade = await accountHasNamedKey(callerHash, pkgKey);
+      const existingPkgHex = await getNamedKeyPackageHash(callerHash, pkgKey);
+      const isUpgrade = !!existingPkgHex;
 
-      const payment = ExecutableDeployItem.standardPayment(PAYMENT);
-      const session = ExecutableDeployItem.newModuleBytes(wasmBytes, Args.fromMap({
+      // Odra 2.7 upgrade path (host_functions.rs::upgrade_contract) REQUIRES
+      // odra_cfg_package_hash_to_upgrade (HashAddr) + odra_cfg_create_upgrade_group,
+      // and re-puts the named key so allow_key_override must be true — omitting any
+      // of these reverts with ApiError::MissingArgument / CannotOverrideKeys.
+      const cfgArgs: Record<string, InstanceType<typeof CLValue>> = {
         "odra_cfg_package_hash_key_name": CLValue.newCLString(pkgKey),
-        "odra_cfg_allow_key_override":    CLValue.newCLValueBool(false),
+        "odra_cfg_allow_key_override":    CLValue.newCLValueBool(isUpgrade),
         "odra_cfg_is_upgradable":         CLValue.newCLValueBool(true),
         "odra_cfg_is_upgrade":            CLValue.newCLValueBool(isUpgrade),
-      }));
+      };
+      if (isUpgrade && existingPkgHex) {
+        cfgArgs["odra_cfg_package_hash_to_upgrade"] =
+          CLValue.newCLByteArray(Hash.fromHex(existingPkgHex).toBytes());
+        cfgArgs["odra_cfg_create_upgrade_group"] = CLValue.newCLValueBool(false);
+      }
+
+      const payment = ExecutableDeployItem.standardPayment(PAYMENT);
+      const session = ExecutableDeployItem.newModuleBytes(wasmBytes, Args.fromMap(cfgArgs));
       const deploy  = Deploy.makeDeploy(header, payment, session);
 
       // ── 3. Sign with Casper Wallet extension ─────────────────────────
@@ -167,7 +179,7 @@ export function DeployPanel() {
   const inProgress  = step !== "idle" && step !== "error" && step !== "done";
   const btnLabel    = step === "error" ? "Retry Deploy"
                     : contractHash      ? "Deployed ✓"
-                    : displayHash       ? "Deploy New (payable)"
+                    : displayHash       ? "Upgrade (in-place)"
                     : "Deploy Contract";
 
   return (
@@ -217,7 +229,7 @@ export function DeployPanel() {
           onClick={doDeploy}
           disabled={!account || inProgress || step === "done"}
           title={!account ? "Connect wallet first"
-                : displayHash ? "Deploy the new payable YieldVault as a fresh package"
+                : displayHash ? "Upgrade the vault in place — same package hash, state (deposits/agent) preserved"
                 : "Deploy YieldVault contract to Casper Testnet"}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[10px] font-mono font-bold uppercase tracking-widest transition-all duration-300 disabled:opacity-30"
           style={{ background: "rgba(191,90,242,0.07)", borderColor: "rgba(191,90,242,0.35)", color: "#BF5AF2" }}
@@ -232,8 +244,10 @@ export function DeployPanel() {
 
 // ── Poll until deploy finalized + return contract hash ─────────────────────────
 
-// Whether the deployer account already holds `keyName` (⇒ this is an upgrade, not a fresh install).
-async function accountHasNamedKey(callerHash: string, keyName: string): Promise<boolean> {
+// The package hash stored under the deployer's `keyName` named key (64-hex, no
+// prefix), or null if absent ⇒ fresh install. Its presence makes this an upgrade,
+// and its value is what odra_cfg_package_hash_to_upgrade must point at.
+async function getNamedKeyPackageHash(callerHash: string, keyName: string): Promise<string | null> {
   const base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
   try {
     const res = await fetch(`${base}/rpc`, {
@@ -245,11 +259,14 @@ async function accountHasNamedKey(callerHash: string, keyName: string): Promise<
     });
     const data = await res.json();
     const sv = data.result?.stored_value;
-    const namedKeys: Array<{ name: string }> =
+    const namedKeys: Array<{ name: string; key: string }> =
       sv?.Account?.named_keys ?? sv?.AddressableEntity?.named_keys ?? sv?.Entity?.named_keys ?? [];
-    return namedKeys.some((k) => k.name === keyName);
+    const entry = namedKeys.find((k) => k.name === keyName);
+    if (!entry?.key) return null;
+    const hex = entry.key.replace(/^(hash-|package-|contract-package-|entity-contract-)/, "");
+    return /^[0-9a-fA-F]{64}$/.test(hex) ? hex.toLowerCase() : null;
   } catch {
-    return false; // treat unknown as fresh install
+    return null; // treat unknown as fresh install
   }
 }
 
