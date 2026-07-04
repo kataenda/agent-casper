@@ -194,6 +194,15 @@ Network:       casper-test
 Framework:     Odra 2.7.2 (Rust → WASM), upgradable + payable (real CSPR custody)
 ```
 
+> **Upgradable in place — proven live.** The package has already been upgraded on-chain
+> (v1 `983c9198…` → v2 `04a04d88…`) with the **same package hash**, depositor balances
+> (1,000 CSPR TVL) and agent registration **preserved** — `init()` is idempotent, so an
+> upgrade can never wipe state. The backend resolves the latest contract version from
+> the package at runtime, so upgrades require **no env/config changes**. Deploys are
+> **wallet-scoped** like any multi-wallet dApp: the `/deploy` page reads the connected
+> wallet's own vault (its `yield_vault_prod` named key) — fresh install if it has none,
+> in-place upgrade if it does.
+
 ### Entry Points
 
 | Function | Description |
@@ -493,7 +502,10 @@ CSPR_CLOUD_BASE_URL=https://api.testnet.cspr.cloud
 # ── Vault & Agent ─────────────────────────────────────────────────────────
 # Filled in after deploying the contract via the dashboard
 VAULT_CONTRACT_HASH=hash-xxxx...
-VAULT_CONTRACT_VERSION_HASH=xxxx...
+# OPTIONAL network-failure fallback only — the backend resolves the LATEST
+# contract version from the package on-chain at runtime (survives upgrades).
+# Leave EMPTY in normal operation; a stale value here can never misroute calls.
+VAULT_CONTRACT_VERSION_HASH=
 AGENT_ACCOUNT_HASH=account-hash-xxxx...
 AGENT_SECRET_KEY_PATH=./agent_secret_key.pem
 
@@ -658,7 +670,7 @@ Both backend and frontend are deployed on a self-hosted VPS using [Coolify](http
    | `CSPR_CLOUD_API_KEY` | Your CSPR.cloud API key |
    | `CSPR_CLOUD_BASE_URL` | `https://api.testnet.cspr.cloud` |
    | `VAULT_CONTRACT_HASH` | `hash-xxxx...` |
-   | `VAULT_CONTRACT_VERSION_HASH` | 64-char hex (no `hash-` prefix) |
+   | `VAULT_CONTRACT_VERSION_HASH` | leave empty — resolved live from the package on-chain (fallback only) |
    | `AGENT_ACCOUNT_HASH` | `account-hash-xxxx...` |
    | `AGENT_SECRET_KEY_CONTENT` | PEM content with `\n` for newlines |
    | `MAX_REBALANCES_PER_DAY` | `5` |
