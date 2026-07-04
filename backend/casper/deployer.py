@@ -49,8 +49,9 @@ class CasperDeployer:
         # live package resolution always wins, so a stale env value can never
         # silently route entry-point calls to an old contract.
         self._fallback_contract_hash = resolved_contract_hash
-        self._resolved_contract_hash: Optional[str] = None
-        self._resolved_for_package: Optional[str] = None
+        # package hex -> latest resolved contract-version hex. Keyed per package so
+        # multi-tenant servicing (several vaults per cycle) never cross-resolves.
+        self._resolved_by_package: dict[str, str] = {}
 
     def _auth_headers(self) -> dict:
         return {"Authorization": self.cloud_api_key} if self.cloud_api_key else {}
@@ -66,9 +67,9 @@ class CasperDeployer:
                    .removeprefix("hash-")
                    .removeprefix("contract-")
                    .removeprefix("package-"))
-        # Cached resolution is only valid for the same package it was resolved from.
-        if self._resolved_contract_hash and self._resolved_for_package == raw_pkg:
-            return self._resolved_contract_hash
+        cached = self._resolved_by_package.get(raw_pkg)
+        if cached:
+            return cached
         try:
             async with httpx.AsyncClient(timeout=10, headers=self._auth_headers()) as client:
                 resp = await client.post(self.node_url, json={
@@ -83,8 +84,7 @@ class CasperDeployer:
                     # contract_hash in package versions is "contract-XXX"
                     resolved = latest.replace("contract-", "")
                     if len(resolved) == 64:
-                        self._resolved_contract_hash = resolved
-                        self._resolved_for_package = raw_pkg
+                        self._resolved_by_package[raw_pkg] = resolved
                         logger.info("Resolved contract version hash: %s", resolved[:16])
                         return resolved
         except Exception as exc:

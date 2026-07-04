@@ -83,6 +83,22 @@ def enroll(package_hash: str, *, agent_hash: str = "", owner_public_key: str = "
         _write(entries[-_MAX_ENTRIES:])
 
 
+def record_action(package_hash: str, action: str, tx_hash: str = "",
+                  note: str = "") -> None:
+    """Record the agent's latest autonomous action on an enrolled vault (e.g. a
+    tenant rebalance) so the registry shows each tenant being serviced."""
+    pkg = (package_hash or "").replace("hash-", "").replace("package-", "").lower()
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    with _LOCK:
+        entries = _read()
+        for e in entries:
+            if e.get("package_hash") == pkg:
+                e.update({"last_action": action, "last_action_tx": tx_hash,
+                          "last_action_note": note, "last_action_ts": now})
+                _write(entries)
+                return
+
+
 def list_vaults() -> list[dict]:
     """All enrolled vaults, primary first, then newest enrollment first."""
     entries = _read()

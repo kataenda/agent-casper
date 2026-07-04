@@ -96,6 +96,11 @@ class Settings(BaseSettings):
     # (HIGH-risk de-risk moves bypass the net-gain gate — capital preservation.)
     defi_min_drift_pct: float = 10.0
     defi_min_net_gain_bps: int = 50
+    # Multi-tenant servicing: apply each cycle's AI market target to every enrolled
+    # vault (drift-gated per-vault rebalances, capped per day to bound gas).
+    multi_tenant_enabled: bool = True
+    tenant_min_drift_pct: float = 10.0
+    tenant_max_rebalances_per_day: int = 2
     # Mainnet node used to broadcast swap deploys (they're too large for the MCP).
     # cspr.cloud convention: mainnet is the BARE domain (testnet has the .testnet. prefix).
     cspr_mainnet_node_url: str = "https://node.cspr.cloud/rpc"
@@ -370,6 +375,9 @@ async def lifespan(app: FastAPI):
         defi_max_swaps_per_day=settings.defi_max_swaps_per_day,
         defi_min_drift_pct=settings.defi_min_drift_pct,
         defi_min_net_gain_bps=settings.defi_min_net_gain_bps,
+        multi_tenant_enabled=settings.multi_tenant_enabled,
+        tenant_min_drift_pct=settings.tenant_min_drift_pct,
+        tenant_max_rebalances_per_day=settings.tenant_max_rebalances_per_day,
         on_cycle_complete=on_cycle,
     )
 

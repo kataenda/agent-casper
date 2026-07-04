@@ -39,6 +39,7 @@ interface Trust {
 interface EnrolledVault {
   package_hash: string; owner_public_key?: string; register_tx?: string;
   is_primary?: boolean; enrolled_at?: string; explorer_url?: string; register_url?: string;
+  last_action?: string; last_action_tx?: string; last_action_ts?: string; last_action_note?: string;
 }
 
 function Card({ children, accent = ACCENT }: { children: React.ReactNode; accent?: string }) {
@@ -140,7 +141,7 @@ export default function AgentPage() {
           </div>
         </div>
         <span className="font-mono text-[9px] text-cyber-muted uppercase tracking-widest">
-          1 agent · {registry ? `${registry.count} vault${registry.count === 1 ? "" : "s"} enrolled` : "…"} · autonomous mgmt in Phase 3
+          1 agent · {registry ? `${registry.count} vault${registry.count === 1 ? "" : "s"} serviced` : "…"} · multi-tenant live
         </span>
       </header>
 
@@ -243,6 +244,20 @@ export default function AgentPage() {
                         <Check size={9} /> registered <ExternalLink size={8} />
                       </a>
                     )}
+                    {v.last_action && (
+                      <span className="w-full flex items-center gap-1.5 font-mono text-[8px] text-cyber-muted mt-0.5"
+                            title={v.last_action_note || ""}>
+                        <Zap size={8} style={{ color: "#BF5AF2" }} />
+                        agent: {v.last_action}
+                        {v.last_action_tx && (
+                          <a href={`https://testnet.cspr.live/deploy/${v.last_action_tx}`} target="_blank" rel="noreferrer"
+                             className="hover:opacity-75" style={{ color: "#00D4FF" }}>
+                            {v.last_action_tx.slice(0, 12)}… <ExternalLink size={7} className="inline" />
+                          </a>
+                        )}
+                        {v.last_action_ts && <span className="opacity-60">{v.last_action_ts.slice(5, 16)}</span>}
+                      </span>
+                    )}
                   </div>
                 ))}
               </div>
@@ -254,8 +269,9 @@ export default function AgentPage() {
             )}
 
             <p className="font-mono text-[8px] text-cyber-muted/60 mt-3">
-              Enrollment is evidence-based (verified on-chain deploys, no self-claims). The agent
-              autonomously manages the primary vault today; servicing every enrolled vault is Phase 3.
+              Enrollment is evidence-based (verified on-chain deploys, no self-claims). Each cycle the
+              agent applies its AI market target to <b>every enrolled vault</b> — drift-gated, per-vault
+              daily caps. Per-tenant keys/dashboards (full isolation) are Phase 3.
             </p>
           </div>
         </Card>

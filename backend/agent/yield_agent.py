@@ -17,6 +17,7 @@ from casper.rwa_oracle import RWAOracle
 from casper.x402 import X402Handler
 from casper.cspr_trade import CsprTradeMCP
 from casper import swap_log
+from casper import vault_registry
 from agent.decision_engine import DecisionEngine, RebalanceDecision
 
 logger = logging.getLogger(__name__)
@@ -33,6 +34,7 @@ class AgentCycleResult(BaseModel):
     tx_hash: Optional[str] = None
     x402_payment: dict = {}              # x402 micropayment record for this cycle
     defi_execution: dict = {}            # real CSPR.trade mainnet swap triggered by a rebalance
+    tenant_executions: list[dict] = []   # per-enrolled-vault servicing results (multi-tenant)
     error: Optional[str] = None
 
 
@@ -59,6 +61,9 @@ class YieldAgent:
         defi_max_swaps_per_day: int = 1,
         defi_min_drift_pct: float = 10.0,
         defi_min_net_gain_bps: int = 50,
+        multi_tenant_enabled: bool = True,
+        tenant_min_drift_pct: float = 10.0,
+        tenant_max_rebalances_per_day: int = 2,
         on_cycle_complete: Optional[Callable] = None,
     ):
         self.casper = casper_client
@@ -86,10 +91,18 @@ class YieldAgent:
         self.defi_min_net_gain_bps = defi_min_net_gain_bps
         self.on_cycle_complete = on_cycle_complete
 
+        # Multi-tenant servicing: apply the cycle's AI market target to every
+        # enrolled vault (drift-gated, per-vault daily cap). One AI decision per
+        # cycle — market signals are global — executed per vault.
+        self.multi_tenant_enabled = multi_tenant_enabled
+        self.tenant_min_drift_pct = tenant_min_drift_pct
+        self.tenant_max_rebalances = tenant_max_rebalances_per_day
+
         self._running = False
         self.paused = False           # set True to freeze rebalancing without stopping loop
         self._rebalances_today = 0
         self._defi_swaps_today = 0
+        self._tenant_rebalances_today: dict[str, int] = {}
         # Running estimate of sCSPR acquired via our own de-risk swaps. Gates risk-on
         # unwinds: you can't unstake sCSPR you never bought. Updated after each swap.
         self._scspr_est = 0.0
@@ -129,6 +142,7 @@ class YieldAgent:
         if self._last_rebalance_date != today:
             self._rebalances_today = 0
             self._defi_swaps_today = 0
+            self._tenant_rebalances_today = {}
             self._last_rebalance_date = today
 
         block_height, yield_rates, portfolio, rwa_prices = await asyncio.gather(
@@ -207,6 +221,10 @@ class YieldAgent:
         except Exception as exc:
             logger.warning("x402 payment error: %s", exc)
 
+        # Multi-tenant servicing: apply this cycle's AI market target to every
+        # OTHER enrolled vault (the primary was handled above).
+        tenant_executions = await self._service_tenant_vaults(decision)
+
         return AgentCycleResult(
             timestamp=datetime.utcnow().isoformat(),
             block_height=block_height,
@@ -218,8 +236,80 @@ class YieldAgent:
             tx_hash=tx_hash,
             x402_payment=x402_payment,
             defi_execution=defi_execution,
+            tenant_executions=tenant_executions,
             error=cycle_error,
         )
+
+    async def _service_tenant_vaults(self, decision: RebalanceDecision) -> list[dict]:
+        """
+        Multi-tenant servicing (one AI decision → per-vault execution).
+
+        Market signals (RWA, validator yields) are global, so the cycle's AI target
+        allocation applies to every vault; what differs per tenant is its CURRENT
+        on-chain allocation. For each enrolled non-primary vault: read its
+        allocation, and when it drifts from the AI target by ≥ tenant_min_drift_pct
+        points, execute a real rebalance() on THAT vault (the agent is registered
+        on it by its owner — verified at enrollment). Guards: per-vault daily cap,
+        never raises into the main cycle, every action recorded in the registry.
+        """
+        results: list[dict] = []
+        if not (self.multi_tenant_enabled and not self.paused):
+            return results
+        target = (decision.conservative_pct, decision.balanced_pct, decision.aggressive_pct)
+        if sum(target) != 100:
+            return results  # no valid market target this cycle
+
+        primary = (self.vault_contract_hash or "").replace("hash-", "").lower()
+        try:
+            vaults = vault_registry.list_vaults()
+        except Exception:
+            return results
+
+        for v in vaults:
+            pkg = v.get("package_hash", "")
+            if not pkg or pkg == primary:
+                continue
+            entry: dict = {"package_hash": pkg, "action": "HOLD", "tx_hash": None, "note": ""}
+            try:
+                done = self._tenant_rebalances_today.get(pkg, 0)
+                if done >= self.tenant_max_rebalances:
+                    entry.update(action="SKIP", note=f"daily cap {done}/{self.tenant_max_rebalances}")
+                    results.append(entry)
+                    continue
+
+                port = await self.casper.get_vault_portfolio(pkg, agent_account_hash=self.agent_account)
+                drift = max(
+                    abs(target[0] - port.conservative_pct),
+                    abs(target[1] - port.balanced_pct),
+                    abs(target[2] - port.aggressive_pct),
+                )
+                if drift < self.tenant_min_drift_pct:
+                    entry.update(note=f"within target (drift {drift}pp)")
+                    results.append(entry)
+                    continue
+
+                reasoning = (f"[tenant] serviced from shared AI market target "
+                             f"{target[0]}/{target[1]}/{target[2]} (drift {drift}pp). "
+                             f"{decision.reasoning[:140]}")
+                tx = await self.deployer.submit_rebalance(
+                    contract_hash=pkg,
+                    key_path=self.agent_key_path,
+                    new_strategy=decision.new_strategy or "balanced",
+                    conservative_pct=target[0],
+                    balanced_pct=target[1],
+                    aggressive_pct=target[2],
+                    reasoning=reasoning,
+                )
+                self._tenant_rebalances_today[pkg] = done + 1
+                entry.update(action="REBALANCE", tx_hash=tx, note=f"drift {drift}pp → {target}")
+                vault_registry.record_action(pkg, "REBALANCE", tx_hash=tx or "",
+                                             note=f"drift {drift}pp → {target[0]}/{target[1]}/{target[2]}")
+                logger.info("[tenant %s…] rebalanced to %s — tx %s", pkg[:10], target, (tx or "")[:16])
+            except Exception as exc:
+                entry.update(action="ERROR", note=str(exc)[:160])
+                logger.warning("[tenant %s…] servicing error: %s", pkg[:10], exc)
+            results.append(entry)
+        return results
 
     # Key RWA indicators posted on-chain via YieldVault.update_rwa_price()
     RWA_ASSETS_TO_POST: set[str] = {"PAXG", "UST10Y"}
@@ -477,6 +567,8 @@ class YieldAgent:
             "rebalances_today": self._rebalances_today,
             "defi_swaps_today": self._defi_swaps_today,
             "defi_execute_on_rebalance": self.defi_execute_on_rebalance,
+            "multi_tenant_enabled": self.multi_tenant_enabled,
+            "tenant_rebalances_today": dict(self._tenant_rebalances_today),
             "total_cycles": len(self._cycle_history),
             "poll_interval_seconds": self.poll_interval,
         }
