@@ -18,11 +18,12 @@ const BACKEND = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const CHAIN   = "casper-test";
 const GAS     = "2500000000"; // 2.5 CSPR
 
-type Step = "idle" | "building" | "signing" | "submitting" | "done" | "error";
+type Step = "idle" | "building" | "signing" | "submitting" | "waiting" | "done" | "error";
 
 const STEP_LABEL: Record<Step, string> = {
   idle: "", building: "Building deploy…", signing: "Waiting for signature…",
-  submitting: "Submitting to testnet…", done: "Done!", error: "Error",
+  submitting: "Submitting to testnet…", waiting: "Confirming on-chain (~1 min)…",
+  done: "Done!", error: "Error",
 };
 
 // ── Deploy submission — anonymous browser first, then backend fallback ─────────
@@ -169,6 +170,31 @@ export function RegisterAgentButton({ contractHash }: { contractHash: string }) 
       setStep("submitting");
       const hash = await submitDeploy(deployBody);
       setTxHash(hash);
+
+      // No optimistic badge: wait for real on-chain execution before claiming
+      // success — a reverted deploy must show as an error, not "REGISTERED".
+      setStep("waiting");
+      const deadline = Date.now() + 120_000;
+      let confirmed = false; let chainErr: string | null = null;
+      while (Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, 10_000));
+        try {
+          const res = await fetch(`${BACKEND}/deploys/${hash}`);
+          const raw = await res.json();
+          const o = raw.data ?? raw;
+          if (o.error_message) { chainErr = String(o.error_message); break; }
+          if (o.status && o.status !== "pending") { confirmed = true; break; }
+        } catch { /* transient — keep polling */ }
+      }
+      if (chainErr) throw new Error(`On-chain failure: ${chainErr}`);
+      if (!confirmed) throw new Error("Belum terkonfirmasi dalam 2 menit — cek explorer");
+
+      // Bust the backend's cached view so a reload shows the truth immediately.
+      try {
+        const pkg = targetHash.replace(/^(hash-|package-)/, "");
+        await fetch(`${BACKEND}/vault/agent-registered?package=${pkg}&fresh=1`);
+      } catch { /* non-fatal */ }
+
       setAgentRegistered(true);
       setStep("done");
     } catch (e: unknown) {

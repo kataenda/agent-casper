@@ -60,6 +60,14 @@ class CasperClient:
         import time as _t
         self._rest_cache[key] = (value, _t.time() + ttl)
 
+    def invalidate_package_cache(self, package_hash: str) -> None:
+        """Drop cached reads for a package — used right after an action (e.g.
+        register_agent) so the UI sees the new on-chain truth immediately
+        instead of waiting out the TTL."""
+        pkg = package_hash.replace("hash-", "").replace("package-", "")
+        for key in (f"reg:{pkg}", f"pkgdeps:{pkg}"):
+            self._rest_cache.pop(key, None)
+
     def _unwrap(self, resp_json: dict) -> dict:
         """CSPR.cloud wraps responses in a 'data' object per API spec."""
         return resp_json.get("data", resp_json)

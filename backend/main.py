@@ -949,7 +949,7 @@ async def get_contract_info():
 
 
 @app.get("/vault/agent-registered")
-async def vault_agent_registered(package: str = ""):
+async def vault_agent_registered(package: str = "", fresh: bool = False):
     """Whether the vault already has an agent registered on-chain, read from the
     latest `register_agent` deploy. Lets the UI show 'AGENT REGISTERED' and avoid a
     redundant (gas-costing) re-register on every wallet connect. On read failure
@@ -959,6 +959,10 @@ async def vault_agent_registered(package: str = ""):
     current = settings.agent_account_hash
     contract_hash = (package.strip() or (agent.vault_contract_hash if agent else None)
                      or settings.vault_contract_hash)
+    # ?fresh=1 — drop the cached view first (used right after a register tx so a
+    # reload reflects the new on-chain state without waiting out the cache TTL).
+    if fresh and agent and contract_hash:
+        agent.casper.invalidate_package_cache(contract_hash)
     is_deployed = bool(contract_hash and not contract_hash.startswith("hash-demo"))
     info = None
     if is_deployed and agent:
