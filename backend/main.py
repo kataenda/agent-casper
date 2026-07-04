@@ -180,11 +180,12 @@ async def _vault_owner_public_key() -> str:
 
 
 def require_admin(x_admin_token: str = Header(default=""), authorization: str = Header(default="")):
-    # 1) Wallet-signed session (Authorization: Bearer <session>) — the owner
-    #    proved control of their key by signing the challenge.
+    # 1) Wallet-signed session (Authorization: Bearer <session>) — only the
+    #    PRIMARY vault owner's session grants global admin; tenant sessions are
+    #    scoped to their own vaults and never unlock global controls.
     if authorization.startswith("Bearer "):
         sess = _AUTH_SESSIONS.get(authorization[7:])
-        if sess and sess["exp"] > time.time():
+        if sess and sess["exp"] > time.time() and sess.get("role", "admin") == "admin":
             return
     # 2) Shared-secret fallback (X-Admin-Token)
     expected = settings.admin_token
@@ -928,20 +929,35 @@ async def auth_verify(req: AuthVerifyRequest):
     exp = _AUTH_NONCES.pop(req.nonce, None)
     if not exp or exp < time.time():
         raise HTTPException(401, "Challenge expired or unknown — request a new one")
-    owner = await _vault_owner_public_key()
-    if not owner:
-        raise HTTPException(503, "Vault owner not determinable — no on-chain register_agent "
-                                 "found and OWNER_PUBLIC_KEY not set")
-    if req.public_key.strip().lower() != owner:
-        raise HTTPException(403, f"Signer is not the vault owner ({owner[:12]}…)")
+    signer = req.public_key.strip().lower()
+
+    # Role: primary-vault owner → admin; any ENROLLED vault's owner → tenant
+    # (verified on-chain at enrollment). Tenants get an authenticated session
+    # scoped to their own vaults — never global admin.
+    primary_owner = await _vault_owner_public_key()
+    role: str = ""
+    owned_vaults: list[str] = []
+    if primary_owner and signer == primary_owner:
+        role = "admin"
+    else:
+        for v in vault_registry.list_vaults():
+            if (v.get("owner_public_key") or "").lower() == signer:
+                owned_vaults.append(v.get("package_hash", ""))
+        if owned_vaults:
+            role = "tenant"
+    if not role:
+        raise HTTPException(403, "Signer is not the primary-vault owner nor an enrolled vault owner")
+
     if not _verify_wallet_signature(req.public_key, f"agent-casper-admin:{req.nonce}", req.signature):
         raise HTTPException(401, "Signature verification failed")
     token = secrets.token_urlsafe(32)
-    _AUTH_SESSIONS[token] = {"pk": owner, "exp": time.time() + _AUTH_SESSION_TTL}
+    _AUTH_SESSIONS[token] = {"pk": signer, "role": role, "vaults": owned_vaults,
+                             "exp": time.time() + _AUTH_SESSION_TTL}
     for t, s in list(_AUTH_SESSIONS.items()):   # prune expired sessions
         if s["exp"] < time.time():
             _AUTH_SESSIONS.pop(t, None)
-    return {"session": token, "expires_in": _AUTH_SESSION_TTL, "owner": owner,
+    return {"session": token, "expires_in": _AUTH_SESSION_TTL, "owner": signer,
+            "role": role, "vaults": owned_vaults,
             "note": "send as 'Authorization: Bearer <session>' on privileged calls"}
 
 
@@ -1023,6 +1039,41 @@ async def get_vault_registry():
         } for v in vaults],
         "note": "enrollment is evidence-based: a vault appears here only after its "
                 "on-chain register_agent deploy is verified",
+    }
+
+
+@app.get("/vault/state")
+async def vault_state(package: str = ""):
+    """Per-tenant vault dashboard data: real custodied TVL, current on-chain
+    allocation, registration, and the agent's last autonomous action on THIS
+    vault. `?package=` defaults to the primary vault."""
+    if not agent:
+        raise HTTPException(503, "Agent not initialized")
+    pkg = (package.strip() or agent.vault_contract_hash or settings.vault_contract_hash)
+    pkg_hex = pkg.replace("hash-", "").replace("package-", "").lower()
+
+    portfolio = await agent.casper.get_vault_portfolio(pkg_hex, agent_account_hash=settings.agent_account_hash)
+    reg = next((v for v in vault_registry.list_vaults() if v.get("package_hash") == pkg_hex), None)
+    return {
+        "package_hash": pkg_hex,
+        "explorer_url": f"https://testnet.cspr.live/contract-package/{pkg_hex}",
+        "tvl_motes": portfolio.total_value_motes,
+        "tvl_cspr": portfolio.total_value_motes / 1e9,
+        "allocation": {
+            "conservative_pct": portfolio.conservative_pct,
+            "balanced_pct": portfolio.balanced_pct,
+            "aggressive_pct": portfolio.aggressive_pct,
+            "strategy": portfolio.current_strategy,
+        },
+        "enrolled": bool(reg),
+        "is_primary": bool(reg and reg.get("is_primary")),
+        "owner_public_key": (reg or {}).get("owner_public_key", ""),
+        "last_agent_action": {
+            "action": (reg or {}).get("last_action"),
+            "tx_hash": (reg or {}).get("last_action_tx"),
+            "ts": (reg or {}).get("last_action_ts"),
+            "note": (reg or {}).get("last_action_note"),
+        } if reg and reg.get("last_action") else None,
     }
 
 

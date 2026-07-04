@@ -4,8 +4,10 @@ Polls market data, calls Claude AI, and executes on-chain transactions.
 """
 
 import asyncio
+import json
 import logging
 import time
+from pathlib import Path
 from datetime import datetime, date
 from typing import Callable, Optional
 
@@ -112,7 +114,27 @@ class YieldAgent:
         # dashboard's on-chain proof stays visible (deploys are permanent) instead
         # of flickering on only the ~1 cycle/hour that actually posts.
         self._last_rwa_tx_hashes: dict[str, str] = {}
-        self._cycle_history: list[AgentCycleResult] = []
+        # Cycle history persists to disk (DB-lite) so decisions/TVL survive
+        # backend restarts instead of resetting to an empty dashboard.
+        self._history_path = Path(__file__).resolve().parent.parent / "cycle_history.json"
+        self._cycle_history: list[AgentCycleResult] = self._load_history()
+
+    def _load_history(self) -> list[AgentCycleResult]:
+        try:
+            if self._history_path.is_file():
+                raw = json.loads(self._history_path.read_text(encoding="utf-8"))
+                return [AgentCycleResult(**c) for c in raw if isinstance(c, dict)][-100:]
+        except Exception as exc:
+            logger.warning("cycle history unreadable (%s) — starting fresh", exc)
+        return []
+
+    def _persist_history(self) -> None:
+        try:
+            self._history_path.write_text(
+                json.dumps([c.model_dump() for c in self._cycle_history[-100:]]),
+                encoding="utf-8")
+        except Exception as exc:
+            logger.debug("cycle history write failed: %s", exc)
 
     async def start(self):
         if self._running:
@@ -127,6 +149,7 @@ class YieldAgent:
                 # Keep last 100 cycles in memory
                 if len(self._cycle_history) > 100:
                     self._cycle_history.pop(0)
+                self._persist_history()   # DB-lite: survive restarts
                 if self.on_cycle_complete:
                     await self.on_cycle_complete(result)
             except Exception as exc:

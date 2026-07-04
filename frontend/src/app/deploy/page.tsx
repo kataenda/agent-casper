@@ -8,7 +8,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { ArrowLeft, CheckCircle2, AlertTriangle, RefreshCw, Rocket, ExternalLink } from "lucide-react";
+import { ArrowLeft, CheckCircle2, AlertTriangle, RefreshCw, Rocket, ExternalLink, Wallet, Zap } from "lucide-react";
+import { useWalletVault } from "@/lib/walletVault";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const ACCENT = "#FFB347";
@@ -56,9 +57,32 @@ interface Status {
   isPayable: boolean | null;
 }
 
+interface VaultState {
+  package_hash: string; explorer_url: string; tvl_cspr: number;
+  allocation: { conservative_pct: number; balanced_pct: number; aggressive_pct: number; strategy: string };
+  enrolled: boolean; is_primary: boolean;
+  last_agent_action?: { action?: string; tx_hash?: string; ts?: string; note?: string } | null;
+}
+
 export default function DeployMenu() {
   const [s, setS] = useState<Status>({ backendUpdated: null, contractHash: null, deployed: false, isPayable: null });
   const [loading, setLoading] = useState(false);
+  // Per-tenant dashboard: the connected wallet's OWN vault state.
+  const { vaultHash: walletVault } = useWalletVault();
+  const [myVault, setMyVault] = useState<VaultState | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!walletVault) { setMyVault(null); return; }
+      try {
+        const pkg = walletVault.replace(/^hash-/, "");
+        const r = await fetch(`${API}/vault/state?package=${pkg}`);
+        if (r.ok && !cancelled) setMyVault(await r.json());
+      } catch { /* panel simply hides */ }
+    })();
+    return () => { cancelled = true; };
+  }, [walletVault]);
 
   const refresh = async () => {
     setLoading(true);
@@ -146,6 +170,58 @@ export default function DeployMenu() {
           </a>
         )}
       </Panel>
+
+      {/* ── My Vault — per-tenant dashboard (connected wallet's own vault) ── */}
+      {myVault && (
+        <div className="mt-6">
+          <div className="flex items-center gap-2 mb-2">
+            <Wallet size={13} style={{ color: "#00D4FF" }} />
+            <span className="font-mono text-[12px] font-bold">My Vault</span>
+            {myVault.is_primary && (
+              <span className="font-mono text-[8px] font-bold px-1.5 py-0.5 rounded uppercase tracking-widest"
+                    style={{ background: "#00FF9414", border: "1px solid #00FF9444", color: "#00FF94" }}>
+                primary
+              </span>
+            )}
+          </div>
+          <Panel>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div>
+                <p className="font-mono text-[8px] uppercase tracking-widest text-white/40 mb-1">Custodied TVL</p>
+                <p className="font-mono font-black text-[18px] text-white">{myVault.tvl_cspr.toLocaleString()} <span className="text-[10px] text-white/50">CSPR</span></p>
+              </div>
+              <div>
+                <p className="font-mono text-[8px] uppercase tracking-widest text-white/40 mb-1">Allocation ({myVault.allocation.strategy})</p>
+                <p className="font-mono text-[12px] text-white/80">
+                  <span style={{ color: "#00FF94" }}>{myVault.allocation.conservative_pct}%</span> /{" "}
+                  <span style={{ color: "#00F5FF" }}>{myVault.allocation.balanced_pct}%</span> /{" "}
+                  <span style={{ color: "#BF5AF2" }}>{myVault.allocation.aggressive_pct}%</span>
+                </p>
+              </div>
+              <div>
+                <p className="font-mono text-[8px] uppercase tracking-widest text-white/40 mb-1">Last agent action</p>
+                {myVault.last_agent_action?.action ? (
+                  <p className="font-mono text-[10px] text-white/80 flex items-center gap-1.5">
+                    <Zap size={9} style={{ color: "#BF5AF2" }} /> {myVault.last_agent_action.action}
+                    {myVault.last_agent_action.tx_hash && (
+                      <a href={`https://testnet.cspr.live/deploy/${myVault.last_agent_action.tx_hash}`}
+                         target="_blank" rel="noreferrer" className="hover:opacity-75" style={{ color: "#00D4FF" }}>
+                        {myVault.last_agent_action.tx_hash.slice(0, 10)}… <ExternalLink size={8} className="inline" />
+                      </a>
+                    )}
+                  </p>
+                ) : (
+                  <p className="font-mono text-[10px] text-white/40">none yet — serviced next cycle</p>
+                )}
+              </div>
+            </div>
+            <a href={myVault.explorer_url} target="_blank" rel="noreferrer"
+               className="mt-3 inline-flex items-center gap-1 font-mono text-[9px] hover:opacity-75" style={{ color: "#00D4FF" }}>
+              {myVault.package_hash.slice(0, 20)}… <ExternalLink size={9} />
+            </a>
+          </Panel>
+        </div>
+      )}
 
       {/* ── Step 1: deploy ─────────────────────────────────────── */}
       <div className="mt-6">
