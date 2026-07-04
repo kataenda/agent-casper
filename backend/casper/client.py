@@ -176,30 +176,24 @@ class CasperClient:
         cached = self._cache_get(f"reg:{pkg_hex}")
         if cached is not None:
             return cached  # type: ignore[return-value]
-        url = f"{self.cloud_base_url}/deploys"
-        params = {"contract_package_hash": pkg_hex, "limit": 50, "page": 1}
         try:
-            async with httpx.AsyncClient(headers=self.headers, timeout=12) as client:
-                resp = await client.get(url, params=params)
-                if resp.status_code != 200:
-                    return None
-                for item in resp.json().get("data", []):   # newest first
-                    if item.get("error_message"):
-                        continue
-                    args = item.get("args", {})
-                    # register_agent's only arg is `agent` (a Key); rebalance /
-                    # update_rwa_price use different args, so this is unambiguous.
-                    if "agent" not in args:
-                        continue
-                    ah = self._extract_account_hash(args["agent"].get("parsed"))
-                    if ah:
-                        result = {"agent_hash": ah,
-                                  "tx_hash": item.get("deploy_hash") or item.get("hash"),
-                                  # register_agent is only_owner, so its caller IS the
-                                  # vault owner — used by wallet-sign admin auth.
-                                  "owner_public_key": (item.get("caller_public_key") or "").lower()}
-                        self._cache_put(f"reg:{pkg_hex}", result, 600)
-                        return result
+            for item in await self._fetch_package_deploys(pkg_hex):   # newest first
+                if item.get("error_message"):
+                    continue
+                args = item.get("args", {})
+                # register_agent's only arg is `agent` (a Key); rebalance /
+                # update_rwa_price use different args, so this is unambiguous.
+                if "agent" not in args:
+                    continue
+                ah = self._extract_account_hash(args["agent"].get("parsed"))
+                if ah:
+                    result = {"agent_hash": ah,
+                              "tx_hash": item.get("deploy_hash") or item.get("hash"),
+                              # register_agent is only_owner, so its caller IS the
+                              # vault owner — used by wallet-sign admin auth.
+                              "owner_public_key": (item.get("caller_public_key") or "").lower()}
+                    self._cache_put(f"reg:{pkg_hex}", result, 600)
+                    return result
         except Exception:
             return None
         return None
@@ -264,6 +258,40 @@ class CasperClient:
             _log.debug("fetch_allocation_from_deploys error: %s", exc)
         return 0, 0, 0, "HOLDING", 0
 
+    async def _fetch_package_deploys(self, pkg_hex: str, max_pages: int = 10) -> list[dict]:
+        """All deploys on a contract package, newest first, paginated (up to
+        max_pages × 100). The agent adds deploys hourly (RWA posts, rebalances),
+        so page 1 alone quickly stops containing older deposits/registers — which
+        made TVL shrink and registration 'disappear'. Cached 5 min and shared by
+        TVL + registration reads to keep REST quota usage flat."""
+        cached = self._cache_get(f"pkgdeps:{pkg_hex}")
+        if cached is not None:
+            return cached  # type: ignore[return-value]
+        out: list[dict] = []
+        try:
+            async with httpx.AsyncClient(headers=self.headers, timeout=15) as client:
+                for page in range(1, max_pages + 1):
+                    resp = await client.get(
+                        f"{self.cloud_base_url}/deploys",
+                        params={"contract_package_hash": pkg_hex, "limit": 100, "page": page},
+                    )
+                    if resp.status_code != 200:
+                        if page == 1:   # quota / outage — back off, don't hammer
+                            self._cache_put(f"pkgdeps:{pkg_hex}", [], 120)
+                            return []
+                        break
+                    j = resp.json()
+                    data = j.get("data") or []
+                    out.extend(data)
+                    total = j.get("item_count") or 0
+                    if not data or (total and len(out) >= total):
+                        break
+        except Exception:
+            if not out:
+                return []
+        self._cache_put(f"pkgdeps:{pkg_hex}", out, 300)
+        return out
+
     async def _fetch_tvl_from_deploys(self, package_hash: str) -> int:
         """Real vault TVL (motes) = CSPR actually custodied by the contract, summed
         from successful on-chain `deposit()` calls minus `withdraw()`s. The payable
@@ -273,38 +301,22 @@ class CasperClient:
         if self._is_placeholder(package_hash):
             return 0
         pkg_hex = package_hash.replace("hash-", "").replace("package-", "")
-        cached = self._cache_get(f"tvl:{pkg_hex}")
-        if cached is not None:
-            return cached  # type: ignore[return-value]
-        url = f"{self.cloud_base_url}/deploys"
-        params = {"contract_package_hash": pkg_hex, "limit": 100, "page": 1}
         total = 0
-        try:
-            async with httpx.AsyncClient(headers=self.headers, timeout=12) as client:
-                resp = await client.get(url, params=params)
-                if resp.status_code != 200:
-                    # back off briefly (e.g. 429 quota) instead of hammering each cycle
-                    self._cache_put(f"tvl:{pkg_hex}", 0, 120)
-                    return 0
-                for item in resp.json().get("data", []):
-                    if item.get("error_message"):
-                        continue
-                    args = item.get("args", {})
-                    ep_arg = (args.get("entry_point") or {}).get("parsed")
-                    ep_top = item.get("entry_point") or item.get("name")
-                    if ep_arg == "deposit":
-                        av = (args.get("attached_value") or args.get("amount") or {}).get("parsed")
-                        if av:
-                            total += int(av)
-                    elif ep_top == "withdraw":
-                        amt = (args.get("amount") or {}).get("parsed")
-                        if amt:
-                            total -= int(amt)
-        except Exception:
-            return max(0, total)
-        result = max(0, total)
-        self._cache_put(f"tvl:{pkg_hex}", result, 300)
-        return result
+        for item in await self._fetch_package_deploys(pkg_hex):
+            if item.get("error_message"):
+                continue
+            args = item.get("args", {})
+            ep_arg = (args.get("entry_point") or {}).get("parsed")
+            ep_top = item.get("entry_point") or item.get("name")
+            if ep_arg == "deposit":
+                av = (args.get("attached_value") or args.get("amount") or {}).get("parsed")
+                if av:
+                    total += int(av)
+            elif ep_top == "withdraw":
+                amt = (args.get("amount") or {}).get("parsed")
+                if amt:
+                    total -= int(amt)
+        return max(0, total)
 
     async def get_vault_portfolio(self, contract_hash: str, agent_account_hash: str = "") -> PortfolioState:
         """
