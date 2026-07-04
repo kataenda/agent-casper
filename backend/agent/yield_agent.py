@@ -37,6 +37,7 @@ class AgentCycleResult(BaseModel):
     x402_payment: dict = {}              # x402 micropayment record for this cycle
     defi_execution: dict = {}            # real CSPR.trade mainnet swap triggered by a rebalance
     tenant_executions: list[dict] = []   # per-enrolled-vault servicing results (multi-tenant)
+    aum_motes: int = 0                   # custodied CSPR across ALL enrolled vaults (multi-tenant AUM)
     error: Optional[str] = None
 
 
@@ -248,6 +249,18 @@ class YieldAgent:
         # OTHER enrolled vault (the primary was handled above).
         tenant_executions = await self._service_tenant_vaults(decision)
 
+        # Multi-tenant AUM for this cycle: primary custody + every enrolled
+        # tenant vault's custody (cached package reads — no extra quota).
+        aum_motes = portfolio.total_value_motes
+        try:
+            primary_pkg = (self.vault_contract_hash or "").replace("hash-", "").lower()
+            for v in vault_registry.list_vaults():
+                pkg = v.get("package_hash", "")
+                if pkg and pkg != primary_pkg:
+                    aum_motes += await self.casper._fetch_tvl_from_deploys(pkg)
+        except Exception:
+            pass
+
         return AgentCycleResult(
             timestamp=datetime.utcnow().isoformat(),
             block_height=block_height,
@@ -260,6 +273,7 @@ class YieldAgent:
             x402_payment=x402_payment,
             defi_execution=defi_execution,
             tenant_executions=tenant_executions,
+            aum_motes=aum_motes,
             error=cycle_error,
         )
 

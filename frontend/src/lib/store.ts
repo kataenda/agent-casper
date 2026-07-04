@@ -51,6 +51,8 @@ export interface AgentCycle {
   rwa_tx_hashes?: Record<string, string>;
   tx_hash: string | null;
   defi_execution?: DefiExecution;
+  tenant_executions?: { package_hash: string; action: string; tx_hash?: string | null; note?: string }[];
+  aum_motes?: number;   // custodied CSPR across ALL enrolled vaults (multi-tenant AUM)
   error?: string | null;
 }
 
@@ -132,7 +134,11 @@ export const useAgentStore = create<AgentStore>()(
         const { cycles, portfolioHistory, depositedMotes } = get();
         if (cycles.some(e => e.timestamp === c.timestamp)) return;
         const newCycles = [c, ...cycles].slice(0, 50);
-        const displayValue = (c.portfolio.total_value_motes + depositedMotes) / 1e9;
+        // Trajectory plots multi-tenant AUM when the cycle carries it (primary +
+        // all tenant vaults); older cycles fall back to primary TVL + optimism.
+        const displayValue = ((c.aum_motes && c.aum_motes > 0)
+          ? c.aum_motes
+          : c.portfolio.total_value_motes + depositedMotes) / 1e9;
         const newHistory = [
           ...portfolioHistory,
           { time: new Date(c.timestamp).toLocaleTimeString(), value: displayValue },
