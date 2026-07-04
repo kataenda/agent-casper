@@ -27,6 +27,7 @@ const ChatBox = dynamic(
   { ssr: false }
 );
 import { useAgentStore } from "@/lib/store";
+import { useWalletVault } from "@/lib/walletVault";
 import { useAgentWebSocket } from "@/lib/useWebSocket";
 import { StatusBadge } from "@/components/StatusBadge";
 import { PortfolioChart } from "@/components/PortfolioChart";
@@ -244,20 +245,43 @@ export default function DashboardPage() {
   const portfolio   = latestCycle?.portfolio;
   const decision    = latestCycle?.decision;
   const hasContract = !!latestCycle;
-  // Portfolio Value = multi-tenant AUM: real custodied CSPR across EVERY enrolled
-  // vault the agent services (primary + tenants), not just the primary vault.
-  const [aumMotes, setAumMotes] = useState<number | null>(null);
+  // Hybrid Portfolio Value:
+  //  - wallet connected & owns a vault → headline = THAT vault's custodied TVL,
+  //    subtitle = protocol AUM (scale context)
+  //  - otherwise → headline = protocol AUM across every enrolled vault
+  const [aumInfo, setAumInfo] = useState<{ motes: number; count: number } | null>(null);
   useEffect(() => {
     const base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
     const load = () => fetch(`${base}/vault/aum`)
       .then(r => r.json())
-      .then(d => { if (typeof d.total_motes === "number") setAumMotes(d.total_motes); })
+      .then(d => { if (typeof d.total_motes === "number") setAumInfo({ motes: d.total_motes, count: d.vault_count ?? 0 }); })
       .catch(() => {});
     load();
     const t = setInterval(load, 30000);
     return () => clearInterval(t);
   }, []);
-  const effectiveMotes = aumMotes ?? ((portfolio?.total_value_motes ?? 0) + depositedMotes);
+
+  const { vaultHash: myVaultHash } = useWalletVault();
+  const [myVaultTvlMotes, setMyVaultTvlMotes] = useState<number | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!myVaultHash) { setMyVaultTvlMotes(null); return; }
+      try {
+        const base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+        const r = await fetch(`${base}/vault/state?package=${myVaultHash.replace(/^hash-/, "")}`);
+        const d = await r.json();
+        if (!cancelled && typeof d.tvl_motes === "number") setMyVaultTvlMotes(d.tvl_motes);
+      } catch { /* fall back to AUM view */ }
+    })();
+    return () => { cancelled = true; };
+  }, [myVaultHash, latestCycle?.block_height]);
+
+  const effectiveMotes = (aumInfo?.motes) ?? ((portfolio?.total_value_motes ?? 0) + depositedMotes);
+  const showMyVault = !!myVaultHash && myVaultTvlMotes !== null;
+  const aumLabel = aumInfo
+    ? `${(aumInfo.motes / 1e9).toLocaleString(undefined, { maximumFractionDigits: 0 })} CSPR · ${aumInfo.count} vaults`
+    : "…";
   const totalCspr   = hasContract && effectiveMotes > 0
     ? (effectiveMotes / 1e9).toLocaleString(undefined, { maximumFractionDigits: 0 })
     : hasContract ? "0"
@@ -405,9 +429,14 @@ export default function DashboardPage() {
       {/* ── Stat cards ─────────────────────────────────────────── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 shrink-0 mb-2"
            style={{ gridAutoRows: "88px" }}>
-        <StatCard icon={TrendingUp} label="Portfolio Value"
-          value={hasContract ? `${totalCspr} CSPR` : "—"}
-          sub={hasContract ? `Strategy: ${portfolio?.current_strategy ?? "HOLDING"}` : "Deploy contract first"}
+        <StatCard icon={TrendingUp}
+          label={showMyVault ? "Portfolio Value · My Vault" : "Portfolio Value"}
+          value={showMyVault
+            ? `${((myVaultTvlMotes as number) / 1e9).toLocaleString(undefined, { maximumFractionDigits: 0 })} CSPR`
+            : hasContract ? `${totalCspr} CSPR` : "—"}
+          sub={showMyVault
+            ? `protocol AUM: ${aumLabel}`
+            : hasContract ? `AUM across ${aumInfo?.count ?? "…"} vaults · ${portfolio?.current_strategy ?? "HOLDING"}` : "Deploy contract first"}
           accent="#00F5FF" />
         <StatCard icon={RefreshCw} label="Rebalances"
           value={String(rebalances)} sub={`of ${cycles.length} cycles`} accent="#BF5AF2" />
