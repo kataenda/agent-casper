@@ -20,8 +20,8 @@ const CHAIN        = "casper-test";
 const GAS_DEPOSIT  = "60000000000"; // 60 CSPR — executing the ~184KB Odra proxy wasm is gas-heavy (6 CSPR OOG'd)
 const GAS_WITHDRAW = "3000000000"; // 3 CSPR
 
-export function isRealVaultEnabled(): boolean {
-  return PACKAGE_HASH.trim().length > 0;
+export function isRealVaultEnabled(packageOverride?: string | null): boolean {
+  return !!(packageOverride && packageOverride.trim()) || PACKAGE_HASH.trim().length > 0;
 }
 
 function csprToMotes(amountCspr: string): string {
@@ -44,8 +44,13 @@ export async function fetchProxyWasm(): Promise<Uint8Array> {
  * `amount` CSPR into the vault's payable `deposit()` entry point.
  * Returns { deploy, sdk } — caller signs + submits with the existing wallet flow.
  */
-export async function buildDepositDeploy(senderPubKeyHex: string, amountCspr: string) {
-  if (!PACKAGE_HASH) throw new Error("NEXT_PUBLIC_VAULT_PACKAGE_HASH not set — deploy the payable vault first");
+export async function buildDepositDeploy(
+  senderPubKeyHex: string,
+  amountCspr: string,
+  packageOverride?: string | null,   // wallet-scoped vault takes precedence over env
+) {
+  const pkgHash = (packageOverride && packageOverride.trim()) || PACKAGE_HASH;
+  if (!pkgHash) throw new Error("No vault package — deploy the payable vault first");
   const sdk = await import("casper-js-sdk") as any;
   const { Deploy, DeployHeader, ExecutableDeployItem, ModuleBytes,
           Args, CLValue, CLTypeUInt8, Hash, PublicKey, Duration, Timestamp } = sdk;
@@ -64,7 +69,7 @@ export async function buildDepositDeploy(senderPubKeyHex: string, amountCspr: st
     amount:         CLValue.newCLUInt512(amountMotes),
     attached_value: CLValue.newCLUInt512(amountMotes),
     entry_point:    CLValue.newCLString("deposit"),
-    package_hash:   CLValue.newCLByteArray(Hash.fromHex(stripPrefix(PACKAGE_HASH)).toBytes()),
+    package_hash:   CLValue.newCLByteArray(Hash.fromHex(stripPrefix(pkgHash)).toBytes()),
     args:           serializedArgs,
   });
 
@@ -87,14 +92,19 @@ export async function buildDepositDeploy(senderPubKeyHex: string, amountCspr: st
  * Build the withdraw deploy: a normal stored-contract call to `withdraw(amount)`,
  * which transfers real CSPR from the vault purse back to the caller.
  */
-export async function buildWithdrawDeploy(senderPubKeyHex: string, amountCspr: string) {
-  if (!PACKAGE_HASH) throw new Error("NEXT_PUBLIC_VAULT_PACKAGE_HASH not set — deploy the payable vault first");
+export async function buildWithdrawDeploy(
+  senderPubKeyHex: string,
+  amountCspr: string,
+  packageOverride?: string | null,
+) {
+  const pkgHash = (packageOverride && packageOverride.trim()) || PACKAGE_HASH;
+  if (!pkgHash) throw new Error("No vault package — deploy the payable vault first");
   const sdk = await import("casper-js-sdk") as any;
   const { Deploy, DeployHeader, ExecutableDeployItem, StoredVersionedContractByHash,
           ContractHash, Args, CLValue, Hash, PublicKey, Duration, Timestamp } = sdk;
 
   const amountMotes = csprToMotes(amountCspr);
-  const chash   = new ContractHash(Hash.fromHex(stripPrefix(PACKAGE_HASH)), "hash-");
+  const chash   = new ContractHash(Hash.fromHex(stripPrefix(pkgHash)), "hash-");
   const stored  = new StoredVersionedContractByHash(
     chash, "withdraw", Args.fromMap({ amount: CLValue.newCLUInt512(amountMotes) }),
   );

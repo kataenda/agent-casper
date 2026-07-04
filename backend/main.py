@@ -949,13 +949,16 @@ async def get_contract_info():
 
 
 @app.get("/vault/agent-registered")
-async def vault_agent_registered():
+async def vault_agent_registered(package: str = ""):
     """Whether the vault already has an agent registered on-chain, read from the
     latest `register_agent` deploy. Lets the UI show 'AGENT REGISTERED' and avoid a
     redundant (gas-costing) re-register on every wallet connect. On read failure
-    (e.g. indexer quota) returns registered=false so the manual button still works."""
+    (e.g. indexer quota) returns registered=false so the manual button still works.
+    Optional ?package=<hash> checks a specific (e.g. wallet-owned) vault instead of
+    the configured one — multi-wallet support."""
     current = settings.agent_account_hash
-    contract_hash = (agent.vault_contract_hash if agent else None) or settings.vault_contract_hash
+    contract_hash = (package.strip() or (agent.vault_contract_hash if agent else None)
+                     or settings.vault_contract_hash)
     is_deployed = bool(contract_hash and not contract_hash.startswith("hash-demo"))
     info = None
     if is_deployed and agent:

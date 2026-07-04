@@ -14,6 +14,7 @@ import { useState, useEffect } from "react";
 import { Rocket, CheckCircle, Loader, AlertCircle, ExternalLink } from "lucide-react";
 import { useWalletStore } from "@/lib/walletStore";
 import { adminHeaders } from "@/lib/adminAuth";
+import { getNamedKeyPackageHash } from "@/lib/walletVault";
 
 const BACKEND = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const CHAIN   = "casper-test";
@@ -273,32 +274,6 @@ export function DeployPanel() {
 }
 
 // ── Poll until deploy finalized + return contract hash ─────────────────────────
-
-// The package hash stored under the deployer's `keyName` named key (64-hex, no
-// prefix), or null if absent ⇒ fresh install. Its presence makes this an upgrade,
-// and its value is what odra_cfg_package_hash_to_upgrade must point at.
-async function getNamedKeyPackageHash(callerHash: string, keyName: string): Promise<string | null> {
-  const base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-  try {
-    const res = await fetch(`${base}/rpc`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        id: 1, jsonrpc: "2.0", method: "query_global_state",
-        params: { key: `account-hash-${callerHash}`, path: [] },
-      }),
-    });
-    const data = await res.json();
-    const sv = data.result?.stored_value;
-    const namedKeys: Array<{ name: string; key: string }> =
-      sv?.Account?.named_keys ?? sv?.AddressableEntity?.named_keys ?? sv?.Entity?.named_keys ?? [];
-    const entry = namedKeys.find((k) => k.name === keyName);
-    if (!entry?.key) return null;
-    const hex = entry.key.replace(/^(hash-|package-|contract-package-|entity-contract-)/, "");
-    return /^[0-9a-fA-F]{64}$/.test(hex) ? hex.toLowerCase() : null;
-  } catch {
-    return null; // treat unknown as fresh install
-  }
-}
 
 async function pollForContractHash(deployHash: string, callerHash: string, pkgKey = "yield_vault"): Promise<string> {
   const base     = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";

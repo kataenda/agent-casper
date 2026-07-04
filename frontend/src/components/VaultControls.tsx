@@ -12,6 +12,7 @@ import { UserPlus, ArrowDownCircle, Loader, CheckCircle, AlertCircle, ExternalLi
 import { useWalletStore } from "@/lib/walletStore";
 import { useAgentStore } from "@/lib/store";
 import { buildDepositDeploy, isRealVaultEnabled } from "@/lib/vaultDeposit";
+import { useWalletVault } from "@/lib/walletVault";
 
 const BACKEND = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const CHAIN   = "casper-test";
@@ -104,6 +105,11 @@ async function signDeploy(deploy: unknown, publicKey: string, sdk: any): Promise
 
 export function RegisterAgentButton({ contractHash }: { contractHash: string }) {
   const { account, setAgentRegistered } = useWalletStore();
+  // Wallet-scoped target: register on the CONNECTED wallet's own vault when it
+  // has one (only its owner can call register_agent there); otherwise fall back
+  // to the globally configured vault.
+  const { vaultHash: walletVault } = useWalletVault();
+  const targetHash = walletVault ?? contractHash;
   const [step, setStep]     = useState<Step>("idle");
   const [error, setError]   = useState<string | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
@@ -113,11 +119,13 @@ export function RegisterAgentButton({ contractHash }: { contractHash: string }) 
   const [registeredUrl, setRegisteredUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!contractHash) return;
+    if (!targetHash) return;
     let cancelled = false;
+    setAlreadyRegistered(false); setRegisteredUrl(null);
     (async () => {
       try {
-        const r = await fetch(`${BACKEND}/vault/agent-registered`);
+        const pkg = targetHash.replace(/^(hash-|package-)/, "");
+        const r = await fetch(`${BACKEND}/vault/agent-registered?package=${pkg}`);
         const d = await r.json();
         if (!cancelled && d.registered && d.matches_current) {
           setAlreadyRegistered(true);
@@ -127,10 +135,10 @@ export function RegisterAgentButton({ contractHash }: { contractHash: string }) 
       } catch { /* indexer unreachable — fall back to manual register button */ }
     })();
     return () => { cancelled = true; };
-  }, [contractHash, setAgentRegistered]);
+  }, [targetHash, setAgentRegistered]);
 
   const doRegister = async () => {
-    if (!account || !contractHash) return;
+    if (!account || !targetHash) return;
     setStep("building"); setError(null);
 
     try {
@@ -144,7 +152,7 @@ export function RegisterAgentButton({ contractHash }: { contractHash: string }) 
 
       const agentKeyArg = CLValue.newCLKey(Key.newKey(agentHash));
       const { item: session } = await buildStoredContractSession(
-        contractHash, "register_agent", { "agent": agentKeyArg },
+        targetHash, "register_agent", { "agent": agentKeyArg },
       );
 
       const pubKey = PublicKey.fromHex(account.publicKey);
@@ -228,7 +236,8 @@ export function RegisterAgentButton({ contractHash }: { contractHash: string }) 
         </span>
       )}
       <button onClick={doRegister}
-        disabled={!account || !contractHash || (step !== "idle" && step !== "error")}
+        title={walletVault ? `Registers the agent on YOUR wallet's vault (${walletVault.slice(0, 18)}…)` : "Registers the agent on the configured vault"}
+        disabled={!account || !targetHash || (step !== "idle" && step !== "error")}
         className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[10px] font-mono font-bold uppercase tracking-widest transition-all duration-300 disabled:opacity-30"
         style={{ background: "rgba(0,255,148,0.06)", borderColor: "rgba(0,255,148,0.35)", color: "#00FF94" }}>
         <UserPlus size={10} />
@@ -243,6 +252,9 @@ export function RegisterAgentButton({ contractHash }: { contractHash: string }) 
 export function DepositButton({ contractHash }: { contractHash: string }) {
   const { account }              = useWalletStore();
   const { addDeposit, addVaultTx } = useAgentStore();
+  // Wallet-scoped target: deposit lands in the CONNECTED wallet's own vault when
+  // it has one; otherwise the globally configured vault.
+  const { vaultHash: walletVault } = useWalletVault();
   const [step, setStep]          = useState<Step>("idle");
   const [error, setError]        = useState<string | null>(null);
   const [txHash, setTxHash]      = useState<string | null>(null);
@@ -258,10 +270,11 @@ export function DepositButton({ contractHash }: { contractHash: string }) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let sdk: any;
 
-      if (isRealVaultEnabled()) {
+      if (isRealVaultEnabled(walletVault)) {
         // Real custody: attach CSPR to the vault's payable deposit() via the Odra
-        // proxy caller — funds land in the contract purse, not the agent account.
-        ({ deploy, sdk } = await buildDepositDeploy(account.publicKey, amount));
+        // proxy caller — funds land in the TARGET vault's contract purse (the
+        // connected wallet's own vault when it has one).
+        ({ deploy, sdk } = await buildDepositDeploy(account.publicKey, amount, walletVault));
       } else {
         // Fallback (pre-payable vault): native transfer to the agent account.
         const agentRes  = await fetch(`${BACKEND}/admin/agent-address`);
@@ -327,7 +340,8 @@ export function DepositButton({ contractHash }: { contractHash: string }) {
         min="1" step="10" />
       <span className="text-[9px] font-mono text-cyber-muted">CSPR</span>
       <button onClick={doDeposit}
-        disabled={!account || !contractHash || (step !== "idle" && step !== "error")}
+        title={walletVault ? `Deposits into YOUR wallet's vault (${walletVault.slice(0, 18)}…)` : "Deposits into the configured vault"}
+        disabled={!account || !(walletVault || contractHash) || (step !== "idle" && step !== "error")}
         className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[10px] font-mono font-bold uppercase tracking-widest transition-all duration-300 disabled:opacity-30"
         style={{ background: "rgba(0,212,255,0.06)", borderColor: "rgba(0,212,255,0.35)", color: "#00D4FF" }}>
         <ArrowDownCircle size={10} />
