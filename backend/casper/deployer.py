@@ -44,26 +44,31 @@ class CasperDeployer:
         self.chain_name = chain_name
         self.payment_motes = payment_motes
         self.cloud_api_key = cloud_api_key
-        self._resolved_contract_hash = resolved_contract_hash  # pre-populated from env to avoid runtime DNS
+        # Operator-supplied version hash (VAULT_CONTRACT_VERSION_HASH) is only a
+        # FALLBACK for when the on-chain package lookup fails (e.g. no DNS). The
+        # live package resolution always wins, so a stale env value can never
+        # silently route entry-point calls to an old contract.
+        self._fallback_contract_hash = resolved_contract_hash
+        self._resolved_contract_hash: Optional[str] = None
+        self._resolved_for_package: Optional[str] = None
 
     def _auth_headers(self) -> dict:
         return {"Authorization": self.cloud_api_key} if self.cloud_api_key else {}
 
     async def _resolve_contract_hash(self, package_hash: str) -> str:
         """
-        Resolve ContractPackage hash → latest ContractVersion hash.
-        ODRA deploys as a ContractPackage; entry points must target the version hash.
+        Resolve ContractPackage hash → LATEST ContractVersion hash, from chain.
+        ODRA deploys as a ContractPackage; entry points must target the version
+        hash. On-chain resolution is the source of truth (survives upgrades and
+        stale env config); the env-provided hash is only a network-failure fallback.
         """
-        if self._resolved_contract_hash:
-            return (self._resolved_contract_hash
-                    .removeprefix("hash-")
-                    .removeprefix("contract-")
-                    .removeprefix("package-"))
-
         raw_pkg = (package_hash
                    .removeprefix("hash-")
                    .removeprefix("contract-")
                    .removeprefix("package-"))
+        # Cached resolution is only valid for the same package it was resolved from.
+        if self._resolved_contract_hash and self._resolved_for_package == raw_pkg:
+            return self._resolved_contract_hash
         try:
             async with httpx.AsyncClient(timeout=10, headers=self._auth_headers()) as client:
                 resp = await client.post(self.node_url, json={
@@ -79,12 +84,24 @@ class CasperDeployer:
                     resolved = latest.replace("contract-", "")
                     if len(resolved) == 64:
                         self._resolved_contract_hash = resolved
+                        self._resolved_for_package = raw_pkg
                         logger.info("Resolved contract version hash: %s", resolved[:16])
                         return resolved
         except Exception as exc:
             logger.warning("Failed to resolve contract version hash: %s", exc)
 
-        # Fall back to the package hash itself (may work on some Casper 2.x nodes)
+        # Network fallback: operator-supplied version hash (may be stale — warn).
+        if self._fallback_contract_hash:
+            fb = (self._fallback_contract_hash
+                  .removeprefix("hash-")
+                  .removeprefix("contract-")
+                  .removeprefix("package-"))
+            logger.warning("Using env VAULT_CONTRACT_VERSION_HASH fallback %s… — "
+                           "could not resolve live version from package %s…",
+                           fb[:12], raw_pkg[:12])
+            return fb
+
+        # Last resort: the package hash itself (works on some Casper 2.x nodes)
         return raw_pkg
 
     # ── Public API ─────────────────────────────────────────────────────────
