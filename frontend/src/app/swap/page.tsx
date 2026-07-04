@@ -6,7 +6,7 @@ import {
   Repeat, ArrowDown, ArrowLeft, ShieldCheck, ExternalLink, Loader2,
   History, Bot, Hand, RefreshCw, Activity,
 } from "lucide-react";
-import { adminHeaders } from "@/lib/adminAuth";
+import { adminHeaders, signInWithWallet } from "@/lib/adminAuth";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const ACCENT = "#FF4D6D"; // CSPR.trade-flavored accent
@@ -124,19 +124,34 @@ export default function SwapPage() {
     } catch (e: any) { setErr(e.message); } finally { setLoading(false); }
   }
 
+  const [needAuth, setNeedAuth] = useState(false);
+
   async function executeSwap() {
-    setLoading(true); setErr(null);
+    setLoading(true); setErr(null); setNeedAuth(false);
     try {
       const r = await fetch(`${API}/defi/swap`, {
         method: "POST", headers: adminHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ token_in: "CSPR", token_out: tokenOut, amount, execute: true }),
       });
-      if (r.status === 401) throw new Error("Admin token required — paste it on the API page to execute swaps.");
+      if (r.status === 401) {
+        setNeedAuth(true);
+        throw new Error("Owner authorization required — sign with the owner wallet below (or paste the admin token on the API page).");
+      }
       const d = await r.json();
       if (!r.ok) throw new Error(d.detail || "swap failed");
       setResult(d);
       loadHistory(); // refresh history right after a swap lands
     } catch (e: any) { setErr(e.message); } finally { setLoading(false); setConfirming(false); }
+  }
+
+  // 401 recovery: owner signs a one-time challenge with their wallet → 12h
+  // session → retry the swap without leaving the page.
+  async function authorizeAndRetry() {
+    setLoading(true); setErr(null);
+    const res = await signInWithWallet(API);
+    if (!res.ok) { setErr(`Wallet authorization failed: ${res.error}`); setLoading(false); return; }
+    setNeedAuth(false);
+    await executeSwap();
   }
 
   const executedCount = swaps.filter(s => s.executed).length;
@@ -263,6 +278,14 @@ export default function SwapPage() {
             )}
 
             {err && <div className="text-[10px] font-mono text-red-400 mb-3 break-words">⚠ {err}</div>}
+            {needAuth && (
+              <button onClick={authorizeAndRetry} disabled={loading}
+                className="mb-3 flex items-center gap-1.5 px-3 py-1.5 rounded border font-mono text-[10px] font-bold uppercase tracking-widest transition-all hover:opacity-80 disabled:opacity-40"
+                style={{ borderColor: "#00FF9455", color: "#00FF94", background: "#00FF940d" }}
+                title="Sign a one-time challenge with the vault OWNER wallet, then retry the swap">
+                {loading ? "signing…" : "Authorize with wallet & retry"}
+              </button>
+            )}
 
             {/* Actions */}
             {!confirming ? (
