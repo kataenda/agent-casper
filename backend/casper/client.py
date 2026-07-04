@@ -175,7 +175,10 @@ class CasperClient:
                     ah = self._extract_account_hash(args["agent"].get("parsed"))
                     if ah:
                         return {"agent_hash": ah,
-                                "tx_hash": item.get("deploy_hash") or item.get("hash")}
+                                "tx_hash": item.get("deploy_hash") or item.get("hash"),
+                                # register_agent is only_owner, so its caller IS the
+                                # vault owner — used by wallet-sign admin auth.
+                                "owner_public_key": (item.get("caller_public_key") or "").lower()}
         except Exception:
             return None
         return None

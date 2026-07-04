@@ -8,6 +8,8 @@ import base64
 import json
 import logging
 import os
+import secrets
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
@@ -49,6 +51,9 @@ class Settings(BaseSettings):
     # compatible); set ADMIN_TOKEN in the environment to require the X-Admin-Token
     # header on every privileged call. Read-only endpoints are never gated.
     admin_token: str = ""
+    # Optional override for wallet-sign admin auth. Normally the owner is read
+    # on-chain (the caller of register_agent, an only_owner entry point).
+    owner_public_key: str = ""
     agent_secret_key_path: str = "./agent_secret_key.pem"
     # If set, the PEM content is written to a temp file (for cloud deployments like Railway)
     agent_secret_key_content: str = ""
@@ -107,12 +112,82 @@ settings = Settings()
 # Gate state-mutating endpoints behind a shared secret. When ADMIN_TOKEN is unset
 # the gate is a no-op (open) so existing deployments keep working until the owner
 # opts in by setting it. Read-only endpoints are never gated.
-def require_admin(x_admin_token: str = Header(default="")):
+# ── Wallet-sign admin auth (Sign-In with Wallet) ──────────────────────────────
+# The vault OWNER can authorize privileged calls by signing a one-time challenge
+# with their wallet (no shared secret). ADMIN_TOKEN keeps working as a fallback.
+_AUTH_NONCES: dict[str, float] = {}     # nonce -> expiry epoch
+_AUTH_SESSIONS: dict[str, dict] = {}    # session token -> {pk, exp}
+_AUTH_NONCE_TTL = 300                   # 5 min to sign the challenge
+_AUTH_SESSION_TTL = 12 * 3600           # 12 h session
+
+
+def _verify_wallet_signature(public_key_hex: str, message: str, signature_hex: str) -> bool:
+    """Verify a Casper Wallet signMessage() signature. The wallet signs the UTF-8
+    bytes of "Casper Message:\\n" + message — ed25519 (01…) signs them directly,
+    secp256k1 (02…) signs their sha256 digest (blake2b tried as a fallback).
+    Accepts 64-byte signatures with or without the algorithm prefix byte."""
+    try:
+        pk_hex = public_key_hex.strip().lower()
+        algo, pk = pk_hex[:2], bytes.fromhex(pk_hex[2:])
+        sig = bytes.fromhex(signature_hex.strip().lower().removeprefix("0x"))
+        if len(sig) == 65 and sig[0] in (1, 2):
+            sig = sig[1:]
+        if len(sig) != 64:
+            return False
+        prefixed = b"Casper Message:\n" + message.encode()
+        if algo == "01":
+            from pycspr.crypto import ecc_ed25519
+            return ecc_ed25519.is_signature_valid(prefixed, sig, pk)
+        if algo == "02":
+            from pycspr.crypto import ecc_secp256k1
+            try:
+                if ecc_secp256k1.is_signature_valid(prefixed, sig, pk):
+                    return True
+            except Exception:
+                pass
+            try:  # some signers digest with blake2b32 instead of sha256
+                import ecdsa as _ecdsa
+                import hashlib as _hashlib
+                vk = _ecdsa.VerifyingKey.from_string(pk, curve=_ecdsa.SECP256k1)
+                digest = _hashlib.blake2b(prefixed, digest_size=32).digest()
+                return bool(vk.verify_digest(sig, digest))
+            except Exception:
+                return False
+    except Exception:
+        return False
+    return False
+
+
+async def _vault_owner_public_key() -> str:
+    """The vault owner's public key: env override, else read on-chain (the caller
+    of the latest successful register_agent — an only_owner entry point)."""
+    if settings.owner_public_key:
+        return settings.owner_public_key.strip().lower()
+    if agent:
+        contract_hash = agent.vault_contract_hash or settings.vault_contract_hash
+        try:
+            info = await agent.casper.get_registered_agent(contract_hash)
+            return ((info or {}).get("owner_public_key") or "").lower()
+        except Exception:
+            return ""
+    return ""
+
+
+def require_admin(x_admin_token: str = Header(default=""), authorization: str = Header(default="")):
+    # 1) Wallet-signed session (Authorization: Bearer <session>) — the owner
+    #    proved control of their key by signing the challenge.
+    if authorization.startswith("Bearer "):
+        sess = _AUTH_SESSIONS.get(authorization[7:])
+        if sess and sess["exp"] > time.time():
+            return
+    # 2) Shared-secret fallback (X-Admin-Token)
     expected = settings.admin_token
     if not expected:
         return  # auth disabled — no token configured
     if x_admin_token != expected:
-        raise HTTPException(status_code=401, detail="Admin token required or invalid")
+        raise HTTPException(status_code=401,
+                            detail="Admin auth required — X-Admin-Token, or a wallet-signed "
+                                   "session (GET /auth/challenge → sign → POST /auth/verify)")
 
 
 # If PEM content provided via env var, write to temp file
@@ -812,6 +887,53 @@ async def get_agent_address():
         "vault_contract_hash": contract_hash if is_deployed else None,
         "contract_deployed": is_deployed,
     }
+
+
+class AuthVerifyRequest(BaseModel):
+    public_key: str
+    nonce: str
+    signature: str
+
+
+@app.get("/auth/challenge")
+async def auth_challenge():
+    """Wallet-sign admin auth, step 1: one-time challenge to sign with the OWNER wallet."""
+    now = time.time()
+    for n, exp in list(_AUTH_NONCES.items()):   # prune expired
+        if exp < now:
+            _AUTH_NONCES.pop(n, None)
+    nonce = secrets.token_hex(16)
+    _AUTH_NONCES[nonce] = now + _AUTH_NONCE_TTL
+    return {
+        "nonce": nonce,
+        "message": f"agent-casper-admin:{nonce}",
+        "expires_in": _AUTH_NONCE_TTL,
+        "how": "wallet.signMessage(message) with the vault owner account, then POST /auth/verify",
+    }
+
+
+@app.post("/auth/verify")
+async def auth_verify(req: AuthVerifyRequest):
+    """Wallet-sign admin auth, step 2: verify the owner's signature → session token.
+    Owner = caller of the on-chain register_agent (only_owner), or OWNER_PUBLIC_KEY env."""
+    exp = _AUTH_NONCES.pop(req.nonce, None)
+    if not exp or exp < time.time():
+        raise HTTPException(401, "Challenge expired or unknown — request a new one")
+    owner = await _vault_owner_public_key()
+    if not owner:
+        raise HTTPException(503, "Vault owner not determinable — no on-chain register_agent "
+                                 "found and OWNER_PUBLIC_KEY not set")
+    if req.public_key.strip().lower() != owner:
+        raise HTTPException(403, f"Signer is not the vault owner ({owner[:12]}…)")
+    if not _verify_wallet_signature(req.public_key, f"agent-casper-admin:{req.nonce}", req.signature):
+        raise HTTPException(401, "Signature verification failed")
+    token = secrets.token_urlsafe(32)
+    _AUTH_SESSIONS[token] = {"pk": owner, "exp": time.time() + _AUTH_SESSION_TTL}
+    for t, s in list(_AUTH_SESSIONS.items()):   # prune expired sessions
+        if s["exp"] < time.time():
+            _AUTH_SESSIONS.pop(t, None)
+    return {"session": token, "expires_in": _AUTH_SESSION_TTL, "owner": owner,
+            "note": "send as 'Authorization: Bearer <session>' on privileged calls"}
 
 
 @app.get("/admin/contract-info")

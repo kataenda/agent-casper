@@ -5,7 +5,7 @@ import Link from "next/link";
 import {
   Code2, ArrowLeft, ExternalLink, Zap, Loader2, Server, Activity, BookOpen, X, KeyRound,
 } from "lucide-react";
-import { getAdminToken, setAdminToken, adminHeaders } from "@/lib/adminAuth";
+import { getAdminToken, setAdminToken, adminHeaders, getAdminSession, signInWithWallet } from "@/lib/adminAuth";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const ACCENT = "#BF5AF2";
@@ -129,8 +129,20 @@ export default function ApiPage() {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [reqBody, setReqBody] = useState<Record<string, string>>({});
   const [token, setToken] = useState("");
+  const [walletAuth, setWalletAuth] = useState<"idle" | "busy" | "ok" | "err">("idle");
+  const [walletAuthErr, setWalletAuthErr] = useState("");
 
-  useEffect(() => { setToken(getAdminToken()); }, []);
+  useEffect(() => {
+    setToken(getAdminToken());
+    if (getAdminSession()) setWalletAuth("ok");
+  }, []);
+
+  const doWalletAuth = useCallback(async () => {
+    setWalletAuth("busy"); setWalletAuthErr("");
+    const res = await signInWithWallet(API);
+    if (res.ok) { setWalletAuth("ok"); }
+    else { setWalletAuth("err"); setWalletAuthErr(res.error || "failed"); }
+  }, []);
 
   const clearResult = useCallback((path: string) => {
     setResults(s => { const n = { ...s }; delete n[path]; return n; });
@@ -209,12 +221,31 @@ export default function ApiPage() {
           className="flex-1 min-w-[180px] bg-transparent font-mono text-[10px] px-2 py-1 rounded outline-none"
           style={{ color: "#fff", border: "1px solid rgba(255,255,255,0.12)" }}
         />
+        <span className="font-mono text-[9px] text-cyber-muted">or</span>
+        <button
+          onClick={doWalletAuth}
+          disabled={walletAuth === "busy"}
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded border font-mono text-[9px] font-bold uppercase tracking-widest transition-all hover:opacity-80 disabled:opacity-40"
+          style={{
+            borderColor: walletAuth === "ok" ? "#00FF9455" : `${ACCENT}55`,
+            color:       walletAuth === "ok" ? "#00FF94"   : ACCENT,
+            background:  walletAuth === "ok" ? "#00FF940d" : `${ACCENT}0d`,
+          }}
+          title="Sign a one-time challenge with the vault OWNER wallet — no shared secret needed"
+        >
+          {walletAuth === "busy" ? "signing…" : walletAuth === "ok" ? "✓ wallet authorized" : "Sign with wallet"}
+        </button>
         <span className="font-mono text-[8px] uppercase tracking-widest"
-              style={{ color: token ? "#00FF94" : "#FF9F0A" }}>
-          {token ? "● unlocked" : "○ locked"}
+              style={{ color: token || walletAuth === "ok" ? "#00FF94" : "#FF9F0A" }}>
+          {token || walletAuth === "ok" ? "● unlocked" : "○ locked"}
         </span>
+        {walletAuth === "err" && (
+          <span className="font-mono text-[8px] w-full" style={{ color: "#FF6B82" }}>
+            wallet auth failed: {walletAuthErr}
+          </span>
+        )}
         <span className="font-mono text-[8px] text-cyber-muted w-full sm:w-auto">
-          stored locally · sent as X-Admin-Token · leave empty if the backend has no ADMIN_TOKEN set
+          token → X-Admin-Token · wallet signature → 12h Bearer session (owner verified on-chain) · leave both empty if ADMIN_TOKEN unset
         </span>
       </div>
 
