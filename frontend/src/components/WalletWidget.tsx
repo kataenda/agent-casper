@@ -76,7 +76,7 @@ export function WalletWidget() {
       // showing a generic "not found" that reads like a bug.
       const isMobile = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
       setError(isMobile
-        ? "Di HP: buka situs ini lewat browser BAWAAN app Casper Wallet (menu Browser di dalam app) — browser biasa tidak bisa melihat wallet app."
+        ? "On mobile, open this site inside the Casper Wallet app's built-in browser (Browser tab in the app) — regular mobile browsers can't see the wallet app."
         : "Casper Wallet extension not found — install it from casperwallet.io");
       return;
     }
