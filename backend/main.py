@@ -29,6 +29,7 @@ from casper.x402 import X402Handler, CHAIN_TESTNET, CHAIN_MAINNET
 from casper.cspr_trade import CsprTradeMCP, CsprTradeError
 from casper import swap_log
 from casper import x402_settle_log
+from casper import vault_registry
 from agent.decision_engine import DecisionEngine
 from agent.yield_agent import YieldAgent, AgentCycleResult
 
@@ -970,14 +971,50 @@ async def vault_agent_registered(package: str = "", fresh: bool = False):
     registered_hash = (info or {}).get("agent_hash")
     tx_hash = (info or {}).get("tx_hash")
     norm = lambda h: (h or "").replace("account-hash-", "").lower()
+    matches = bool(registered_hash and norm(registered_hash) == norm(current))
+
+    # Evidence-based tenant enrollment: this vault provably registered OUR agent
+    # on-chain, so record it in the vault registry (multi-tenant onboarding, step 1).
+    if registered_hash and matches:
+        primary_pkg = ((agent.vault_contract_hash if agent else None)
+                       or settings.vault_contract_hash or "").replace("hash-", "").lower()
+        this_pkg = contract_hash.replace("hash-", "").replace("package-", "").lower()
+        vault_registry.enroll(
+            this_pkg,
+            agent_hash=registered_hash,
+            owner_public_key=(info or {}).get("owner_public_key", ""),
+            register_tx=tx_hash or "",
+            is_primary=(this_pkg == primary_pkg),
+        )
+
     return {
         "registered": bool(registered_hash),
         "registered_agent_hash": registered_hash,
         "current_agent_hash": current,
         # True only when the on-chain agent matches the agent this backend runs as
-        "matches_current": bool(registered_hash and norm(registered_hash) == norm(current)),
+        "matches_current": matches,
         "register_tx": tx_hash,
         "explorer_url": f"https://testnet.cspr.live/deploy/{tx_hash}" if tx_hash else None,
+        "owner_public_key": (info or {}).get("owner_public_key", ""),
+    }
+
+
+@app.get("/vault/registry")
+async def get_vault_registry():
+    """Enrolled vaults — every vault whose owner registered THIS agent on-chain
+    (verified register_agent deploy). The tenant-onboarding pipeline of the
+    multi-tenant roadmap; autonomous management of all of them is Phase 3."""
+    vaults = vault_registry.list_vaults()
+    return {
+        "count": len(vaults),
+        "vaults": [{
+            **v,
+            "explorer_url": f"https://testnet.cspr.live/contract-package/{v['package_hash']}",
+            "register_url": (f"https://testnet.cspr.live/deploy/{v['register_tx']}"
+                             if v.get("register_tx") else None),
+        } for v in vaults],
+        "note": "enrollment is evidence-based: a vault appears here only after its "
+                "on-chain register_agent deploy is verified",
     }
 
 

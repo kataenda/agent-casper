@@ -36,6 +36,10 @@ interface Trust {
   factors: TrustFactor[]; reasons: string[]; events?: TrustEvent[];
   last_anchor?: TrustAnchor | null; method?: string; roadmap?: string;
 }
+interface EnrolledVault {
+  package_hash: string; owner_public_key?: string; register_tx?: string;
+  is_primary?: boolean; enrolled_at?: string; explorer_url?: string; register_url?: string;
+}
 
 function Card({ children, accent = ACCENT }: { children: React.ReactNode; accent?: string }) {
   return (
@@ -69,6 +73,7 @@ export default function AgentPage() {
   const [anchorErr, setAnchorErr] = useState<string | null>(null);
   const [gateOpen, setGateOpen] = useState(false);
   const [pending, setPending] = useState<"anchor" | null>(null);
+  const [registry, setRegistry] = useState<{ count: number; vaults: EnrolledVault[] } | null>(null);
 
   const loadStatus = useCallback(async () => {
     try { const r = await fetch(`${API}/agent/status`); setStatus(await r.json()); } catch { /* keep */ }
@@ -77,12 +82,16 @@ export default function AgentPage() {
     try { const r = await fetch(`${API}/agent/trust`); if (r.ok) setTrust(await r.json()); } catch { /* keep */ }
   }, []);
 
+  const loadRegistry = useCallback(async () => {
+    try { const r = await fetch(`${API}/vault/registry`); if (r.ok) setRegistry(await r.json()); } catch { /* keep */ }
+  }, []);
+
   useEffect(() => {
-    loadStatus(); loadTrust();
+    loadStatus(); loadTrust(); loadRegistry();
     fetch(`${API}/admin/agent-address`).then(r => r.json()).then(setInfo).catch(() => {});
-    const t = setInterval(() => { loadStatus(); loadTrust(); }, 8000);
+    const t = setInterval(() => { loadStatus(); loadTrust(); loadRegistry(); }, 8000);
     return () => clearInterval(t);
-  }, [loadStatus, loadTrust]);
+  }, [loadStatus, loadTrust, loadRegistry]);
 
   const running = !!status?.running;
 
@@ -130,7 +139,9 @@ export default function AgentPage() {
             </div>
           </div>
         </div>
-        <span className="font-mono text-[9px] text-cyber-muted uppercase tracking-widest">1 agent · multi-tenant in Phase 3</span>
+        <span className="font-mono text-[9px] text-cyber-muted uppercase tracking-widest">
+          1 agent · {registry ? `${registry.count} vault${registry.count === 1 ? "" : "s"} enrolled` : "…"} · autonomous mgmt in Phase 3
+        </span>
       </header>
 
       {/* ── Agent card ── */}
@@ -184,6 +195,71 @@ export default function AgentPage() {
           </p>
         </div>
       </Card>
+
+      {/* ── Enrolled Vaults — multi-tenant onboarding (evidence-based) ── */}
+      <div className="mt-4">
+        <Card accent="#00D4FF">
+          <div className="p-5">
+            <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+              <div className="flex items-center gap-2">
+                <ShieldCheck size={14} style={{ color: "#00D4FF" }} />
+                <span className="font-mono font-bold text-[12px] uppercase tracking-widest text-white">Enrolled Vaults</span>
+                <span className="font-mono text-[10px] px-2 py-0.5 rounded-full"
+                      style={{ background: "#00D4FF14", border: "1px solid #00D4FF44", color: "#00D4FF" }}>
+                  {registry?.count ?? "…"}
+                </span>
+              </div>
+              <span className="font-mono text-[8px] text-cyber-muted uppercase tracking-widest">
+                on-chain verified register_agent · tenant onboarding live
+              </span>
+            </div>
+
+            {registry && registry.vaults.length > 0 ? (
+              <div className="flex flex-col gap-1.5">
+                {registry.vaults.map(v => (
+                  <div key={v.package_hash}
+                       className="flex items-center gap-2 px-3 py-2 rounded flex-wrap"
+                       style={{ background: "#00D4FF06", border: "1px solid #00D4FF1f" }}>
+                    {v.is_primary && (
+                      <span className="font-mono text-[8px] font-bold px-1.5 py-0.5 rounded uppercase tracking-widest"
+                            style={{ background: "#00FF9414", border: "1px solid #00FF9444", color: "#00FF94" }}>
+                        primary · AI-managed
+                      </span>
+                    )}
+                    <a href={v.explorer_url} target="_blank" rel="noreferrer"
+                       className="flex items-center gap-1 font-mono text-[10px] hover:opacity-75"
+                       style={{ color: "#00D4FF" }} title="View contract package on testnet.cspr.live">
+                      {v.package_hash.slice(0, 16)}… <ExternalLink size={9} />
+                    </a>
+                    {v.owner_public_key && (
+                      <span className="font-mono text-[9px] text-cyber-muted">
+                        owner {v.owner_public_key.slice(0, 10)}…
+                      </span>
+                    )}
+                    {v.register_url && (
+                      <a href={v.register_url} target="_blank" rel="noreferrer"
+                         className="ml-auto flex items-center gap-1 font-mono text-[9px] hover:opacity-75"
+                         style={{ color: "#00FF94" }} title="register_agent deploy on testnet.cspr.live">
+                        <Check size={9} /> registered <ExternalLink size={8} />
+                      </a>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="font-mono text-[10px] text-cyber-muted">
+                no vaults enrolled yet — a vault appears here automatically once its owner&apos;s
+                on-chain <code>register_agent</code> is verified.
+              </p>
+            )}
+
+            <p className="font-mono text-[8px] text-cyber-muted/60 mt-3">
+              Enrollment is evidence-based (verified on-chain deploys, no self-claims). The agent
+              autonomously manages the primary vault today; servicing every enrolled vault is Phase 3.
+            </p>
+          </div>
+        </Card>
+      </div>
 
       {/* ── AI Trust Engine ── */}
       <div className="mt-4">
