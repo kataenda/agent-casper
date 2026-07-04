@@ -43,6 +43,22 @@ class CasperClient:
         }
         self._mock_block = 3_000_000
         self._block_cache: Optional[tuple[int, Optional[int], float]] = None  # (height, era_id, ts)
+        # TTL cache for CSPR.cloud REST reads (key -> (value, expiry)). The agent
+        # polls every cycle but allocation/TVL/registration change only when a
+        # deploy lands, so re-reading each cycle burns the monthly REST quota
+        # (100k) for nothing — the 429 then corrupts every on-chain read.
+        self._rest_cache: dict[str, tuple[object, float]] = {}
+
+    def _cache_get(self, key: str):
+        import time as _t
+        hit = self._rest_cache.get(key)
+        if hit and hit[1] > _t.time():
+            return hit[0]
+        return None
+
+    def _cache_put(self, key: str, value, ttl: float) -> None:
+        import time as _t
+        self._rest_cache[key] = (value, _t.time() + ttl)
 
     def _unwrap(self, resp_json: dict) -> dict:
         """CSPR.cloud wraps responses in a 'data' object per API spec."""
@@ -157,6 +173,9 @@ class CasperClient:
         if self._is_placeholder(package_hash):
             return None
         pkg_hex = package_hash.replace("hash-", "").replace("package-", "")
+        cached = self._cache_get(f"reg:{pkg_hex}")
+        if cached is not None:
+            return cached  # type: ignore[return-value]
         url = f"{self.cloud_base_url}/deploys"
         params = {"contract_package_hash": pkg_hex, "limit": 50, "page": 1}
         try:
@@ -174,11 +193,13 @@ class CasperClient:
                         continue
                     ah = self._extract_account_hash(args["agent"].get("parsed"))
                     if ah:
-                        return {"agent_hash": ah,
-                                "tx_hash": item.get("deploy_hash") or item.get("hash"),
-                                # register_agent is only_owner, so its caller IS the
-                                # vault owner — used by wallet-sign admin auth.
-                                "owner_public_key": (item.get("caller_public_key") or "").lower()}
+                        result = {"agent_hash": ah,
+                                  "tx_hash": item.get("deploy_hash") or item.get("hash"),
+                                  # register_agent is only_owner, so its caller IS the
+                                  # vault owner — used by wallet-sign admin auth.
+                                  "owner_public_key": (item.get("caller_public_key") or "").lower()}
+                        self._cache_put(f"reg:{pkg_hex}", result, 600)
+                        return result
         except Exception:
             return None
         return None
@@ -203,6 +224,9 @@ class CasperClient:
         _log = __import__("logging").getLogger(__name__)
         pkg_hex = package_hash.replace("hash-", "").replace("package-", "")
         acct_hex = agent_hash.replace("account-hash-", "")
+        cached = self._cache_get(f"alloc:{pkg_hex}:{acct_hex}")
+        if cached is not None:
+            return cached  # type: ignore[return-value]
         url = f"{self.cloud_base_url}/deploys"
         params = {
             "caller_hash": acct_hex,
@@ -233,7 +257,9 @@ class CasperClient:
                         "Portfolio from on-chain deploy: con=%d%% bal=%d%% agg=%d%% strategy=%s",
                         con, bal, agg, strategy,
                     )
-                    return con, bal, agg, strategy, count
+                    result = (con, bal, agg, strategy, count)
+                    self._cache_put(f"alloc:{pkg_hex}:{acct_hex}", result, 300)
+                    return result
         except Exception as exc:
             _log.debug("fetch_allocation_from_deploys error: %s", exc)
         return 0, 0, 0, "HOLDING", 0
@@ -247,6 +273,9 @@ class CasperClient:
         if self._is_placeholder(package_hash):
             return 0
         pkg_hex = package_hash.replace("hash-", "").replace("package-", "")
+        cached = self._cache_get(f"tvl:{pkg_hex}")
+        if cached is not None:
+            return cached  # type: ignore[return-value]
         url = f"{self.cloud_base_url}/deploys"
         params = {"contract_package_hash": pkg_hex, "limit": 100, "page": 1}
         total = 0
@@ -254,6 +283,8 @@ class CasperClient:
             async with httpx.AsyncClient(headers=self.headers, timeout=12) as client:
                 resp = await client.get(url, params=params)
                 if resp.status_code != 200:
+                    # back off briefly (e.g. 429 quota) instead of hammering each cycle
+                    self._cache_put(f"tvl:{pkg_hex}", 0, 120)
                     return 0
                 for item in resp.json().get("data", []):
                     if item.get("error_message"):
@@ -271,7 +302,9 @@ class CasperClient:
                             total -= int(amt)
         except Exception:
             return max(0, total)
-        return max(0, total)
+        result = max(0, total)
+        self._cache_put(f"tvl:{pkg_hex}", result, 300)
+        return result
 
     async def get_vault_portfolio(self, contract_hash: str, agent_account_hash: str = "") -> PortfolioState:
         """
