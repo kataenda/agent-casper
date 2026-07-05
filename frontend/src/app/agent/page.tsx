@@ -148,6 +148,9 @@ export default function AgentPage() {
         </span>
       </header>
 
+      {/* ── Two-column row: Agent card (left) · Enrolled Vaults (right) ── */}
+      <div className="grid gap-4 lg:grid-cols-2 items-start">
+
       {/* ── Agent card ── */}
       <Card>
         <div className="p-5">
@@ -201,7 +204,7 @@ export default function AgentPage() {
       </Card>
 
       {/* ── Enrolled Vaults — multi-tenant onboarding (evidence-based) ── */}
-      <div className="mt-4">
+      <div>
         <Card accent="#00D4FF">
           <div className="p-5">
             <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
@@ -285,6 +288,8 @@ export default function AgentPage() {
           </div>
         </Card>
       </div>
+
+      </div>{/* /two-column row */}
 
       {/* ── AI Trust Engine ── */}
       <div className="mt-4">
