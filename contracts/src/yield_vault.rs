@@ -56,6 +56,8 @@ pub struct EmergencyPaused { pub by: Address, pub timestamp: u64 }
 pub struct RwaPriceUpdated { pub asset_id: String, pub price_usd_cents: u64, pub yield_bps: u32, pub timestamp: u64, pub reporter: Address }
 #[odra::event]
 pub struct FeeCollected   { pub payer: Address, pub fee: U512, pub timestamp: u64 }
+#[odra::event]
+pub struct FeesSwept      { pub agent: Address, pub amount: U512, pub timestamp: u64 }
 
 // 15 fields (Odra limit = 15)
 #[odra::module(events = [Deposited, Withdrawn, Rebalanced, AgentRegistered, EmergencyPaused, RwaPriceUpdated, FeeCollected])]
@@ -75,6 +77,7 @@ pub struct YieldVault {
     rebalance_count:   Var<u64>,
     rebalance_records: Mapping<u64, RebalanceRecord>,
     fee_bps:           Var<u32>,   // management/entry fee in basis points (100 = 1%)
+    fee_reserve:       Var<U512>,  // accrued fees (CSPR) the agent can sweep to fund its own gas
 }
 
 #[odra::module]
@@ -99,6 +102,7 @@ impl YieldVault {
         self.aggressive_apy.set(1500);
         self.rebalance_count.set(0);
         self.fee_bps.set(100);   // 1% entry/management fee by default
+        self.fee_reserve.set(U512::zero());
     }
 
     pub fn register_agent(&mut self, agent: Address) {
@@ -140,9 +144,11 @@ impl YieldVault {
         let current = self.balances.get_or_default(&caller);
         self.balances.set(&caller, current + net);
         if fee > U512::zero() {
-            let owner = self.owner.get_or_revert_with(VaultError::NotOwner);
-            let owner_bal = self.balances.get_or_default(&owner);
-            self.balances.set(&owner, owner_bal + fee);
+            // Fee accrues to a reserve that the AGENT can sweep to its own account
+            // (collect_fees) — funding its gas from real vault revenue. Kept separate
+            // from depositor balances so principal is never touched.
+            let reserve = self.fee_reserve.get_or_default();
+            self.fee_reserve.set(reserve + fee);
             self.env().emit_event(FeeCollected { payer: caller, fee, timestamp: self.env().get_block_time() });
         }
 
@@ -166,6 +172,26 @@ impl YieldVault {
 
     /// Live total value locked = the vault's actual contract-purse balance (real CSPR).
     pub fn get_tvl(&self) -> U512 { self.env().self_balance() }
+
+    /// Accrued management fees waiting to be swept to the agent.
+    pub fn get_fee_reserve(&self) -> U512 { self.fee_reserve.get_or_default() }
+
+    /// Agent self-funding: sweep accrued management fees from the vault purse to the
+    /// registered agent's own account, so the agent pays its own gas from real
+    /// revenue rather than external top-ups. Only the agent may call it, and it only
+    /// moves the fee reserve — depositor principal is never touched.
+    pub fn collect_fees(&mut self) -> U512 {
+        self.only_agent();
+        let reserve = self.fee_reserve.get_or_default();
+        if reserve == U512::zero() { return U512::zero(); }
+        let agent_addr = self.agent.get_or_revert_with(VaultError::NotAgent);
+        self.fee_reserve.set(U512::zero());
+        self.env().transfer_tokens(&agent_addr, &reserve);
+        self.env().emit_event(FeesSwept {
+            agent: agent_addr, amount: reserve, timestamp: self.env().get_block_time(),
+        });
+        reserve
+    }
 
     pub fn rebalance(
         &mut self,

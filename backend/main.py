@@ -1416,6 +1416,21 @@ async def resume_agent():
     return {"status": "running", "running": True}
 
 
+@app.post("/agent/collect-fees", dependencies=[Depends(require_admin)])
+async def collect_fees():
+    """Agent self-funding: sweep accrued vault management fees to the agent account
+    (funds its own gas from real revenue). Requires the upgraded contract with
+    collect_fees()."""
+    if not agent:
+        raise HTTPException(503, "Agent not initialized")
+    contract_hash = agent.vault_contract_hash or settings.vault_contract_hash
+    tx = await agent.deployer.submit_collect_fees(contract_hash, agent.agent_key_path)
+    if not tx:
+        raise HTTPException(400, "Agent key unavailable — cannot sign collect_fees")
+    return {"status": "submitted", "tx_hash": tx,
+            "explorer_url": f"https://testnet.cspr.live/deploy/{tx}"}
+
+
 class ChatRequest(BaseModel):
     message: str
 

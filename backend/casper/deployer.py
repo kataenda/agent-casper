@@ -270,6 +270,28 @@ class CasperDeployer:
         logger.info("RWA price posted on-chain [%s=$%.2f] — hash: %s", asset_id, price_usd, deploy_hash)
         return deploy_hash
 
+    async def submit_collect_fees(self, contract_hash: str, key_path: str) -> Optional[str]:
+        """Agent self-funding: call YieldVault.collect_fees() (only_agent, no args) to
+        sweep accrued management fees from the vault purse to the agent's own account.
+        Returns the deploy hash, or None if the agent key is unavailable."""
+        if not os.path.isfile(key_path):
+            return None
+        import pycspr
+        from pycspr.types import StoredContractByHash
+
+        keypair  = pycspr.parse_private_key(pathlib.Path(key_path))
+        hash_hex = await self._resolve_contract_hash(contract_hash)
+        deploy_params = pycspr.create_deploy_parameters(account=keypair, chain_name=self.chain_name)
+        payment       = pycspr.create_standard_payment(REBALANCE_PAYMENT_MOTES)
+        session       = StoredContractByHash(
+            args={}, entry_point="collect_fees", hash=bytes.fromhex(hash_hex),
+        )
+        deploy = pycspr.create_deploy(deploy_params, payment, session)
+        deploy.approve(keypair)
+        deploy_hash = await self._put_deploy_rpc(pycspr.to_json(deploy))
+        logger.info("collect_fees() submitted — hash: %s", deploy_hash)
+        return deploy_hash
+
     # ── Simulation fallbacks ───────────────────────────────────────────────
 
     @staticmethod
