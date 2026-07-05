@@ -66,6 +66,11 @@ class YieldAgent:
         defi_min_drift_pct: float = 10.0,
         defi_min_net_gain_bps: int = 50,
         x402_settle_onchain: bool = True,
+        staking_enabled: bool = False,
+        validator_public_key: str = "",
+        stake_amount_cspr: float = 500.0,   # per stake action (must clear Casper min delegation)
+        stake_buffer_cspr: float = 200.0,   # liquid CSPR kept for instant withdrawals
+        stake_max_per_day: int = 2,
         multi_tenant_enabled: bool = True,
         tenant_min_drift_pct: float = 10.0,
         tenant_max_rebalances_per_day: int = 2,
@@ -95,6 +100,14 @@ class YieldAgent:
         self.defi_min_drift_pct = defi_min_drift_pct
         self.defi_min_net_gain_bps = defi_min_net_gain_bps
         self.x402_settle_onchain = x402_settle_onchain
+        self.staking_enabled = staking_enabled
+        self.validator_public_key = validator_public_key.strip()
+        self.stake_amount_cspr = stake_amount_cspr
+        self.stake_buffer_cspr = stake_buffer_cspr
+        self.stake_max_per_day = stake_max_per_day
+        self._validator_set = False
+        self._staked_cspr = 0.0     # session estimate of delegated CSPR
+        self._stakes_today = 0
         self.on_cycle_complete = on_cycle_complete
 
         # Multi-tenant servicing: apply the cycle's AI market target to every
@@ -169,6 +182,7 @@ class YieldAgent:
         if self._last_rebalance_date != today:
             self._rebalances_today = 0
             self._defi_swaps_today = 0
+            self._stakes_today = 0
             self._tenant_rebalances_today = {}
             self._last_rebalance_date = today
 
@@ -222,6 +236,9 @@ class YieldAgent:
                     # executed as a real, capped, non-custodial swap on mainnet —
                     # but only when the reallocation is economically worth it.
                     defi_execution = await self._execute_defi_swap(decision, portfolio, yield_rates)
+                    # Testnet real yield: route a slice of the vault's liquid CSPR
+                    # into native staking (delegation), keeping a liquidity buffer.
+                    await self._maybe_stake(portfolio)
                 else:
                     cycle_error = "TX_FAILED"
 
@@ -581,6 +598,42 @@ class YieldAgent:
             self._scspr_est += out
         elif token_in.upper() == "SCSPR":
             self._scspr_est = max(0.0, self._scspr_est - amount)
+
+    async def _maybe_stake(self, portfolio) -> None:
+        """Testnet real yield: delegate a slice of the vault's LIQUID CSPR to the
+        validator, keeping a liquidity buffer so ordinary withdrawals stay instant.
+        Best-effort and OFF unless staking_enabled + a validator public key is set;
+        the contract's own guards (min liquid, validator set) back-stop it."""
+        if not self.staking_enabled or not self.validator_public_key:
+            return
+        if self._stakes_today >= self.stake_max_per_day:
+            return
+        try:
+            # One-time: register the validator on-chain before the first delegation.
+            if not self._validator_set:
+                vtx = await self.deployer.submit_set_validator(
+                    self.vault_contract_hash, self.agent_key_path, self.validator_public_key)
+                if vtx:
+                    self._validator_set = True
+                    logger.info("validator set on-chain — %s", vtx[:16])
+                return  # let it finalize; stake on a later cycle
+
+            tvl_cspr   = (getattr(portfolio, "total_value_motes", 0) or 0) / 1e9
+            liquid_est = tvl_cspr - self._staked_cspr
+            if liquid_est < (self.stake_buffer_cspr + self.stake_amount_cspr):
+                logger.info("skip stake — liquid ~%.0f < buffer %.0f + amount %.0f CSPR",
+                            liquid_est, self.stake_buffer_cspr, self.stake_amount_cspr)
+                return
+
+            tx = await self.deployer.submit_stake(
+                self.vault_contract_hash, self.agent_key_path, self.stake_amount_cspr)
+            if tx:
+                self._staked_cspr += self.stake_amount_cspr
+                self._stakes_today += 1
+                logger.info("staked %.0f CSPR to validator (real yield) — %s",
+                            self.stake_amount_cspr, tx[:16])
+        except Exception as exc:
+            logger.warning("staking error: %s", exc)
 
     async def force_rebalance(self, strategy: str = "balanced") -> Optional[str]:
         """

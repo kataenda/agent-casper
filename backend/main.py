@@ -68,6 +68,12 @@ class Settings(BaseSettings):
     x402_pay_to: str = ""  # recipient account-hash address ('00'+hash); defaults to the agent
     x402_settle_interval_seconds: int = 3600  # rate-limit on-chain settlement
     x402_settle_onchain: bool = True  # per-cycle facilitator settlement (rate-limited); false = proof-only
+    # ── Native staking (testnet real yield) ──────────────────────────────────
+    staking_enabled: bool = False           # opt-in: agent delegates vault CSPR to a validator
+    validator_public_key: str = ""          # testnet validator to delegate to (from cspr.live/validators)
+    stake_amount_cspr: float = 500.0        # per stake action (must clear Casper min delegation)
+    stake_buffer_cspr: float = 200.0        # liquid CSPR kept for instant withdrawals
+    stake_max_per_day: int = 2
     # CEP-18 token for the official `exact` scheme (facilitator settles a
     # transfer_with_authorization of this token). Asset = 64-hex contract package hash;
     # name/version form the EIP-712 domain; decimals/symbol are display metadata.
@@ -385,6 +391,11 @@ async def lifespan(app: FastAPI):
         defi_min_drift_pct=settings.defi_min_drift_pct,
         defi_min_net_gain_bps=settings.defi_min_net_gain_bps,
         x402_settle_onchain=settings.x402_settle_onchain,
+        staking_enabled=settings.staking_enabled,
+        validator_public_key=settings.validator_public_key,
+        stake_amount_cspr=settings.stake_amount_cspr,
+        stake_buffer_cspr=settings.stake_buffer_cspr,
+        stake_max_per_day=settings.stake_max_per_day,
         multi_tenant_enabled=settings.multi_tenant_enabled,
         tenant_min_drift_pct=settings.tenant_min_drift_pct,
         tenant_max_rebalances_per_day=settings.tenant_max_rebalances_per_day,
@@ -1414,6 +1425,52 @@ async def resume_agent():
     if not agent._running:
         asyncio.create_task(agent.start())
     return {"status": "running", "running": True}
+
+
+class StakeRequest(BaseModel):
+    amount_cspr: float = 500.0
+
+
+class SetValidatorRequest(BaseModel):
+    validator_public_key: str
+
+
+@app.post("/agent/set-validator", dependencies=[Depends(require_admin)])
+async def set_validator(req: SetValidatorRequest):
+    """Set the validator the vault delegates to (native-staking yield)."""
+    if not agent:
+        raise HTTPException(503, "Agent not initialized")
+    ch = agent.vault_contract_hash or settings.vault_contract_hash
+    tx = await agent.deployer.submit_set_validator(ch, agent.agent_key_path, req.validator_public_key)
+    if not tx:
+        raise HTTPException(400, "Agent key unavailable")
+    agent.validator_public_key = req.validator_public_key.strip()
+    agent._validator_set = True
+    return {"status": "submitted", "tx_hash": tx, "explorer_url": f"https://testnet.cspr.live/deploy/{tx}"}
+
+
+@app.post("/agent/stake", dependencies=[Depends(require_admin)])
+async def stake(req: StakeRequest):
+    """Delegate `amount_cspr` of the vault's liquid CSPR to the validator (real yield)."""
+    if not agent:
+        raise HTTPException(503, "Agent not initialized")
+    ch = agent.vault_contract_hash or settings.vault_contract_hash
+    tx = await agent.deployer.submit_stake(ch, agent.agent_key_path, req.amount_cspr)
+    if not tx:
+        raise HTTPException(400, "Agent key unavailable")
+    return {"status": "submitted", "tx_hash": tx, "explorer_url": f"https://testnet.cspr.live/deploy/{tx}"}
+
+
+@app.post("/agent/unstake", dependencies=[Depends(require_admin)])
+async def unstake(req: StakeRequest):
+    """Un-delegate `amount_cspr` back toward the liquidity buffer (~7 eras to land)."""
+    if not agent:
+        raise HTTPException(503, "Agent not initialized")
+    ch = agent.vault_contract_hash or settings.vault_contract_hash
+    tx = await agent.deployer.submit_unstake(ch, agent.agent_key_path, req.amount_cspr)
+    if not tx:
+        raise HTTPException(400, "Agent key unavailable")
+    return {"status": "submitted", "tx_hash": tx, "explorer_url": f"https://testnet.cspr.live/deploy/{tx}"}
 
 
 @app.post("/agent/collect-fees", dependencies=[Depends(require_admin)])

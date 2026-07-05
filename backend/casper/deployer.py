@@ -292,6 +292,48 @@ class CasperDeployer:
         logger.info("collect_fees() submitted — hash: %s", deploy_hash)
         return deploy_hash
 
+    async def _submit_call(self, contract_hash: str, key_path: str, entry_point: str,
+                           args: dict, payment_motes: int) -> Optional[str]:
+        """Generic signed stored-contract call by the agent key."""
+        if not os.path.isfile(key_path):
+            return None
+        import pycspr
+        from pycspr.types import StoredContractByHash
+        keypair  = pycspr.parse_private_key(pathlib.Path(key_path))
+        hash_hex = await self._resolve_contract_hash(contract_hash)
+        params   = pycspr.create_deploy_parameters(account=keypair, chain_name=self.chain_name)
+        payment  = pycspr.create_standard_payment(payment_motes)
+        session  = StoredContractByHash(args=args, entry_point=entry_point, hash=bytes.fromhex(hash_hex))
+        deploy   = pycspr.create_deploy(params, payment, session)
+        deploy.approve(keypair)
+        deploy_hash = await self._put_deploy_rpc(pycspr.to_json(deploy))
+        logger.info("%s() submitted — hash: %s", entry_point, deploy_hash)
+        return deploy_hash
+
+    async def submit_set_validator(self, contract_hash: str, key_path: str, validator_hex: str) -> Optional[str]:
+        """Owner sets the validator the vault delegates to (native staking)."""
+        from pycspr.types.cl_values import CL_PublicKey
+        from pycspr.crypto.enums import KeyAlgorithm
+        h = validator_hex.strip().lower()
+        algo = KeyAlgorithm.ED25519 if h[:2] == "01" else KeyAlgorithm.SECP256K1
+        arg = CL_PublicKey(algo, bytes.fromhex(h[2:]))
+        return await self._submit_call(contract_hash, key_path, "set_validator",
+                                       {"validator": arg}, REBALANCE_PAYMENT_MOTES)
+
+    async def submit_stake(self, contract_hash: str, key_path: str, amount_cspr: float) -> Optional[str]:
+        """Agent delegates `amount_cspr` of the vault's liquid CSPR to the validator."""
+        from pycspr.types.cl_values import CL_U512
+        motes = int(round(amount_cspr * 1_000_000_000))
+        return await self._submit_call(contract_hash, key_path, "stake",
+                                       {"amount": CL_U512(motes)}, REBALANCE_PAYMENT_MOTES)
+
+    async def submit_unstake(self, contract_hash: str, key_path: str, amount_cspr: float) -> Optional[str]:
+        """Agent un-delegates `amount_cspr` back toward the liquidity buffer."""
+        from pycspr.types.cl_values import CL_U512
+        motes = int(round(amount_cspr * 1_000_000_000))
+        return await self._submit_call(contract_hash, key_path, "unstake",
+                                       {"amount": CL_U512(motes)}, REBALANCE_PAYMENT_MOTES)
+
     # ── Simulation fallbacks ───────────────────────────────────────────────
 
     @staticmethod
