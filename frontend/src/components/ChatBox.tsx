@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { Send, Loader, Bot, User } from "lucide-react";
+import { adminHeaders } from "@/lib/adminAuth";
 
 const BACKEND = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -38,7 +39,9 @@ export function ChatBox() {
     try {
       const res  = await fetch(`${BACKEND}/chat`, {
         method:  "POST",
-        headers: { "Content-Type": "application/json" },
+        // Owner auth (wallet-sign session / admin token) travels with the request so
+        // the owner can run privileged commands; anonymous visitors get Q&A only.
+        headers: adminHeaders({ "Content-Type": "application/json" }),
         body:    JSON.stringify({ message: text }),
       });
       const data = await res.json();

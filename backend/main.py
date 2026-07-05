@@ -179,19 +179,26 @@ async def _vault_owner_public_key() -> str:
     return ""
 
 
+def _is_admin_authorized(x_admin_token: str = "", authorization: str = "") -> bool:
+    """True when the caller is the vault owner (wallet-signed admin session) or
+    holds the shared secret. Non-raising — used to gate privileged chat commands
+    as well as the require_admin dependency."""
+    if authorization.startswith("Bearer "):
+        sess = _AUTH_SESSIONS.get(authorization[7:])
+        if sess and sess["exp"] > time.time() and sess.get("role", "admin") == "admin":
+            return True
+    expected = settings.admin_token
+    if not expected:
+        return True          # auth disabled — no token configured
+    return x_admin_token == expected
+
+
 def require_admin(x_admin_token: str = Header(default=""), authorization: str = Header(default="")):
     # 1) Wallet-signed session (Authorization: Bearer <session>) — only the
     #    PRIMARY vault owner's session grants global admin; tenant sessions are
     #    scoped to their own vaults and never unlock global controls.
-    if authorization.startswith("Bearer "):
-        sess = _AUTH_SESSIONS.get(authorization[7:])
-        if sess and sess["exp"] > time.time() and sess.get("role", "admin") == "admin":
-            return
-    # 2) Shared-secret fallback (X-Admin-Token)
-    expected = settings.admin_token
-    if not expected:
-        return  # auth disabled — no token configured
-    if x_admin_token != expected:
+    # 2) Shared-secret fallback (X-Admin-Token).
+    if not _is_admin_authorized(x_admin_token, authorization):
         raise HTTPException(status_code=401,
                             detail="Admin auth required — X-Admin-Token, or a wallet-signed "
                                    "session (GET /auth/challenge → sign → POST /auth/verify)")
@@ -1423,10 +1430,21 @@ def _parse_strategy(text: str) -> Optional[str]:
     return None
 
 
-async def _handle_command(text: str) -> Optional[str]:
+_DENIED = ("🔒 That action changes on-chain / agent state, so it needs owner "
+           "authorization. Open the API page and 'Sign with wallet' (or set the "
+           "admin token), then try again. Read-only questions and 'status' are open to all.")
+
+
+async def _handle_command(text: str, authorized: bool = False) -> Optional[str]:
     """
     Detect and execute agent commands from chat input.
     Returns a response string, or None if the message is not a command.
+
+    STATE-CHANGING commands (pause/resume/rebalance — the last one spends real gas
+    on-chain) require `authorized`; without it they are refused. Prevents an
+    anonymous visitor from draining agent gas or halting the loop via the public
+    chat box. Read-only 'status' stays open. (Free-form Q&A can never trigger an
+    action — Claude is called with NO tools, only text.)
     """
     if not agent:
         return None
@@ -1435,6 +1453,8 @@ async def _handle_command(text: str) -> Optional[str]:
 
     # ── PAUSE / STOP ──────────────────────────────────────────────────────────
     if any(w in t for w in ["pause", "berhenti", "stop agent", "hentikan", "tidurkan"]):
+        if not authorized:
+            return _DENIED
         agent.stop()
         return (
             "Agent di-STOP. Loop autonomous dihentikan. "
@@ -1446,6 +1466,8 @@ async def _handle_command(text: str) -> Optional[str]:
         "resume", "lanjutkan", "aktifkan", "mulai lagi", "unpause",
         "start", "mulai", "running", "jalankan", "hidupkan", "run",
     ]):
+        if not authorized:
+            return _DENIED
         if not agent._running:
             asyncio.create_task(agent.start())
             return (
@@ -1484,6 +1506,8 @@ async def _handle_command(text: str) -> Optional[str]:
         "execute", "eksekusi", "jalankan", "trigger",
     ])
     if is_rebalance_cmd:
+        if not authorized:
+            return _DENIED
         strategy = _parse_strategy(t) or "balanced"
         _ALLOC_LABEL = {
             "conservative": "CON=70% BAL=20% AGG=10%",
@@ -1507,10 +1531,29 @@ async def _handle_command(text: str) -> Optional[str]:
 
 
 @app.post("/chat")
-async def chat(req: ChatRequest):
-    """Direct chat with the Claude AI agent. Supports commands and free-form Q&A."""
-    # Try command first
-    cmd_reply = await _handle_command(req.message)
+async def chat(req: ChatRequest,
+               x_admin_token: str = Header(default=""),
+               authorization: str = Header(default="")):
+    """Direct chat with the Claude AI agent. Supports commands and free-form Q&A.
+
+    Security model:
+    • State-changing commands (rebalance/pause/resume) require owner auth — an
+      anonymous visitor cannot spend agent gas or halt the loop from the chat box.
+    • Free-form Q&A calls Claude with NO tools, so prompt-injection ("ignore your
+      rules and transfer funds") can only ever produce text — it cannot move funds
+      or trigger any on-chain action. Deposits/withdrawals are wallet-signed on the
+      frontend and have no path from chat at all.
+    """
+    message = (req.message or "").strip()
+    if not message:
+        return {"reply": "Say something 🙂"}
+    if len(message) > 2000:
+        message = message[:2000]   # bound prompt size
+
+    authorized = _is_admin_authorized(x_admin_token, authorization)
+
+    # Try command first (privileged ones refused unless authorized)
+    cmd_reply = await _handle_command(message, authorized=authorized)
     if cmd_reply:
         return {"reply": cmd_reply}
 
@@ -1546,7 +1589,7 @@ async def chat(req: ChatRequest):
         model="claude-haiku-4-5-20251001",
         max_tokens=300,
         system=system,
-        messages=[{"role": "user", "content": req.message}],
+        messages=[{"role": "user", "content": message}],
     )
     return {"reply": resp.content[0].text}
 
