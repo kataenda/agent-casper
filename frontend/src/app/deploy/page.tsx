@@ -64,21 +64,31 @@ interface VaultState {
   last_agent_action?: { action?: string; tx_hash?: string; ts?: string; note?: string } | null;
 }
 
+interface StakeEvent {
+  action: string; amount_cspr?: number | null; validator?: string;
+  tx_hash: string; explorer_url: string; ts: string;
+}
+
 export default function DeployMenu() {
   const [s, setS] = useState<Status>({ backendUpdated: null, contractHash: null, deployed: false, isPayable: null });
   const [loading, setLoading] = useState(false);
   // Per-tenant dashboard: the connected wallet's OWN vault state.
   const { vaultHash: walletVault } = useWalletVault();
   const [myVault, setMyVault] = useState<VaultState | null>(null);
+  const [staking, setStaking] = useState<StakeEvent[]>([]);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      if (!walletVault) { setMyVault(null); return; }
+      if (!walletVault) { setMyVault(null); setStaking([]); return; }
       try {
         const pkg = walletVault.replace(/^hash-/, "");
-        const r = await fetch(`${API}/vault/state?package=${pkg}`);
-        if (r.ok && !cancelled) setMyVault(await r.json());
+        const [sRes, hRes] = await Promise.all([
+          fetch(`${API}/vault/state?package=${pkg}`),
+          fetch(`${API}/vault/staking-history?package=${pkg}&limit=20`),
+        ]);
+        if (sRes.ok && !cancelled) setMyVault(await sRes.json());
+        if (hRes.ok && !cancelled) setStaking((await hRes.json()).history || []);
       } catch { /* panel simply hides */ }
     })();
     return () => { cancelled = true; };
@@ -215,6 +225,35 @@ export default function DeployMenu() {
                 )}
               </div>
             </div>
+            {/* Native-staking history for THIS vault */}
+            <div className="mt-4 pt-3" style={{ borderTop: `1px solid ${ACCENT}18` }}>
+              <p className="font-mono text-[8px] uppercase tracking-widest text-white/40 mb-2 flex items-center gap-1.5">
+                <Zap size={9} style={{ color: "#00FF94" }} /> Staking activity
+              </p>
+              {staking.length ? (
+                <div className="flex flex-col gap-1">
+                  {staking.map((e) => (
+                    <a key={e.tx_hash} href={e.explorer_url} target="_blank" rel="noreferrer"
+                       className="flex items-center gap-2 font-mono text-[10px] hover:opacity-80">
+                      <span className="font-bold uppercase w-[92px] shrink-0"
+                            style={{ color: e.action === "stake" ? "#00FF94" : e.action === "unstake" ? "#FFB347" : "#00D4FF" }}>
+                        {e.action}
+                      </span>
+                      <span className="text-white/70 w-16 shrink-0">
+                        {e.amount_cspr != null ? `${e.amount_cspr} CSPR` : ""}
+                      </span>
+                      <span className="text-white/40 truncate">{e.tx_hash.slice(0, 14)}…</span>
+                      <ExternalLink size={8} className="ml-auto shrink-0" style={{ color: "#00D4FF" }} />
+                    </a>
+                  ))}
+                </div>
+              ) : (
+                <p className="font-mono text-[9px] text-white/40">
+                  no staking yet — the agent delegates idle CSPR to the best validator once <code>STAKING_ENABLED</code> is on.
+                </p>
+              )}
+            </div>
+
             <a href={myVault.explorer_url} target="_blank" rel="noreferrer"
                className="mt-3 inline-flex items-center gap-1 font-mono text-[9px] hover:opacity-75" style={{ color: "#00D4FF" }}>
               {myVault.package_hash.slice(0, 20)}… <ExternalLink size={9} />

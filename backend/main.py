@@ -29,6 +29,7 @@ from casper.x402 import X402Handler, CHAIN_TESTNET, CHAIN_MAINNET
 from casper.cspr_trade import CsprTradeMCP, CsprTradeError
 from casper import swap_log
 from casper import x402_settle_log
+from casper import staking_log
 from casper import vault_registry
 from agent.decision_engine import DecisionEngine
 from agent.yield_agent import YieldAgent, AgentCycleResult
@@ -1463,6 +1464,8 @@ async def set_validator(req: SetValidatorRequest):
         raise HTTPException(400, "Agent key unavailable")
     agent.validator_public_key = req.validator_public_key.strip()
     agent._validator_set = True
+    agent._active_validator = req.validator_public_key.strip()
+    staking_log.record(ch, "set_validator", tx, validator=req.validator_public_key.strip())
     return {"status": "submitted", "tx_hash": tx, "explorer_url": f"https://testnet.cspr.live/deploy/{tx}"}
 
 
@@ -1475,6 +1478,7 @@ async def stake(req: StakeRequest):
     tx = await agent.deployer.submit_stake(ch, agent.agent_key_path, req.amount_cspr)
     if not tx:
         raise HTTPException(400, "Agent key unavailable")
+    staking_log.record(ch, "stake", tx, amount_cspr=req.amount_cspr, validator=agent._active_validator)
     return {"status": "submitted", "tx_hash": tx, "explorer_url": f"https://testnet.cspr.live/deploy/{tx}"}
 
 
@@ -1487,7 +1491,15 @@ async def unstake(req: StakeRequest):
     tx = await agent.deployer.submit_unstake(ch, agent.agent_key_path, req.amount_cspr)
     if not tx:
         raise HTTPException(400, "Agent key unavailable")
+    staking_log.record(ch, "unstake", tx, amount_cspr=req.amount_cspr, validator=agent._active_validator)
     return {"status": "submitted", "tx_hash": tx, "explorer_url": f"https://testnet.cspr.live/deploy/{tx}"}
+
+
+@app.get("/vault/staking-history")
+async def vault_staking_history(package: str = "", limit: int = 50):
+    """Per-vault native-staking history (set_validator / stake / unstake), newest
+    first. Pass ?package=<hash> for one vault; omit for all vaults."""
+    return {"history": staking_log.load(package or None, limit)}
 
 
 @app.post("/agent/collect-fees", dependencies=[Depends(require_admin)])

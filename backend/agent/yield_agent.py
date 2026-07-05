@@ -20,6 +20,7 @@ from casper.x402 import X402Handler
 from casper.cspr_trade import CsprTradeMCP
 from casper import swap_log
 from casper import x402_settle_log
+from casper import staking_log
 from casper import vault_registry
 from agent.decision_engine import DecisionEngine, RebalanceDecision
 
@@ -635,6 +636,7 @@ class YieldAgent:
                     self._validator_set = True
                     self._active_validator = validator
                     logger.info("validator set on-chain (%s) — %s", validator[:16], vtx[:16])
+                    staking_log.record(self.vault_contract_hash, "set_validator", vtx, validator=validator)
                 return  # let it finalize; delegate on a later cycle
 
             # (2) WHEN — only deploy idle liquid that exceeds the buffer + stake size.
@@ -652,6 +654,8 @@ class YieldAgent:
                 self._stakes_today += 1
                 logger.info("staked %.0f CSPR to validator (real yield) — %s",
                             self.stake_amount_cspr, tx[:16])
+                staking_log.record(self.vault_contract_hash, "stake", tx,
+                                   amount_cspr=self.stake_amount_cspr, validator=self._active_validator)
         except Exception as exc:
             logger.warning("staking error: %s", exc)
 
