@@ -120,11 +120,15 @@ export const useAgentStore = create<AgentStore>()(
         const newDeposited = depositedMotes + motes;
         set({ depositedMotes: newDeposited });
         if (latestCycle) {
-          const newValue = (latestCycle.portfolio.total_value_motes + newDeposited) / 1e9;
+          // Optimistic point: bump from the SAME basis the trajectory plots (AUM
+          // when available) so a deposit doesn't drop the line to a smaller base.
+          const base = (latestCycle.aum_motes && latestCycle.aum_motes > 0)
+            ? latestCycle.aum_motes + motes
+            : latestCycle.portfolio.total_value_motes + newDeposited;
           set({
             portfolioHistory: [
               ...portfolioHistory,
-              { time: new Date().toLocaleTimeString(), value: newValue },
+              { time: new Date().toLocaleTimeString(), value: base / 1e9 },
             ].slice(-30),
           });
         }
@@ -139,9 +143,14 @@ export const useAgentStore = create<AgentStore>()(
         const displayValue = ((c.aum_motes && c.aum_motes > 0)
           ? c.aum_motes
           : c.portfolio.total_value_motes + depositedMotes) / 1e9;
+        // Backend cycles may carry naive-UTC timestamps (no "Z"); parse as UTC the
+        // way DecisionLog does — otherwise JS reads them as LOCAL time and the
+        // chart axis lands hours off the decision-log times.
+        const iso = c.timestamp && !c.timestamp.endsWith("Z") && !c.timestamp.includes("+")
+          ? c.timestamp + "Z" : c.timestamp;
         const newHistory = [
           ...portfolioHistory,
-          { time: new Date(c.timestamp).toLocaleTimeString(), value: displayValue },
+          { time: new Date(iso).toLocaleTimeString(), value: displayValue },
         ].slice(-30);
         set({
           latestCycle: c,

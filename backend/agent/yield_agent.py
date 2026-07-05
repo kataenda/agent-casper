@@ -8,7 +8,7 @@ import json
 import logging
 import time
 from pathlib import Path
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from typing import Callable, Optional
 
 from pydantic import BaseModel
@@ -262,7 +262,9 @@ class YieldAgent:
             pass
 
         return AgentCycleResult(
-            timestamp=datetime.utcnow().isoformat(),
+            # timezone-aware ISO (+00:00) — a naive string gets parsed as LOCAL time
+            # by JS `new Date()`, which skewed the trajectory axis hours off the log.
+            timestamp=datetime.now(timezone.utc).isoformat(),
             block_height=block_height,
             yield_rates=[r.model_dump() for r in yield_rates],
             portfolio=portfolio.model_dump(),
