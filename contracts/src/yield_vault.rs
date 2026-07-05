@@ -1,5 +1,5 @@
 ﻿use odra::prelude::*;
-use odra::casper_types::U512;
+use odra::casper_types::{U512, PublicKey};
 
 #[odra::odra_error]
 pub enum VaultError {
@@ -10,6 +10,9 @@ pub enum VaultError {
     NotOwner            = 10,
     NotAgent            = 11,
     Paused              = 12,
+    NoValidator         = 20,   // stake() called before a validator was set
+    FundsStaked         = 21,   // withdraw exceeds the liquid (unstaked) balance
+    InsufficientStaked  = 22,   // unstake more than is currently delegated
 }
 
 #[odra::odra_type]
@@ -58,8 +61,12 @@ pub struct RwaPriceUpdated { pub asset_id: String, pub price_usd_cents: u64, pub
 pub struct FeeCollected   { pub payer: Address, pub fee: U512, pub timestamp: u64 }
 #[odra::event]
 pub struct FeesSwept      { pub agent: Address, pub amount: U512, pub timestamp: u64 }
+#[odra::event]
+pub struct Staked         { pub validator: PublicKey, pub amount: U512, pub timestamp: u64 }
+#[odra::event]
+pub struct Unstaked       { pub validator: PublicKey, pub amount: U512, pub timestamp: u64 }
 
-// 15 fields (Odra limit = 15)
+// vault storage (18 fields — Odra handles many; the old "15 limit" note was wrong)
 #[odra::module(events = [Deposited, Withdrawn, Rebalanced, AgentRegistered, EmergencyPaused, RwaPriceUpdated, FeeCollected])]
 pub struct YieldVault {
     owner:             Var<Address>,
@@ -78,6 +85,8 @@ pub struct YieldVault {
     rebalance_records: Mapping<u64, RebalanceRecord>,
     fee_bps:           Var<u32>,   // management/entry fee in basis points (100 = 1%)
     fee_reserve:       Var<U512>,  // accrued fees (CSPR) the agent can sweep to fund its own gas
+    validator:         Var<PublicKey>,  // validator the vault delegates depositor CSPR to
+    staked:            Var<U512>,  // CSPR currently delegated (left the purse, earning yield)
 }
 
 #[odra::module]
@@ -162,6 +171,10 @@ impl YieldVault {
         let caller  = self.env().caller();
         let balance = self.balances.get_or_default(&caller);
         if balance < amount { self.env().revert(VaultError::InsufficientBalance); }
+        // Liquidity buffer: only the un-staked (liquid) purse can be paid out
+        // instantly. If the withdrawal exceeds it, the agent must unstake first
+        // (un-delegation takes several eras) — surfaced as a clear error.
+        if amount > self.env().self_balance() { self.env().revert(VaultError::FundsStaked); }
         self.balances.set(&caller, balance - amount);
         let total = self.total_deposited.get_or_default();
         self.total_deposited.set(total.saturating_sub(amount));
@@ -170,8 +183,47 @@ impl YieldVault {
         self.env().emit_event(Withdrawn { withdrawer: caller, amount, timestamp: self.env().get_block_time() });
     }
 
-    /// Live total value locked = the vault's actual contract-purse balance (real CSPR).
-    pub fn get_tvl(&self) -> U512 { self.env().self_balance() }
+    /// Live total value locked = liquid purse balance + currently-staked CSPR.
+    pub fn get_tvl(&self) -> U512 { self.env().self_balance() + self.staked.get_or_default() }
+
+    /// Liquid (immediately withdrawable) CSPR sitting in the vault purse.
+    pub fn get_liquid(&self) -> U512 { self.env().self_balance() }
+
+    /// CSPR currently delegated to the validator (earning staking yield).
+    pub fn get_staked(&self) -> U512 { self.staked.get_or_default() }
+
+    /// Owner picks which validator the vault delegates to.
+    pub fn set_validator(&mut self, validator: PublicKey) {
+        self.only_owner();
+        self.validator.set(validator);
+    }
+
+    /// Agent routes idle liquid CSPR into native staking (real yield). Keeps a
+    /// liquidity buffer: it can only stake up to the current liquid purse balance,
+    /// and the backend leaves a buffer so ordinary withdrawals stay instant.
+    /// Delegated funds leave the purse and earn rewards over eras.
+    pub fn stake(&mut self, amount: U512) {
+        self.only_agent();
+        self.not_paused();
+        if amount == U512::zero() { self.env().revert(VaultError::ZeroDeposit); }
+        if amount > self.env().self_balance() { self.env().revert(VaultError::FundsStaked); }
+        let validator = self.validator.get_or_revert_with(VaultError::NoValidator);
+        self.env().delegate(validator.clone(), amount);
+        self.staked.set(self.staked.get_or_default() + amount);
+        self.env().emit_event(Staked { validator, amount, timestamp: self.env().get_block_time() });
+    }
+
+    /// Agent pulls CSPR back out of staking (returns to the purse after the
+    /// un-delegation delay). Used to refill the liquidity buffer for withdrawals.
+    pub fn unstake(&mut self, amount: U512) {
+        self.only_agent();
+        let staked = self.staked.get_or_default();
+        if amount == U512::zero() || amount > staked { self.env().revert(VaultError::InsufficientStaked); }
+        let validator = self.validator.get_or_revert_with(VaultError::NoValidator);
+        self.env().undelegate(validator.clone(), amount);
+        self.staked.set(staked - amount);
+        self.env().emit_event(Unstaked { validator, amount, timestamp: self.env().get_block_time() });
+    }
 
     /// Accrued management fees waiting to be swept to the agent.
     pub fn get_fee_reserve(&self) -> U512 { self.fee_reserve.get_or_default() }
