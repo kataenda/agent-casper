@@ -24,12 +24,16 @@
 
 <table>
 <tr>
-<td width="50%"><img src="docs/screenshots/agent-trust.png" alt="AI Trust Engine" /><br/><em>AI Trust Engine — explainable, on-chain-anchored reputation</em></td>
+<td width="50%"><img src="docs/screenshots/agent-trust.png" alt="Agent registry + AI Trust Engine" /><br/><em>Agent registry — Enrolled Vaults (multi-tenant) + explainable AI Trust Engine</em></td>
 <td width="50%"><img src="docs/screenshots/x402.png" alt="x402 agent economy" /><br/><em>x402 — agent-to-agent economy + on-chain settlement proof</em></td>
 </tr>
 <tr>
 <td width="50%"><img src="docs/screenshots/swap-history.png" alt="Real DeFi swaps" /><br/><em>Real non-custodial DeFi swaps on Casper mainnet (CSPR.trade)</em></td>
 <td width="50%"><img src="docs/screenshots/api.png" alt="API reference" /><br/><em>Live API reference — REST + x402, in-page "Try it"</em></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/screenshots/deploy.png" alt="Self-service vault deploy" /><br/><em>Self-service vault deploy — any wallet deploys, registers &amp; is serviced (tenant onboarding)</em></td>
+<td width="50%"><img src="docs/screenshots/detail_x402.png" alt="x402 settlement detail" /><br/><em>x402 settlement history — every payment verifiable on-chain</em></td>
 </tr>
 </table>
 
@@ -899,33 +903,46 @@ REBALANCE EXECUTED!
 ```
 agent-casper/
 ├── contracts/
-│   ├── src/yield_vault.rs        # YieldVault Odra contract (Rust)
+│   ├── src/yield_vault.rs        # YieldVault Odra contract — upgradable + payable (real custody)
 │   ├── Cargo.toml                # Odra 2.7.2 dependencies
 │   ├── Dockerfile.build          # WASM compilation
 │   ├── wasm/yield_vault.wasm     # Built by CI
 │   └── x402/Cep18X402.wasm       # CEP-18 X402 token (make-software/casper-x402)
 ├── backend/
-│   ├── main.py                   # FastAPI + WebSocket + agent lifecycle + admin auth
+│   ├── main.py                   # FastAPI + WebSocket + agent lifecycle + admin & wallet-sign auth
 │   ├── .env.example              # Configuration template (incl. ADMIN_TOKEN)
+│   ├── yield_vault.wasm          # Vault wasm served to the browser deploy flow
+│   ├── proxy_caller.wasm         # Odra proxy-caller — attaches real CSPR to payable deposit()
+│   ├── data/                     # Runtime state (vault registry, cycle history) — created at runtime
 │   ├── agent/
-│   │   ├── yield_agent.py        # Autonomous agent loop (configurable interval)
+│   │   ├── yield_agent.py        # Autonomous loop — services EVERY enrolled vault (multi-tenant)
 │   │   └── decision_engine.py    # Claude AI with MCP tools
 │   └── casper/
-│       ├── client.py             # CSPR.cloud REST client
-│       ├── deployer.py           # Transaction signing (pycspr)
+│       ├── client.py             # CSPR.cloud REST client (TTL-cached, paginated reads)
+│       ├── deployer.py           # Transaction signing (pycspr), on-chain version resolution
 │       ├── rwa_oracle.py         # PAXG / UST10Y / WTI price feeds
 │       ├── mcp_server.py         # MCP server — blockchain tools for Claude
 │       ├── x402.py               # x402 micropayment handler (consumer + provider)
+│       ├── eip712.py             # EIP-712 typed-data digest (casper-eip-712 port)
 │       ├── cspr_trade.py         # CSPR.trade MCP — real non-custodial DeFi swaps
-│       └── swap_log.py           # Persistent on-chain swap history
+│       ├── swap_log.py           # Persistent on-chain swap history
+│       ├── x402_settle_log.py    # Persistent x402 settlement history
+│       ├── vault_registry.py     # Multi-tenant vault registry (evidence-based enrollment)
+│       ├── trust_engine.py       # Deterministic AI trust score from real on-chain data
+│       └── trust_state.py        # On-chain trust-score anchoring (transfer-id encoding)
 ├── frontend/src/
 │   ├── app/
-│   │   ├── page.tsx              # Main cyber dashboard
+│   │   ├── page.tsx              # Main cyber dashboard (AUM, My-Vault hybrid, trajectory)
+│   │   ├── agent/page.tsx        # Agent registry — Enrolled Vaults + AI Trust Engine
+│   │   ├── deploy/page.tsx       # Self-service vault deploy / upgrade / register (per wallet)
 │   │   ├── swap/page.tsx         # DeFi swap + live swap history (mainnet)
 │   │   ├── x402/page.tsx         # x402 service catalog + agent-to-agent proof
 │   │   └── api/page.tsx          # API reference + live "try it" (GET + POST)
 │   ├── lib/
-│   │   ├── adminAuth.ts          # Admin-token storage for privileged calls
+│   │   ├── adminAuth.ts          # Admin auth: token + Sign-In-with-Wallet session
+│   │   ├── walletVault.ts        # Wallet-scoped vault resolution (multi-tenant backbone)
+│   │   ├── vaultDeposit.ts       # Payable deposit/withdraw builders (proxy-caller pattern)
+│   │   ├── walletStore.ts        # Connected-wallet state
 │   │   ├── store.ts              # Agent state store
 │   │   └── useWebSocket.ts       # Live WebSocket feed
 │   └── components/               # DeployPanel, VaultControls, RWAPanel,
@@ -935,10 +952,16 @@ agent-casper/
 │   ├── fund_buyer.py             # Fund a buyer agent with X402 tokens
 │   ├── buyer_pays_agent.py       # REAL agent-to-agent on-chain settlement
 │   ├── x402_settle_real.py       # Self-settle via the CSPR.cloud facilitator
+│   ├── pay_live_endpoint.py      # Full x402 flow against the LIVE production API
+│   ├── x402_verify_proof.py      # Facilitator /verify conformance proof
 │   └── deploy_testnet.{sh,ps1}   # Vault contract deploy helpers
+├── demo_x402.py                  # Consumer-side x402 demo (agent's own flow)
 ├── demo_buyer_agent.py           # Independent x402 buyer agent (own ed25519 key)
+├── gen_buyer_key.py              # Fresh ed25519 buyer identity (wallet creation)
+├── .claude/skills/
+│   └── csprclick-skill/          # Official CSPR.click AI Agent Skill (SKILL.md + references)
 └── .github/workflows/
-    └── deploy-contract.yml       # CI: auto-build WASM
+    └── deploy-contract.yml       # CI: auto-build WASM (mirrored into backend/)
 ```
 
 ---
