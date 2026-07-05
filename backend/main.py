@@ -1435,6 +1435,23 @@ class SetValidatorRequest(BaseModel):
     validator_public_key: str
 
 
+@app.get("/agent/best-validator")
+async def best_validator():
+    """The validator the agent would autonomously delegate to — read live from the
+    auction and ranked by activeness + lowest commission + self-stake."""
+    if not agent:
+        raise HTTPException(503, "Agent not initialized")
+    best = await agent.casper.select_best_validator()
+    if not best:
+        return {"selected": None, "note": "no validator selectable (auction unavailable)"}
+    return {
+        "selected": best,
+        "active_on_chain": agent._active_validator or None,
+        "staking_enabled": agent.staking_enabled,
+        "explorer_url": f"https://testnet.cspr.live/validator/{best['public_key']}",
+    }
+
+
 @app.post("/agent/set-validator", dependencies=[Depends(require_admin)])
 async def set_validator(req: SetValidatorRequest):
     """Set the validator the vault delegates to (native-staking yield)."""

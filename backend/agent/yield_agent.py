@@ -106,6 +106,8 @@ class YieldAgent:
         self.stake_buffer_cspr = stake_buffer_cspr
         self.stake_max_per_day = stake_max_per_day
         self._validator_set = False
+        self._active_validator = ""            # validator currently set on-chain
+        self._selected_validator_info = None   # {public_key, delegation_rate, staked_cspr}
         self._staked_cspr = 0.0     # session estimate of delegated CSPR
         self._stakes_today = 0
         self.on_cycle_complete = on_cycle_complete
@@ -236,11 +238,13 @@ class YieldAgent:
                     # executed as a real, capped, non-custodial swap on mainnet —
                     # but only when the reallocation is economically worth it.
                     defi_execution = await self._execute_defi_swap(decision, portfolio, yield_rates)
-                    # Testnet real yield: route a slice of the vault's liquid CSPR
-                    # into native staking (delegation), keeping a liquidity buffer.
-                    await self._maybe_stake(portfolio)
                 else:
                     cycle_error = "TX_FAILED"
+
+        # Real-yield routing runs every cycle (not just on rebalance): the agent
+        # autonomously decides WHEN (idle liquid above the buffer) and WHICH
+        # validator (most profitable, read live) to delegate the vault's CSPR to.
+        await self._maybe_stake(portfolio)
 
         # Post verified RWA prices on-chain — creates auditable oracle trail on Casper.
         # Posting is rate-limited (hourly), so most cycles post nothing; carry the
@@ -600,24 +604,40 @@ class YieldAgent:
             self._scspr_est = max(0.0, self._scspr_est - amount)
 
     async def _maybe_stake(self, portfolio) -> None:
-        """Testnet real yield: delegate a slice of the vault's LIQUID CSPR to the
-        validator, keeping a liquidity buffer so ordinary withdrawals stay instant.
-        Best-effort and OFF unless staking_enabled + a validator public key is set;
-        the contract's own guards (min liquid, validator set) back-stop it."""
-        if not self.staking_enabled or not self.validator_public_key:
+        """Autonomous real-yield routing. The agent (1) picks WHICH validator to
+        delegate to — it reads the live auction and chooses the most profitable one
+        (active, lowest commission, well-staked), rather than a hard-coded env value;
+        and (2) decides WHEN — it delegates idle liquid CSPR only when the balance is
+        above the liquidity buffer, so ordinary withdrawals stay instant. Best-effort;
+        the contract's guards back-stop it. OFF unless staking_enabled."""
+        if not self.staking_enabled:
             return
         if self._stakes_today >= self.stake_max_per_day:
             return
         try:
-            # One-time: register the validator on-chain before the first delegation.
-            if not self._validator_set:
+            # (1) WHICH validator — explicit env override, else the agent selects
+            #     the most profitable validator autonomously from on-chain data.
+            validator = self.validator_public_key
+            if not validator:
+                best = await self.casper.select_best_validator()
+                if not best:
+                    logger.info("skip stake — no validator selectable yet")
+                    return
+                validator = best["public_key"]
+                self._selected_validator_info = best
+                logger.info("agent picked validator %s (fee %d%%)", validator[:16], best["delegation_rate"])
+
+            # Register the chosen validator on-chain once (or when it changes).
+            if not self._validator_set or validator != self._active_validator:
                 vtx = await self.deployer.submit_set_validator(
-                    self.vault_contract_hash, self.agent_key_path, self.validator_public_key)
+                    self.vault_contract_hash, self.agent_key_path, validator)
                 if vtx:
                     self._validator_set = True
-                    logger.info("validator set on-chain — %s", vtx[:16])
-                return  # let it finalize; stake on a later cycle
+                    self._active_validator = validator
+                    logger.info("validator set on-chain (%s) — %s", validator[:16], vtx[:16])
+                return  # let it finalize; delegate on a later cycle
 
+            # (2) WHEN — only deploy idle liquid that exceeds the buffer + stake size.
             tvl_cspr   = (getattr(portfolio, "total_value_motes", 0) or 0) / 1e9
             liquid_est = tvl_cspr - self._staked_cspr
             if liquid_est < (self.stake_buffer_cspr + self.stake_amount_cspr):

@@ -60,6 +60,56 @@ class CasperClient:
         import time as _t
         self._rest_cache[key] = (value, _t.time() + ttl)
 
+    async def select_best_validator(self, top_n_by_stake: int = 100) -> Optional[dict]:
+        """Autonomously choose the most profitable validator to delegate to:
+        ACTIVE, well-staked (among the top by self-stake, so it's in the winning set
+        and actually earns rewards), and the LOWEST delegation_rate (commission —
+        directly the net yield to delegators). Returns {public_key, delegation_rate,
+        staked_cspr} or None. Cached 1h (the set changes slowly; the auction response
+        is ~10MB, so this is deliberately infrequent)."""
+        cached = self._cache_get("best_validator")
+        if cached is not None:
+            return cached or None
+        try:
+            async with httpx.AsyncClient(headers=self.headers, timeout=40) as client:
+                r = await client.post(self.node_url, json={
+                    "id": 1, "jsonrpc": "2.0", "method": "state_get_auction_info"})
+                if r.status_code != 200:
+                    self._cache_put("best_validator", None, 300)
+                    return None
+                bids = ((r.json().get("result") or {}).get("auction_state") or {}).get("bids") or []
+        except Exception:
+            return None
+
+        cand = []
+        for b in bids:
+            bid = b.get("bid") or {}
+            if not bid or bid.get("inactive"):
+                continue
+            rate = bid.get("delegation_rate")
+            try:
+                staked = int(bid.get("staked_amount") or 0)
+            except (TypeError, ValueError):
+                staked = 0
+            if rate is None:
+                continue
+            cand.append((int(rate), staked, b.get("public_key", "")))
+        if not cand:
+            self._cache_put("best_validator", None, 300)
+            return None
+        # Keep the top-N most self-staked (proxy for "in the active/winning set"),
+        # then pick the lowest commission; tie-break by MORE self-stake (established).
+        cand.sort(key=lambda c: c[1], reverse=True)
+        pool = cand[:max(top_n_by_stake, 1)]
+        pool.sort(key=lambda c: (c[0], -c[1]))
+        rate, staked, pk = pool[0]
+        result = {"public_key": pk, "delegation_rate": rate, "staked_cspr": round(staked / 1e9)}
+        self._cache_put("best_validator", result, 3600)
+        _log = __import__("logging").getLogger(__name__)
+        _log.info("best validator: %s (fee %d%%, self-stake %s CSPR) from %d active",
+                  pk[:20], rate, result["staked_cspr"], len(cand))
+        return result
+
     def invalidate_package_cache(self, package_hash: str) -> None:
         """Drop cached reads for a package — used right after an action (e.g.
         register_agent) so the UI sees the new on-chain truth immediately
