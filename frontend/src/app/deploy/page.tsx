@@ -249,28 +249,10 @@ export default function DeployMenu() {
           <span className="font-mono text-[12px] font-bold">Register the agent</span>
         </div>
         <Panel><RegisterAgentButton contractHash={s.contractHash || ""} /></Panel>
-      </div>
-
-      {/* ── Step 3: hand off ───────────────────────────────────── */}
-      <div className="mt-6 mb-10">
-        <div className="flex items-center gap-2 mb-2">
-          <StepBadge n={3} />
-          <span className="font-mono text-[12px] font-bold">Set env + wire the UI</span>
-        </div>
-        <Panel>
-          <p className="font-mono text-[11px] text-white/60 leading-relaxed">
-            After deploy, copy the new contract hash above and set:
-          </p>
-          <pre className="mt-2 overflow-x-auto p-2 font-mono text-[10px] text-white/80"
-            style={{ background: "#05080C", border: `1px solid ${ACCENT}18` }}>
-{`VAULT_CONTRACT_HASH=<new hash>             # backend + Coolify
-NEXT_PUBLIC_VAULT_PACKAGE_HASH=<new hash>  # frontend`}
-          </pre>
-          <p className="mt-2 font-mono text-[10px] text-white/40">
-            Then the deposit/withdraw builders in <code>lib/vaultDeposit.ts</code> activate.
-            See <code>docs/REAL_CUSTODY.md</code>.
-          </p>
-        </Panel>
+        <p className="mt-3 mb-10 font-mono text-[9px] text-white/40">
+          That&apos;s it — your vault is resolved on-chain automatically (no env/config needed).
+          Deposit from the dashboard and the agent services your vault from the next cycle.
+        </p>
       </div>
     </div>
   );
