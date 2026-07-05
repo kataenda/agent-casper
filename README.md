@@ -1044,22 +1044,24 @@ margin grows with usage rather than requiring continuous external funding.
 ## Roadmap
 
 ### Phase 1 — Buildathon MVP ✅
-- YieldVault contract on Casper Testnet
-- Autonomous AI agent (Claude) with a configurable decision loop (60s demo / 300s prod) via MCP tools
+- **YieldVault with REAL custody** on Casper Testnet — payable `deposit()` lands CSPR in the contract purse ([`86fd83a6…`](https://testnet.cspr.live/deploy/86fd83a683dccb7484c063accb0e90e0e3ae859daddf270573453bce365bbaee)); **upgradable in place** with state preserved (proven v1→v2 on-chain)
+- **Multi-tenant vault servicing** — any wallet self-service deploys/owns its vault, registers the agent on it ([`1dc138a9…`](https://testnet.cspr.live/deploy/1dc138a911b8b62b4269d5e966a9f6b2e5e2a13651590751682ee2021c58c6ba)), and the agent **autonomously services every enrolled vault** (tenant rebalance [`d7551fcb…`](https://testnet.cspr.live/deploy/d7551fcb6187175e19ca66d77219fc2c5431a317cb3d50d6faecf5c45bb072ff)) — live AUM across 2 independently-owned vaults
+- Autonomous AI agent (Claude) with a configurable decision loop (60s demo / 300–900s prod) via MCP tools
 - RWA oracle on-chain posting (PAXG, UST10Y)
 - x402 micropayments — two-sided (consumer **and** provider, mainnet)
 - **Real non-custodial DeFi swaps on Casper mainnet via CSPR.trade MCP**
-- Real-time cyber dashboard with WebSocket
+- **Sign-In with Wallet** admin auth (owner verified on-chain) + AI Trust Engine with on-chain score anchoring
+- Official **CSPR.click AI Agent Skill** installed in-repo; real-time cyber dashboard with WebSocket
 
 ### Phase 2 — DeFi Integration (Q3 2026)
-- Route vault capital into real Casper DeFi positions (CSPR.trade LP, validator staking)
+- Route custodied vault capital into real Casper DeFi positions (CSPR.trade LP, validator staking) so it **earns**
 - Live yield rate feeds from on-chain sources
-- Multi-vault strategy support
+- Per-vault strategy profiles — each tenant sets its own risk mandate (multi-vault *servicing* already shipped in Phase 1)
 - Mobile notifications (Telegram bot)
 
 ### Phase 3 — Production Launch & Multi-Tenant SaaS (Q4 2026)
 - Casper Mainnet deployment
-- **Multi-tenant architecture** — today Agent Casper runs as a single autonomous agent with one on-chain identity (ideal for a verifiable, auditable demo). Productization turns this into a per-user service: each user/DAO gets its **own isolated agent instance + non-custodial wallet**, with keys held in a KMS / threshold-signing setup (never a shared PEM), tenant-scoped state in a database (`tenant_id` on every record), and token-based auth gating every endpoint. The single-agent core stays the unit of execution — we replicate it per tenant rather than re-architect it.
+- **Full tenant isolation** — multi-tenant *servicing* is already live (one agent identity autonomously manages every enrolled vault, proven on-chain). Productization completes the isolation: each user/DAO gets its **own non-custodial agent key** held in a KMS / threshold-signing setup (never a shared PEM), tenant-scoped state in a database (`tenant_id` on every record), per-tenant dashboards, and wallet-signed auth on every tenant action (the owner flow ships today). The single-agent core stays the unit of execution — we replicate it per tenant rather than re-architect it.
 - x402 fee-based API for institutional access (CEP-18 stablecoin micropayments)
 - DAO governance for strategy parameters
 - Audited smart contracts
