@@ -67,6 +67,7 @@ class Settings(BaseSettings):
     x402_facilitator_url: str = "https://x402-facilitator.cspr.cloud"
     x402_pay_to: str = ""  # recipient account-hash address ('00'+hash); defaults to the agent
     x402_settle_interval_seconds: int = 3600  # rate-limit on-chain settlement
+    x402_settle_onchain: bool = True  # per-cycle facilitator settlement (rate-limited); false = proof-only
     # CEP-18 token for the official `exact` scheme (facilitator settles a
     # transfer_with_authorization of this token). Asset = 64-hex contract package hash;
     # name/version form the EIP-712 domain; decimals/symbol are display metadata.
@@ -383,6 +384,7 @@ async def lifespan(app: FastAPI):
         defi_max_swaps_per_day=settings.defi_max_swaps_per_day,
         defi_min_drift_pct=settings.defi_min_drift_pct,
         defi_min_net_gain_bps=settings.defi_min_net_gain_bps,
+        x402_settle_onchain=settings.x402_settle_onchain,
         multi_tenant_enabled=settings.multi_tenant_enabled,
         tenant_min_drift_pct=settings.tenant_min_drift_pct,
         tenant_max_rebalances_per_day=settings.tenant_max_rebalances_per_day,

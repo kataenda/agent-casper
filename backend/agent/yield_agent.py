@@ -19,6 +19,7 @@ from casper.rwa_oracle import RWAOracle
 from casper.x402 import X402Handler
 from casper.cspr_trade import CsprTradeMCP
 from casper import swap_log
+from casper import x402_settle_log
 from casper import vault_registry
 from agent.decision_engine import DecisionEngine, RebalanceDecision
 
@@ -64,6 +65,7 @@ class YieldAgent:
         defi_max_swaps_per_day: int = 1,
         defi_min_drift_pct: float = 10.0,
         defi_min_net_gain_bps: int = 50,
+        x402_settle_onchain: bool = True,
         multi_tenant_enabled: bool = True,
         tenant_min_drift_pct: float = 10.0,
         tenant_max_rebalances_per_day: int = 2,
@@ -92,6 +94,7 @@ class YieldAgent:
         self.defi_max_swaps_per_day = defi_max_swaps_per_day
         self.defi_min_drift_pct = defi_min_drift_pct
         self.defi_min_net_gain_bps = defi_min_net_gain_bps
+        self.x402_settle_onchain = x402_settle_onchain
         self.on_cycle_complete = on_cycle_complete
 
         # Multi-tenant servicing: apply the cycle's AI market target to every
@@ -230,18 +233,33 @@ class YieldAgent:
             self._last_rwa_tx_hashes.update(posted)
         rwa_tx_hashes = dict(self._last_rwa_tx_hashes)
 
-        # x402 micropayment — agent pays per request for the premium RWA risk feed.
-        # A real ed25519-signed payment PROOF is produced every cycle (the HTTP-native,
-        # free part). We intentionally do NOT attempt facilitator on-chain settlement per
-        # cycle: the CSPR.cloud facilitator's transfer_with_authorization reverts with the
-        # token contract's `User error: 37003`, burning ~6 CSPR gas each time on a failed
-        # tx. Real on-chain settlement is instead demonstrated by the agent-to-agent
-        # provider flow (an independent funded buyer → this agent), which succeeds on-chain.
+        # x402 micropayment — agent pays per cycle for the premium RWA risk feed.
+        # A real ed25519-signed PROOF is produced every cycle (free HTTP part), and
+        # on-chain settlement (CEP-18 transfer_with_authorization via the facilitator)
+        # is attempted too — rate-limited to once per `min_settle_interval` so it
+        # settles ~1×/hour, not every cycle. The earlier `User error: 37003` reverts
+        # were caused by the malformed payTo ('01'+pubkey); with the corrected
+        # account-hash payTo the settlement succeeds on-chain (verified: ef8798c8).
+        # pay() verifies the real execution result and only marks `settled` when the
+        # transfer actually succeeded — a revert is recorded honestly, never faked.
         x402_payment: dict = {}
         try:
-            x402_payment = await self.x402.pay(resource="rwa-risk-feed", settle=False)
-            if x402_payment.get("tx_hash"):
+            x402_payment = await self.x402.pay(resource="rwa-risk-feed",
+                                               settle=self.x402_settle_onchain)
+            if x402_payment.get("settled") and x402_payment.get("tx_hash"):
                 logger.info("x402 micropayment settled on-chain — %s", x402_payment["tx_hash"][:16])
+                # Persist the settlement so the /x402 history reflects live agent activity.
+                try:
+                    x402_settle_log.record_settlement(
+                        x402_payment["tx_hash"],
+                        kind="Settlement Rail",
+                        label="agent per-cycle RWA feed (facilitator)",
+                        frm=x402_payment.get("payer_address", ""),
+                        to=x402_payment.get("pay_to", ""),
+                        amount=str(x402_payment.get("amount", "")),
+                    )
+                except Exception:
+                    pass
         except Exception as exc:
             logger.warning("x402 payment error: %s", exc)
 
