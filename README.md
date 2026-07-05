@@ -96,6 +96,7 @@ The system transforms a passive smart contract vault into a **self-driving portf
 | Directional mainnet execution | ✅ Real | CSPR ⟷ sCSPR swaps on CSPR.trade ([`f28a4051…`](https://cspr.live/transaction/f28a4051e17a67f4a6bd9951802cfb64a062b1daa01b59945b444fb25a052eb5)) |
 | Agent-to-agent x402 settlement | ✅ Real | CEP-18 `transfer_with_authorization` ([`eb0e914c…`](https://testnet.cspr.live/transaction/eb0e914cdd902b177d95cd92a345cff3d7cdfbc33bffe8927d456d8c8a1f469e)) |
 | **Custody of depositor CSPR** (contract purse) | ✅ **Real** | Payable `deposit()` lands CSPR in the contract purse — verified [`86fd83a6…`](https://testnet.cspr.live/deploy/86fd83a683dccb7484c063accb0e90e0e3ae859daddf270573453bce365bbaee) (700 CSPR, `attached_value`, no revert) |
+| **Multi-tenant vault servicing** | ✅ **Real** | Any wallet deploys/owns its own vault, registers the agent on it ([`1dc138a9…`](https://testnet.cspr.live/deploy/1dc138a911b8b62b4269d5e966a9f6b2e5e2a13651590751682ee2021c58c6ba)), deposits real CSPR into it — and the agent **autonomously rebalances the tenant vault** each cycle ([`d7551fcb…`](https://testnet.cspr.live/deploy/d7551fcb6187175e19ca66d77219fc2c5431a317cb3d50d6faecf5c45bb072ff), drift-gated). Live AUM: ~1,900 CSPR across 2 independently-owned vaults |
 | Routing custodied capital into yield positions | 🔜 Phase 2 | On-chain staking / LP so it earns (Q3 2026) |
 
 ---
@@ -106,7 +107,7 @@ The system transforms a passive smart contract vault into a **self-driving portf
 
 | Phase | Timeline | Milestones |
 |---|---|---|
-| **1 — Autonomous agent + real custody (now)** | ✅ Shipped | AI decision + on-chain proof layer, real mainnet execution of agent capital, x402 provider economy, **upgradable payable vault that custodies real depositor CSPR** ([`86fd83a6…`](https://testnet.cspr.live/deploy/86fd83a683dccb7484c063accb0e90e0e3ae859daddf270573453bce365bbaee)), live dashboard |
+| **1 — Autonomous agent + real custody + multi-tenant servicing (now)** | ✅ Shipped | AI decision + on-chain proof layer, real mainnet execution of agent capital, x402 provider economy, **upgradable payable vault that custodies real depositor CSPR** ([`86fd83a6…`](https://testnet.cspr.live/deploy/86fd83a683dccb7484c063accb0e90e0e3ae859daddf270573453bce365bbaee)), **multi-wallet vaults serviced autonomously by the agent** (tenant rebalance [`d7551fcb…`](https://testnet.cspr.live/deploy/d7551fcb6187175e19ca66d77219fc2c5431a317cb3d50d6faecf5c45bb072ff)), live dashboard |
 | **2 — Yield-bearing vault** | Q3 2026 | Route the already-custodied CSPR into on-chain staking (sCSPR)/LP so it earns, allocation backed by real positions, withdrawal accounting |
 | **3 — Multi-asset + mainnet launch** | Q4 2026 | Multi-token strategies (LP pools, stables), mainnet contract deploy, third-party **security audit**, risk caps & circuit breakers |
 | **4 — Ecosystem & governance** | 2027 | DAO governance over agent policy, an **x402 agent marketplace** (agents buy/sell each other's signals), SDK for others to deploy their own Casper agents |
@@ -455,6 +456,8 @@ All activity is verifiable on the [Casper Testnet explorer](https://testnet.cspr
 | x402 micropayment settlement | native transfer | [`ba8fb27e…`](https://testnet.cspr.live/deploy/ba8fb27e71acc2c0cba50a72a0bd3820028dc6ceb8791ac51b79b0614148f32d) |
 | **x402 `exact` settle** (facilitator `transfer_with_authorization`) | CEP-18 X402 | [`e297580f…`](https://testnet.cspr.live/transaction/e297580fc01b3bd4bfb011a592f129822b253041bf643ce16aed6c34f4443fdc) |
 | **Agent-to-agent x402 settle** (independent buyer → provider) | CEP-18 X402 | [`eb0e914c…`](https://testnet.cspr.live/transaction/eb0e914cdd902b177d95cd92a345cff3d7cdfbc33bffe8927d456d8c8a1f469e) |
+| **Tenant vault register** (2nd wallet registers the agent on ITS own vault) | `register_agent` | [`1dc138a9…`](https://testnet.cspr.live/deploy/1dc138a911b8b62b4269d5e966a9f6b2e5e2a13651590751682ee2021c58c6ba) |
+| **Autonomous TENANT rebalance** (multi-tenant servicing, drift-gated) | `rebalance` | [`d7551fcb…`](https://testnet.cspr.live/deploy/d7551fcb6187175e19ca66d77219fc2c5431a317cb3d50d6faecf5c45bb072ff) |
 
 Plus **real DeFi on Casper mainnet** via CSPR.trade MCP (verifiable on [cspr.live](https://cspr.live)):
 
