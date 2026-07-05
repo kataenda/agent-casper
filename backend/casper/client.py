@@ -266,7 +266,7 @@ class CasperClient:
             _log.debug("fetch_allocation_from_deploys error: %s", exc)
         return 0, 0, 0, "HOLDING", 0
 
-    async def _fetch_package_deploys(self, pkg_hex: str, max_pages: int = 10) -> list[dict]:
+    async def _fetch_package_deploys(self, pkg_hex: str, max_pages: int = 40) -> list[dict]:
         """All deploys on a contract package, newest first, paginated (up to
         max_pages × 100). The agent adds deploys hourly (RWA posts, rebalances),
         so page 1 alone quickly stops containing older deposits/registers — which
@@ -278,12 +278,15 @@ class CasperClient:
         _log = __import__("logging").getLogger(__name__)
         out: list[dict] = []
         seen: set = set()
+        page_size_seen = 0   # CSPR.cloud ignores `limit` (serves 10/page) — observe it
         try:
             async with httpx.AsyncClient(headers=self.headers, timeout=15) as client:
                 for page in range(1, max_pages + 1):
                     resp = await client.get(
                         f"{self.cloud_base_url}/deploys",
-                        params={"contract_package_hash": pkg_hex, "limit": 100, "page": page},
+                        # Send both spellings; the API honours page_size (limit is ignored).
+                        params={"contract_package_hash": pkg_hex,
+                                "page": page, "page_size": 100, "limit": 100},
                     )
                     if resp.status_code != 200:
                         if page == 1:   # quota / outage — back off, don't hammer
@@ -292,9 +295,10 @@ class CasperClient:
                         break
                     j = resp.json()
                     data = j.get("data") or []
-                    # Dedupe by deploy hash: if the API ignores `page` (or item_count
-                    # means page size, not total), page 2 would repeat page 1 and both
-                    # early-stop heuristics would lie. New-hash count is ground truth.
+                    if page == 1:
+                        page_size_seen = len(data)
+                    # Dedupe by deploy hash: if the API ignored `page`, page 2 repeats
+                    # page 1 — zero fresh hashes is the ground-truth stop signal.
                     fresh = 0
                     for it in data:
                         h = it.get("deploy_hash") or it.get("hash")
@@ -305,14 +309,14 @@ class CasperClient:
                         out.append(it)
                         fresh += 1
                     page_count = j.get("page_count") or 0
-                    _log.info("pkgdeps %s page %d: +%d (total %d, item_count=%s page_count=%s)",
-                              pkg_hex[:8], page, fresh, len(out), j.get("item_count"), page_count)
+                    _log.info("pkgdeps %s page %d: +%d (total %d, item_count=%s page_count=%s psize=%s)",
+                              pkg_hex[:8], page, fresh, len(out), j.get("item_count"), page_count, page_size_seen)
                     if not data or fresh == 0:
                         break               # no new items — done regardless of counters
                     if page_count and page >= page_count:
                         break               # authoritative page count reached
-                    if len(data) < 100:
-                        break               # short page = last page
+                    if page_size_seen and len(data) < page_size_seen:
+                        break               # shorter than the server's page size = last page
         except Exception:
             if not out:
                 return []
