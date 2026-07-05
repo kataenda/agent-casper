@@ -77,9 +77,17 @@ The system transforms a passive smart contract vault into a **self-driving portf
 
 ## Real-World Applicability & Impact
 
+> **Agent Casper is an autonomous vault manager that keeps CSPR yield optimal 24/7 with no human in the loop — and its agent logic is token-agnostic, ready to manage RWA-token yield as the Casper ecosystem matures.**
+
+Most people who want yield on CSPR lose part of it to the same things: they rebalance too late, get eaten by fees + slippage, and can't watch protocols around the clock. Agent Casper fixes that — acting as an autonomous fund manager that monitors conditions, computes whether a rebalance is *worth it* (gain above gas + slippage), and executes on its own. Today the focus is pure DeFi: **optimizing CSPR yield via native staking**. But because the agent's decision/rebalance logic is **token-agnostic**, the same agent can manage yield from **RWA tokens** (e.g. Parking Blox) the moment real-world assets flow onto Casper — one agent, two worlds: **DeFi now, RWA next**.
+
+> **Honest scope:** the vault today is CSPR-native (payable CSPR deposits). "Token-agnostic" describes the **agent logic and architecture**, not a shipped RWA-token deposit path — we sell a credible trajectory, not a fictional feature.
+
+**Who it's for.** Picture a long-term CSPR holder who has no time to be a trader. They want their capital working — finding the best yield, moving on opportunity, avoiding wasted fees — without staring at a dashboard every hour. Agent Casper becomes their personal manager: autonomous, transparent, and covering its own operating costs from fees. The same principle later extends to RWA-token owners who want their assets productive without managing them by hand.
+
 **The problem.** On-chain yield allocation is still manual and macro-blind. Treasuries and LPs rebalance by hand, ignore real-world signals (rates, gold, oil) that move risk appetite, and can't react to 24/7 markets while they sleep. There is no round-the-clock, explainable, on-chain agent that ties *real-world data* to *on-chain action*.
 
-**The solution.** Agent Casper is an autonomous, RWA-aware allocation agent that runs continuously, reasons over live macro + validator data with Claude, records every decision on-chain for audit, and **executes those decisions with real capital** on Casper mainnet.
+**The solution.** Agent Casper is an autonomous, RWA-aware allocation agent that runs continuously, reasons over live macro + validator data with Claude, records every decision on-chain for audit, and **executes those decisions with real capital**.
 
 **Who benefits — concrete users:**
 
