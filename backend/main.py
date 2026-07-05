@@ -1098,7 +1098,22 @@ async def vault_state(package: str = ""):
             "ts": (reg or {}).get("last_action_ts"),
             "note": (reg or {}).get("last_action_note"),
         } if reg and reg.get("last_action") else None,
+        # Read-window observability: how many deploys the TVL/registration reads
+        # actually see, and the time range they span. If oldest_ts is later than a
+        # known old deposit, the indexer window is clipping history.
+        "read_window": await _vault_read_window(pkg_hex),
     }
+
+
+async def _vault_read_window(pkg_hex: str) -> dict:
+    try:
+        items = await agent.casper._fetch_package_deploys(pkg_hex)
+        ts = [i.get("timestamp") for i in items if i.get("timestamp")]
+        return {"deploys_seen": len(items),
+                "newest_ts": max(ts) if ts else None,
+                "oldest_ts": min(ts) if ts else None}
+    except Exception as exc:
+        return {"deploys_seen": -1, "error": str(exc)[:120]}
 
 
 @app.get("/vault/proxy-wasm")

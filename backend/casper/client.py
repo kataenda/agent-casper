@@ -275,7 +275,9 @@ class CasperClient:
         cached = self._cache_get(f"pkgdeps:{pkg_hex}")
         if cached is not None:
             return cached  # type: ignore[return-value]
+        _log = __import__("logging").getLogger(__name__)
         out: list[dict] = []
+        seen: set = set()
         try:
             async with httpx.AsyncClient(headers=self.headers, timeout=15) as client:
                 for page in range(1, max_pages + 1):
@@ -290,10 +292,27 @@ class CasperClient:
                         break
                     j = resp.json()
                     data = j.get("data") or []
-                    out.extend(data)
-                    total = j.get("item_count") or 0
-                    if not data or (total and len(out) >= total):
-                        break
+                    # Dedupe by deploy hash: if the API ignores `page` (or item_count
+                    # means page size, not total), page 2 would repeat page 1 and both
+                    # early-stop heuristics would lie. New-hash count is ground truth.
+                    fresh = 0
+                    for it in data:
+                        h = it.get("deploy_hash") or it.get("hash")
+                        if h and h in seen:
+                            continue
+                        if h:
+                            seen.add(h)
+                        out.append(it)
+                        fresh += 1
+                    page_count = j.get("page_count") or 0
+                    _log.info("pkgdeps %s page %d: +%d (total %d, item_count=%s page_count=%s)",
+                              pkg_hex[:8], page, fresh, len(out), j.get("item_count"), page_count)
+                    if not data or fresh == 0:
+                        break               # no new items — done regardless of counters
+                    if page_count and page >= page_count:
+                        break               # authoritative page count reached
+                    if len(data) < 100:
+                        break               # short page = last page
         except Exception:
             if not out:
                 return []
