@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
-import { TrendingUp, RefreshCw, Activity, Zap, AlertTriangle, Wallet, ArrowDownCircle, Repeat, Store, Bot, Rocket } from "lucide-react";
+import { TrendingUp, RefreshCw, Activity, Zap, AlertTriangle, Wallet, ArrowDownCircle, Repeat, Store, Bot, Rocket, Landmark } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 
@@ -403,6 +403,14 @@ export default function DashboardPage() {
             title="API reference — endpoints + live try it"
           >
             API
+          </Link>
+          <Link
+            href="/vault"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded border font-mono text-[9px] uppercase tracking-widest transition-all hover:opacity-80"
+            style={{ borderColor: "#00D4FF55", color: "#00D4FF", background: "#00D4FF0d", boxShadow: "0 0 10px #00D4FF22" }}
+            title="My Vaults — agent AUM, per-wallet vaults, staking & swap history"
+          >
+            <Landmark size={11} /> Vault
           </Link>
           <Link
             href="/deploy"
