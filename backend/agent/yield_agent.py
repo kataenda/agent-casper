@@ -242,10 +242,12 @@ class YieldAgent:
                 else:
                     cycle_error = "TX_FAILED"
 
-        # Real-yield routing runs every cycle (not just on rebalance): the agent
-        # autonomously decides WHEN (idle liquid above the buffer) and WHICH
-        # validator (most profitable, read live) to delegate the vault's CSPR to.
-        await self._maybe_stake(portfolio)
+        # Real-yield routing — DECISION-DRIVEN, not a forced toggle. Staking tracks
+        # the agent's own allocation call: the AI's conservative ("safe-yield")
+        # bucket maps to delegated CSPR. The agent delegates toward that target
+        # (idle liquid above the buffer) and picks the most profitable validator
+        # live. staking_enabled is only a safety master-switch.
+        await self._maybe_stake(portfolio, decision)
 
         # Post verified RWA prices on-chain — creates auditable oracle trail on Casper.
         # Posting is rate-limited (hourly), so most cycles post nothing; carry the
@@ -604,17 +606,33 @@ class YieldAgent:
         elif token_in.upper() == "SCSPR":
             self._scspr_est = max(0.0, self._scspr_est - amount)
 
-    async def _maybe_stake(self, portfolio) -> None:
-        """Autonomous real-yield routing. The agent (1) picks WHICH validator to
-        delegate to — it reads the live auction and chooses the most profitable one
-        (active, lowest commission, well-staked), rather than a hard-coded env value;
-        and (2) decides WHEN — it delegates idle liquid CSPR only when the balance is
-        above the liquidity buffer, so ordinary withdrawals stay instant. Best-effort;
-        the contract's guards back-stop it. OFF unless staking_enabled."""
+    async def _maybe_stake(self, portfolio, decision=None) -> None:
+        """Decision-driven real-yield routing. Staking follows the agent's OWN
+        allocation decision — the AI's conservative ('safe-yield') bucket maps to
+        delegated CSPR — rather than blindly staking every cycle. The agent (1)
+        computes a staked TARGET from the decision's allocation, (2) picks the most
+        profitable validator live (lowest-fee active), and (3) delegates toward the
+        target only when idle liquid clears the buffer + Casper minimum. This is
+        exactly 'stake when the analysis says yield is worth it'. Best-effort; the
+        contract guards back-stop it. staking_enabled is a safety master-switch."""
         if not self.staking_enabled:
             return
         if self._stakes_today >= self.stake_max_per_day:
             return
+
+        # ── The AI's DECISION sets the yield target ──────────────────────────
+        # The conservative bucket is the vault's safe, yield-bearing allocation →
+        # that is the fraction the agent stakes. No decision / 0% target = no stake.
+        tvl_cspr   = (getattr(portfolio, "total_value_motes", 0) or 0) / 1e9
+        target_pct = float(getattr(decision, "conservative_pct", 0) or 0) if decision else 0.0
+        target_staked = min(tvl_cspr * target_pct / 100.0,
+                            max(0.0, tvl_cspr - self.stake_buffer_cspr))
+        gap = target_staked - self._staked_cspr
+        if target_pct <= 0 or gap < self.stake_amount_cspr:
+            logger.info("skip stake — AI target staked ~%.0f CSPR (%.0f%%), already ~%.0f (gap %.0f < min %.0f)",
+                        target_staked, target_pct, self._staked_cspr, gap, self.stake_amount_cspr)
+            return
+
         try:
             # (1) WHICH validator — explicit env override, else the agent selects
             #     the most profitable validator autonomously from on-chain data.
@@ -639,23 +657,19 @@ class YieldAgent:
                     staking_log.record(self.vault_contract_hash, "set_validator", vtx, validator=validator)
                 return  # let it finalize; delegate on a later cycle
 
-            # (2) WHEN — only deploy idle liquid that exceeds the buffer + stake size.
-            tvl_cspr   = (getattr(portfolio, "total_value_motes", 0) or 0) / 1e9
-            liquid_est = tvl_cspr - self._staked_cspr
-            if liquid_est < (self.stake_buffer_cspr + self.stake_amount_cspr):
-                logger.info("skip stake — liquid ~%.0f < buffer %.0f + amount %.0f CSPR",
-                            liquid_est, self.stake_buffer_cspr, self.stake_amount_cspr)
-                return
-
+            # (2) HOW MUCH — one delegation chunk toward the AI's target this cycle
+            #     (the decision gate above already confirmed gap ≥ min chunk and that
+            #     idle liquid clears the buffer). Incremental across cycles/days cap.
+            stake_amt = self.stake_amount_cspr
             tx = await self.deployer.submit_stake(
-                self.vault_contract_hash, self.agent_key_path, self.stake_amount_cspr)
+                self.vault_contract_hash, self.agent_key_path, stake_amt)
             if tx:
-                self._staked_cspr += self.stake_amount_cspr
+                self._staked_cspr += stake_amt
                 self._stakes_today += 1
-                logger.info("staked %.0f CSPR to validator (real yield) — %s",
-                            self.stake_amount_cspr, tx[:16])
+                logger.info("staked %.0f CSPR toward AI target (real yield) — validator %s — %s",
+                            stake_amt, (self._active_validator or "")[:16], tx[:16])
                 staking_log.record(self.vault_contract_hash, "stake", tx,
-                                   amount_cspr=self.stake_amount_cspr, validator=self._active_validator)
+                                   amount_cspr=stake_amt, validator=self._active_validator)
         except Exception as exc:
             logger.warning("staking error: %s", exc)
 
