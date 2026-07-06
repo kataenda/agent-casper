@@ -128,6 +128,10 @@ class YieldAgent:
         # Running estimate of sCSPR acquired via our own de-risk swaps. Gates risk-on
         # unwinds: you can't unstake sCSPR you never bought. Updated after each swap.
         self._scspr_est = 0.0
+        # The yield token the agent currently rotates into — chosen live from the DEX
+        # (most profitable CSPR pair), not fixed by env. Seeded from the env default.
+        self._yield_token = defi_swap_token_out or "sCSPR"
+        self._yield_reason = "default"
         self._last_rebalance_date: Optional[date] = None
         self._last_rwa_post_ts: float = 0.0
         # Last on-chain RWA deploy hashes, carried forward across cycles so the
@@ -532,6 +536,18 @@ class YieldAgent:
             logger.info("DeFi swap skipped — %s", reason)
             return {"executed": False, "settlement": "below_threshold", "note": reason}
 
+        # Agent picks WHICH token to rotate into — the most profitable CSPR pair,
+        # read live from the DEX — instead of a hard-coded env pair. Only refreshes
+        # the choice when we don't already hold a position (avoids stranding it).
+        if self._scspr_est < 1.0:
+            try:
+                pick = await self.cspr_trade.select_best_yield_token(fallback=self._yield_token)
+                self._yield_token  = pick.get("token") or self._yield_token
+                self._yield_reason = pick.get("reason") or "default"
+                logger.info("agent picked yield token %s (%s)", self._yield_token, self._yield_reason)
+            except Exception as exc:
+                logger.info("yield-token pick failed (%s) — keeping %s", exc, self._yield_token)
+
         # Translate the AI's allocation change into a concrete, tradable swap.
         plan = self._plan_swap(decision, portfolio)
         if plan is None:
@@ -581,29 +597,32 @@ class YieldAgent:
         de_risk = (str(decision.risk_level).upper() == "HIGH"
                    or agg_delta < 0
                    or (agg_delta == 0 and cons_delta > 0))
+        yt = self._yield_token
         if de_risk:
-            return ("CSPR", "sCSPR", amount,
-                    f"de-risk → stake: aggressive {portfolio.aggressive_pct}%→"
-                    f"{decision.aggressive_pct}%, {amount} CSPR")
+            return ("CSPR", yt, amount,
+                    f"de-risk → rotate into {yt} ({self._yield_reason}): aggressive "
+                    f"{portfolio.aggressive_pct}%→{decision.aggressive_pct}%, {amount} CSPR")
 
-        # Risk-on: unwind staking — only feasible if we hold sCSPR from a prior de-risk.
+        # Risk-on: unwind the held yield token back to CSPR — only if we hold a position.
         if self._scspr_est < 1.0:
             return None
         amount = round(min(amount, self._scspr_est), 3)
-        return ("sCSPR", "CSPR", amount,
-                f"risk-on → unwind stake: aggressive {portfolio.aggressive_pct}%→"
-                f"{decision.aggressive_pct}%, {amount} sCSPR")
+        return (yt, "CSPR", amount,
+                f"risk-on → unwind {yt}: aggressive {portfolio.aggressive_pct}%→"
+                f"{decision.aggressive_pct}%, {amount} {yt}")
 
     def _update_scspr_estimate(self, token_in: str, token_out: str, amount: float, record: dict) -> None:
-        """Track our sCSPR position so risk-on unwinds stay feasible. CSPR→sCSPR adds the
-        estimated output; sCSPR→CSPR subtracts the sCSPR spent."""
-        if token_in.upper() == "CSPR" and token_out.upper() == "SCSPR":
+        """Track our yield-token position so risk-on unwinds stay feasible. CSPR→token
+        adds the estimated output; token→CSPR subtracts what was spent. Works for
+        whichever yield token the agent picked (not just sCSPR)."""
+        yt = (self._yield_token or "").upper()
+        if token_in.upper() == "CSPR" and token_out.upper() == yt:
             try:
                 out = float((record.get("summary") or {}).get("out_estimate") or amount)
             except (TypeError, ValueError):
                 out = amount
             self._scspr_est += out
-        elif token_in.upper() == "SCSPR":
+        elif token_in.upper() == yt:
             self._scspr_est = max(0.0, self._scspr_est - amount)
 
     async def _maybe_stake(self, portfolio, decision=None) -> None:

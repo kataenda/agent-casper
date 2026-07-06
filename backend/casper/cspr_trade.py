@@ -145,6 +145,54 @@ class CsprTradeMCP:
         out = await self._call("get_native_cspr_balance", {"account_public_key": public_key})
         return out[0] if out else {}
 
+    async def select_best_yield_token(self, fallback: str = "sCSPR") -> dict:
+        """Let the AGENT choose which token to rotate into — the most profitable one
+        pairable with CSPR — instead of a hard-coded env value. Reads live CSPR.trade
+        pairs, scores each by any yield/APY/APR field it exposes (falls back to
+        liquidity/volume as a proxy for a healthy pool), and returns the winner.
+        Returns {token, apy, reason}; falls back to `fallback` (sCSPR liquid staking)
+        when the DEX data is unavailable — never raises."""
+        def _num(d: dict, *keys) -> float:
+            for k in keys:
+                v = d.get(k)
+                if v is None:
+                    continue
+                try:
+                    return float(str(v).replace("%", "").replace(",", ""))
+                except (TypeError, ValueError):
+                    continue
+            return 0.0
+
+        try:
+            pairs = await self.get_pairs()
+        except Exception as exc:
+            logger.info("best-yield: pairs unavailable (%s) — fallback %s", exc, fallback)
+            return {"token": fallback, "apy": None, "reason": "DEX data unavailable — default liquid staking"}
+
+        best = None
+        for p in (pairs or []):
+            if not isinstance(p, dict):
+                continue
+            # token symbol: prefer the non-CSPR side of the pair
+            sym = (p.get("token_out") or p.get("token1_symbol") or p.get("symbol")
+                   or p.get("base_symbol") or p.get("token") or "")
+            sym = str(sym).strip()
+            if not sym or sym.upper() == "CSPR":
+                sym = str(p.get("token0_symbol") or p.get("quote_symbol") or sym).strip()
+            if not sym or sym.upper() == "CSPR":
+                continue
+            apy = _num(p, "apy", "apr", "yield", "yield_pct", "rewards_apy", "pool_apy")
+            score = apy if apy > 0 else _num(p, "tvl", "liquidity", "liquidity_usd", "volume_24h") / 1e9
+            if best is None or score > best[0]:
+                best = (score, sym, apy)
+
+        if not best:
+            return {"token": fallback, "apy": None, "reason": "no yield-bearing pair found — default liquid staking"}
+        _, token, apy = best
+        return {"token": token, "apy": (apy if apy > 0 else None),
+                "reason": (f"highest pool yield {apy:.1f}% APY" if apy > 0
+                           else "deepest-liquidity CSPR pair")}
+
     # ── Swap building summary parsing ─────────────────────────────────────────
 
     @staticmethod
