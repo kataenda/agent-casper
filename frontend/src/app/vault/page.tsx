@@ -11,7 +11,7 @@ import Link from "next/link";
 import dynamic from "next/dynamic";
 import {
   ArrowLeft, Landmark, Coins, Layers, Wallet, ExternalLink, RefreshCw,
-  TrendingUp, Repeat, ShieldCheck, Zap, Cpu,
+  TrendingUp, Repeat, ShieldCheck, Cpu, Fuel,
 } from "lucide-react";
 import { useWalletVault } from "@/lib/walletVault";
 
@@ -29,10 +29,16 @@ const WalletWidget = dynamic(
 interface AumVault { package_hash: string; is_primary: boolean; tvl_cspr: number }
 interface Aum { total_cspr: number; vault_count: number; vaults: AumVault[] }
 interface Alloc { conservative_pct: number; balanced_pct: number; aggressive_pct: number; strategy: string }
+interface Asset { symbol: string; kind: string; amount_cspr: number; detail?: string }
 interface VaultState {
   package_hash: string; explorer_url: string; tvl_cspr: number; allocation: Alloc;
   is_primary: boolean; owner_public_key: string;
+  liquid_cspr?: number; staked_cspr?: number; assets?: Asset[];
   last_agent_action?: { action?: string; tx_hash?: string; ts?: string } | null;
+}
+interface AgentStatus {
+  running?: boolean; staking_enabled?: boolean;
+  agent_gas_cspr?: number | null; gas_reserve_cspr?: number; runway_actions?: number | null;
 }
 interface StakeEntry { action: string; amount_cspr?: number; tx_hash: string; validator?: string; ts?: string; package?: string }
 interface Swap { tx_hash: string; amount: string; token_in: string; token_out: string; explorer_url?: string; executed: boolean; settlement?: string; ts?: string; triggered_by?: string }
@@ -109,6 +115,7 @@ export default function VaultPage() {
   const [states, setStates] = useState<Record<string, VaultState>>({});
   const [stakes, setStakes] = useState<StakeEntry[]>([]);
   const [swaps, setSwaps] = useState<Swap[]>([]);
+  const [agent, setAgent] = useState<AgentStatus | null>(null);
   const [loading, setLoading] = useState(false);
 
   const load = async () => {
@@ -125,6 +132,7 @@ export default function VaultPage() {
       }
       setStakes((await fetch(`${API}/vault/staking-history`).then((r) => r.json()).catch(() => ({})))?.history ?? []);
       setSwaps((await fetch(`${API}/defi/history?limit=25`).then((r) => r.json()).catch(() => ({})))?.swaps ?? []);
+      setAgent(await fetch(`${API}/agent/status`).then((r) => r.json()).catch(() => null));
     } finally { setLoading(false); }
   };
 
@@ -167,6 +175,35 @@ export default function VaultPage() {
         <Stat icon={TrendingUp} label="My Strategy" value={myState?.allocation?.strategy ?? "—"} sub={myState ? `${myState.allocation.conservative_pct} / ${myState.allocation.balanced_pct} / ${myState.allocation.aggressive_pct}` : "—"} accent="#FFB347" />
       </div>
 
+      {/* Agent status / gas runway bar */}
+      {agent && (() => {
+        const gas = agent.agent_gas_cspr;
+        const reserve = agent.gas_reserve_cspr ?? 20;
+        const gasCol = gas == null ? "#6b7688" : gas < reserve ? "#FF4D6D" : gas < reserve * 2 ? "#FFB347" : "#00E28A";
+        return (
+          <div className="flex items-center gap-x-5 gap-y-2 flex-wrap mb-6 px-4 py-2.5 font-mono text-[9px]"
+               style={{ background: "linear-gradient(90deg,#0d1420,#0a0e14)", border: "1px solid rgba(255,255,255,0.07)", clipPath: CLIP }}>
+            <span className="flex items-center gap-1.5 uppercase tracking-widest" style={{ color: agent.running ? "#00E28A" : "#FF9F0A" }}>
+              <span className="w-1.5 h-1.5 rounded-full" style={{ background: "currentColor", boxShadow: "0 0 6px currentColor" }} />
+              agent {agent.running ? "running" : "paused"}
+            </span>
+            <span className="flex items-center gap-1.5">
+              <Fuel size={11} style={{ color: gasCol }} />
+              <span className="text-cyber-muted uppercase tracking-widest text-[8px]">gas tank</span>
+              <span className="font-bold tabular-nums" style={{ color: gasCol }}>{gas != null ? `${fmt(gas)} CSPR` : "—"}</span>
+            </span>
+            {agent.runway_actions != null && (
+              <span className="text-cyber-muted">~<b className="text-white tabular-nums">{agent.runway_actions}</b> actions runway</span>
+            )}
+            <span className="flex items-center gap-1.5">
+              <span className="text-cyber-muted uppercase tracking-widest text-[8px]">staking</span>
+              <span style={{ color: agent.staking_enabled ? "#00E28A" : "#6b7688" }}>{agent.staking_enabled ? "on · decision-driven" : "off"}</span>
+            </span>
+            <span className="text-cyber-muted/70 ml-auto hidden sm:block">agent self-funds gas from vault fees (auto-refuel when low)</span>
+          </div>
+        );
+      })()}
+
       {/* All vaults */}
       <div className="mb-6">
         <SectionTitle icon={Layers} title="All Vaults" right={<span className="font-mono text-[8px] text-cyber-muted uppercase tracking-widest">assets per wallet</span>} />
@@ -188,6 +225,26 @@ export default function VaultPage() {
                     <div className="font-mono font-bold text-[30px] leading-none text-white">
                       {fmt(v.tvl_cspr)}<span className="text-[13px] text-cyber-muted font-normal ml-1.5">CSPR</span>
                     </div>
+
+                    {/* Asset breakdown — what this vault holds */}
+                    {s?.assets?.length ? (
+                      <div className="mt-3.5 flex flex-col gap-1.5">
+                        <div className="font-mono text-[8px] uppercase tracking-[0.18em] text-cyber-muted">Assets held</div>
+                        {s.assets.map((as, i) => {
+                          const col = as.kind === "staked" ? C.cons : ACCENT;
+                          return (
+                            <div key={i} className="flex items-center gap-2 px-2 py-1.5 rounded-md" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)" }}>
+                              <span className="w-2 h-2 rounded-full shrink-0" style={{ background: col, boxShadow: `0 0 5px ${col}66` }} />
+                              <span className="font-mono text-[11px] font-bold text-white tabular-nums">{fmt(as.amount_cspr)}</span>
+                              <span className="font-mono text-[9px] text-cyber-muted">{as.symbol}</span>
+                              <span className="font-mono text-[7px] px-1.5 py-0.5 rounded uppercase tracking-wider shrink-0" style={{ background: `${col}18`, color: col }}>{as.kind}</span>
+                              <span className="font-mono text-[8px] text-cyber-muted/80 truncate hidden sm:block">{as.detail}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+
                     <div className="mt-4 flex flex-col gap-1.5 font-mono text-[9px]">
                       <a href={`${TESTNET}/contract-package/${v.package_hash}`} target="_blank" rel="noreferrer" className="flex items-center gap-1 hover:opacity-75 w-fit" style={{ color: ACCENT }}>
                         <span className="text-cyber-muted">vault</span> {short(v.package_hash, 16)}… <ExternalLink size={8} />

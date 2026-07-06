@@ -803,6 +803,7 @@ class YieldAgent:
         return self._running
 
     def get_stats(self) -> dict:
+        gas = self._agent_gas_cspr if self._agent_gas_cspr < 90_000 else None
         return {
             "running": self._running,
             "paused": self.paused,
@@ -813,4 +814,11 @@ class YieldAgent:
             "tenant_rebalances_today": dict(self._tenant_rebalances_today),
             "total_cycles": len(self._cycle_history),
             "poll_interval_seconds": self.poll_interval,
+            # Agent gas tank (its own CSPR) + runway so the UI can show fuel level.
+            "agent_gas_cspr": round(gas, 1) if gas is not None else None,
+            "gas_reserve_cspr": self.gas_reserve_cspr,
+            "gas_per_action_cspr": self.gas_per_action_cspr,
+            "runway_actions": (int(max(0.0, (gas - self.gas_reserve_cspr)) / self.gas_per_action_cspr)
+                               if gas is not None and self.gas_per_action_cspr > 0 else None),
+            "staking_enabled": self.staking_enabled,
         }

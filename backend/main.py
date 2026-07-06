@@ -1103,11 +1103,37 @@ async def vault_state(package: str = ""):
 
     portfolio = await agent.casper.get_vault_portfolio(pkg_hex, agent_account_hash=settings.agent_account_hash)
     reg = next((v for v in vault_registry.list_vaults() if v.get("package_hash") == pkg_hex), None)
+
+    # Asset breakdown: the vault's CSPR splits into liquid (in the purse,
+    # withdrawable) and staked (delegated to a validator, earning yield). Staked is
+    # reconstructed from the agent's own stake/unstake log for this vault.
+    tvl_cspr = portfolio.total_value_motes / 1e9
+    staked_cspr = 0.0
+    validator = ""
+    for e in staking_log.load(pkg_hex, limit=500):
+        amt = float(e.get("amount_cspr") or 0)
+        if e.get("action") == "stake":
+            staked_cspr += amt
+            validator = e.get("validator") or validator
+        elif e.get("action") == "unstake":
+            staked_cspr -= amt
+    staked_cspr = max(0.0, min(staked_cspr, tvl_cspr))
+    liquid_cspr = max(0.0, tvl_cspr - staked_cspr)
+    assets = [{"symbol": "CSPR", "kind": "liquid", "amount_cspr": round(liquid_cspr, 2),
+               "detail": "in the vault purse — withdrawable"}]
+    if staked_cspr > 0:
+        assets.append({"symbol": "CSPR", "kind": "staked", "amount_cspr": round(staked_cspr, 2),
+                       "detail": f"delegated to validator {validator[:10]}… — earning native yield" if validator
+                                 else "delegated to a validator — earning native yield"})
+
     return {
         "package_hash": pkg_hex,
         "explorer_url": f"https://testnet.cspr.live/contract-package/{pkg_hex}",
         "tvl_motes": portfolio.total_value_motes,
-        "tvl_cspr": portfolio.total_value_motes / 1e9,
+        "tvl_cspr": tvl_cspr,
+        "liquid_cspr": round(liquid_cspr, 2),
+        "staked_cspr": round(staked_cspr, 2),
+        "assets": assets,
         "allocation": {
             "conservative_pct": portfolio.conservative_pct,
             "balanced_pct": portfolio.balanced_pct,
