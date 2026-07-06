@@ -109,6 +109,8 @@ class Settings(BaseSettings):
     multi_tenant_enabled: bool = True
     tenant_min_drift_pct: float = 10.0
     tenant_max_rebalances_per_day: int = 2
+    gas_reserve_cspr: float = 20.0      # min agent CSPR runway kept before any action
+    gas_per_action_cspr: float = 6.0    # est. gas cost per on-chain action
     # Mainnet node used to broadcast swap deploys (they're too large for the MCP).
     # cspr.cloud convention: mainnet is the BARE domain (testnet has the .testnet. prefix).
     cspr_mainnet_node_url: str = "https://node.cspr.cloud/rpc"
@@ -400,6 +402,8 @@ async def lifespan(app: FastAPI):
         multi_tenant_enabled=settings.multi_tenant_enabled,
         tenant_min_drift_pct=settings.tenant_min_drift_pct,
         tenant_max_rebalances_per_day=settings.tenant_max_rebalances_per_day,
+        gas_reserve_cspr=settings.gas_reserve_cspr,
+        gas_per_action_cspr=settings.gas_per_action_cspr,
         on_cycle_complete=on_cycle,
     )
 

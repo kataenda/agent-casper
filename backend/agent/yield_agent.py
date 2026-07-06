@@ -75,6 +75,8 @@ class YieldAgent:
         multi_tenant_enabled: bool = True,
         tenant_min_drift_pct: float = 10.0,
         tenant_max_rebalances_per_day: int = 2,
+        gas_reserve_cspr: float = 20.0,     # keep at least this much CSPR as runway
+        gas_per_action_cspr: float = 6.0,   # est. gas one on-chain action costs
         on_cycle_complete: Optional[Callable] = None,
     ):
         self.casper = casper_client
@@ -132,6 +134,12 @@ class YieldAgent:
         # (most profitable CSPR pair), not fixed by env. Seeded from the env default.
         self._yield_token = defi_swap_token_out or "sCSPR"
         self._yield_reason = "default"
+        # Gas-awareness: the agent tracks its own CSPR (its gas tank) and refuses to
+        # spend gas it doesn't have — so it never strands funds mid-management.
+        self.gas_reserve_cspr = gas_reserve_cspr
+        self.gas_per_action_cspr = gas_per_action_cspr
+        self._agent_gas_cspr = 999_999.0    # refreshed each cycle
+        self._last_refuel_date: Optional[date] = None
         self._last_rebalance_date: Optional[date] = None
         self._last_rwa_post_ts: float = 0.0
         # Last on-chain RWA deploy hashes, carried forward across cycles so the
@@ -219,6 +227,17 @@ class YieldAgent:
                                          balanced_pct=0, aggressive_pct=0, confidence=0.0,
                                          risk_level="LOW", reasoning="analyze() returned None — holding")
 
+        # ── Gas-awareness ────────────────────────────────────────────────────
+        # Read the agent's own CSPR (its gas tank). If it's running low, refuel from
+        # the vault's accrued fees (self-funding) BEFORE any gas-spending action.
+        # Every on-chain execution below is gated on _can_spend_gas(), so the agent
+        # never fires a rebalance/stake/swap it can't pay for (no wasted reverts,
+        # no stranding depositor funds mid-management).
+        self._agent_gas_cspr = await self._read_agent_gas()
+        if self._agent_gas_cspr < self.gas_reserve_cspr:
+            await self._maybe_refuel_gas()
+            self._agent_gas_cspr = await self._read_agent_gas()
+
         logger.info(
             "[Block %d] Decision: %s | Confidence: %.2f | Risk: %s",
             block_height,
@@ -235,6 +254,10 @@ class YieldAgent:
                 cycle_error = "PAUSED"
             elif self._rebalances_today >= self.max_rebalances:
                 cycle_error = f"QUOTA {self._rebalances_today}/{self.max_rebalances}"
+            elif not self._can_spend_gas():
+                cycle_error = (f"LOW_GAS {self._agent_gas_cspr:.0f} CSPR (< {self.gas_reserve_cspr + self.gas_per_action_cspr:.0f}) "
+                               "— holding to preserve runway; fund the agent account")
+                logger.warning("skip rebalance — %s", cycle_error)
             else:
                 tx_hash = await self._execute_rebalance(decision, portfolio)
                 if tx_hash:
@@ -556,6 +579,23 @@ class YieldAgent:
             return {"executed": False, "settlement": "no_position", "note": note}
         token_in, token_out, amount, dir_reason = plan
 
+        # Balance guard: a mainnet swap spends the agent's OWN mainnet CSPR (amount +
+        # gas). Pre-check the balance so we don't fire a swap the agent can't fund.
+        # Only enforced when we can read a real balance; fail-open on read error
+        # (the swap's own submit path back-stops it).
+        if token_in.upper() == "CSPR":
+            try:
+                bal = await self.cspr_trade.get_native_cspr_balance(self.cspr_trade.agent_public_key)
+                raw = (bal or {}).get("balance") or (bal or {}).get("cspr") or (bal or {}).get("motes")
+                mainnet_cspr = float(raw) / (1e9 if raw and float(raw) > 1e6 else 1) if raw else None
+                if mainnet_cspr is not None and mainnet_cspr < (amount + self.gas_per_action_cspr):
+                    note = (f"insufficient mainnet CSPR for swap: have ~{mainnet_cspr:.1f}, "
+                            f"need {amount:.1f} + gas")
+                    logger.info("DeFi swap skipped — %s", note)
+                    return {"executed": False, "settlement": "insufficient_balance", "note": note}
+            except Exception:
+                pass  # can't read balance → let the swap path decide
+
         try:
             record = await self.cspr_trade.swap(
                 token_in=token_in, token_out=token_out,
@@ -625,6 +665,38 @@ class YieldAgent:
         elif token_in.upper() == yt:
             self._scspr_est = max(0.0, self._scspr_est - amount)
 
+    async def _read_agent_gas(self) -> float:
+        """The agent's own CSPR balance (its gas tank), in CSPR. get_account_balance
+        returns a large sentinel on read failure, which we treat as 'unknown' and
+        fail OPEN (a transient RPC hiccup shouldn't freeze the agent) — still logged."""
+        try:
+            acct = (self.agent_account or "").replace("account-hash-", "")
+            motes = await self.casper.get_account_balance(acct)
+            return (motes or 0) / 1e9
+        except Exception:
+            return 999_999.0   # unknown → fail open
+
+    def _can_spend_gas(self) -> bool:
+        """True when the agent can afford one on-chain action AND keep its reserve —
+        so it never strands itself mid-management with an empty tank."""
+        return self._agent_gas_cspr >= (self.gas_reserve_cspr + self.gas_per_action_cspr)
+
+    async def _maybe_refuel_gas(self) -> None:
+        """Self-funding refuel: when the gas tank is low, sweep the vault's accrued
+        management fees to the agent account (collect_fees) so it keeps operating on
+        its own revenue. Best-effort, at most once per day."""
+        today = date.today()
+        if self._last_refuel_date == today:
+            return
+        try:
+            tx = await self.deployer.submit_collect_fees(self.vault_contract_hash, self.agent_key_path)
+            if tx:
+                self._last_refuel_date = today
+                logger.info("gas low (%.0f CSPR) — swept vault fees to refuel the agent — %s",
+                            self._agent_gas_cspr, tx[:16])
+        except Exception as exc:
+            logger.info("gas refuel (collect_fees) skipped: %s", exc)
+
     async def _maybe_stake(self, portfolio, decision=None) -> None:
         """Decision-driven real-yield routing. Staking follows the agent's OWN
         allocation decision — the AI's conservative ('safe-yield') bucket maps to
@@ -635,6 +707,9 @@ class YieldAgent:
         exactly 'stake when the analysis says yield is worth it'. Best-effort; the
         contract guards back-stop it. staking_enabled is a safety master-switch."""
         if not self.staking_enabled:
+            return
+        if not self._can_spend_gas():
+            logger.info("skip stake — low gas (%.0f CSPR), preserving runway", self._agent_gas_cspr)
             return
         if self._stakes_today >= self.stake_max_per_day:
             return
