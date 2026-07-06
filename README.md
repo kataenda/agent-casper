@@ -11,7 +11,7 @@
 <a href="https://testnet.cspr.live"><img src="https://img.shields.io/badge/Casper-Testnet-00F5FF" alt="Casper Testnet" /></a>
 <a href="https://testnet.cspr.live"><img src="https://img.shields.io/badge/Contract-hash--486a161b-00FF94" alt="Smart Contract" /></a>
 <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-BF5AF2.svg" alt="License: MIT" /></a>
-<a href="https://youtu.be/a20ls_stpDU"><img src="https://img.shields.io/badge/Demo-YouTube-FF0000" alt="Demo Video" /></a>
+<a href="https://youtu.be/4XiVtV4MWno"><img src="https://img.shields.io/badge/Demo-YouTube-FF0000" alt="Demo Video" /></a>
 <a href="https://casper.soenic.com"><img src="https://img.shields.io/badge/Live%20Demo-VPS-00F5FF" alt="Live Demo" /></a>
 </p>
 
@@ -37,6 +37,11 @@
 </tr>
 </table>
 
+<p align="center">
+  <img src="docs/screenshots/my_vault.png" alt="My Vaults — agent AUM, per-wallet vaults, staking &amp; swap history" width="90%" /><br/>
+  <em>My Vaults — protocol AUM across every enrolled vault, per-wallet assets (liquid vs staked CSPR), agent gas/runway, and full staking &amp; swap history</em>
+</p>
+
 
 
 ---
@@ -47,7 +52,7 @@
 |---|---|
 | **Live Dashboard** | https://casper.soenic.com |
 | **Backend API** | https://agentcasper.soenic.com |
-| **Demo Video** | https://youtu.be/a20ls_stpDU |
+| **Demo Video** | https://youtu.be/4XiVtV4MWno |
 | **Smart Contract** | https://testnet.cspr.live (hash-486a161b...) |
 | **X / Twitter** | https://x.com/kata_enda |
 | **Telegram** | https://t.me/soesoe14 |
@@ -133,7 +138,7 @@ Most people who want yield on CSPR lose part of it to the same things: they reba
 - **Developer pull:** open-source the agent framework so teams fork it for their own strategies (grows Casper on-chain activity).
 - **Sustainability:** the vault's on-chain fee (`fee_bps`) + x402 provider revenue fund continuous operation — the agent is designed to pay for its own gas.
 
-**Community & socials.** [X / Twitter](https://x.com/kata_enda) · [Telegram](https://t.me/soesoe14) · Discord `mas_end_47419` · [GitHub](https://github.com/kataenda) · [Demo video](https://youtu.be/a20ls_stpDU)
+**Community & socials.** [X / Twitter](https://x.com/kata_enda) · [Telegram](https://t.me/soesoe14) · Discord `mas_end_47419` · [GitHub](https://github.com/kataenda) · [Demo video](https://youtu.be/4XiVtV4MWno)
 
 ---
 
@@ -221,18 +226,22 @@ Framework:     Odra 2.7.2 (Rust → WASM), upgradable + payable (real CSPR custo
 
 | Function | Description |
 |----------|-------------|
-| `deposit()` | Payable — users deposit CSPR; a `fee_bps` management fee is taken |
-| `withdraw(amount)` | Users withdraw their CSPR balance |
+| `deposit()` | Payable — users deposit CSPR; a `fee_bps` management fee accrues to the fee reserve |
+| `withdraw(amount)` | Users withdraw their CSPR balance (paid from the liquid buffer) |
 | `register_agent(agent)` | Owner registers the AI agent address |
 | `rebalance(strategy, pcts, reason)` | Agent executes a portfolio rebalance |
 | `update_rwa_price(asset, price, yield)` | Agent posts verified RWA data on-chain |
+| `set_validator(validator)` | Agent/owner sets the validator to delegate to (native staking) |
+| `stake(amount)` / `unstake(amount)` | **Real yield** — agent delegates/undelegates vault CSPR to the validator (`env().delegate`), keeping a liquidity buffer |
+| `collect_fees()` | **Agent self-funding** — agent-only; sweeps the accrued fee reserve to the agent's own gas account |
 | `set_fee_bps(bps)` | Owner sets the management fee (basis points, capped at 10%) |
-| `get_portfolio()` / `get_tvl()` / `get_fee_bps()` | Read allocation, real contract-purse TVL, and the active fee |
+| `get_portfolio()` / `get_tvl()` / `get_fee_bps()` | Read allocation, real TVL (liquid + staked), and the active fee |
+| `get_liquid()` / `get_staked()` / `get_fee_reserve()` | Read the liquid buffer, delegated amount, and pending fee reserve |
 | `emergency_pause()` | Owner safety control |
 
 ### Events Emitted
 
-`Deposited`, `Withdrawn`, `Rebalanced`, `AgentRegistered`, `RwaPriceUpdated`, `EmergencyPaused`, `FeeCollected`
+`Deposited`, `Withdrawn`, `Rebalanced`, `AgentRegistered`, `RwaPriceUpdated`, `EmergencyPaused`, `FeeCollected`, `FeesSwept`, `Staked`, `Unstaked`
 
 ---
 
@@ -571,6 +580,24 @@ CSPR_TRADE_MAX_PRICE_IMPACT_PCT=2.0  # abort a swap whose price impact exceeds t
 # DEFI_EXECUTE_ON_REBALANCE=true, DEFI_MIN_DRIFT_PCT=5, DEFI_MIN_NET_GAIN_BPS=0,
 # AGENT_POLL_INTERVAL_SECONDS=60 — and ensure the agent wallet holds mainnet CSPR
 # and ANTHROPIC_API_KEY is valid (a swap only fires when the AI decides REBALANCE).
+
+# ── Real yield — native staking (opt-in, agent-decided) ────────────────────
+# When enabled, on rebalance the agent delegates a portion of the vault's CSPR
+# to a Casper validator (native staking, env().delegate), sized by the AI's
+# conservative lean and capped so a liquidity buffer stays instant-withdrawable.
+# OFF by default — no forced toggle; the AGENT decides when/how much to stake.
+STAKING_ENABLED=false
+VALIDATOR_PUBLIC_KEY=              # testnet validator to delegate to (cspr.live/validators)
+STAKE_AMOUNT_CSPR=500             # per stake action (must clear Casper min delegation ~500)
+STAKE_BUFFER_CSPR=200            # liquid CSPR always kept for instant withdrawals
+
+# ── Agent self-funding + gas-awareness ─────────────────────────────────────
+# The agent sweeps the vault's accrued fee reserve to its own gas account
+# (collect_fees) and refuels when low. Every on-chain action is pre-checked
+# against the agent's real balance so it never executes what it can't pay for.
+GAS_RESERVE_CSPR=20              # min agent runway kept before any action
+GAS_PER_ACTION_CSPR=6           # est. gas per on-chain action (for runway math)
+X402_SETTLE_ONCHAIN=true         # per-cycle facilitator settlement (rate-limited); false = proof-only
 
 # ── App ───────────────────────────────────────────────────────────────────
 APP_HOST=0.0.0.0
@@ -941,7 +968,8 @@ agent-casper/
 │       └── trust_state.py        # On-chain trust-score anchoring (transfer-id encoding)
 ├── frontend/src/
 │   ├── app/
-│   │   ├── page.tsx              # Main cyber dashboard (AUM, My-Vault hybrid, trajectory)
+│   │   ├── page.tsx              # Main cyber dashboard (protocol AUM headline, trajectory)
+│   │   ├── vault/page.tsx        # My Vaults — AUM, per-wallet assets (liquid/staked), gas runway, staking & swap history
 │   │   ├── agent/page.tsx        # Agent registry — Enrolled Vaults + AI Trust Engine
 │   │   ├── deploy/page.tsx       # Self-service vault deploy / upgrade / register (per wallet)
 │   │   ├── swap/page.tsx         # DeFi swap + live swap history (mainnet)

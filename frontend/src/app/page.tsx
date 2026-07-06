@@ -279,9 +279,6 @@ export default function DashboardPage() {
 
   const effectiveMotes = (aumInfo?.motes) ?? ((portfolio?.total_value_motes ?? 0) + depositedMotes);
   const showMyVault = !!myVaultHash && myVaultTvlMotes !== null;
-  const aumLabel = aumInfo
-    ? `${(aumInfo.motes / 1e9).toLocaleString(undefined, { maximumFractionDigits: 0 })} CSPR · ${aumInfo.count} vaults`
-    : "…";
   const totalCspr   = hasContract && effectiveMotes > 0
     ? (effectiveMotes / 1e9).toLocaleString(undefined, { maximumFractionDigits: 0 })
     : hasContract ? "0"
@@ -438,13 +435,13 @@ export default function DashboardPage() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 shrink-0 mb-2"
            style={{ gridAutoRows: "88px" }}>
         <StatCard icon={TrendingUp}
-          label={showMyVault ? "Portfolio Value · My Vault" : "Portfolio Value"}
-          value={showMyVault
-            ? `${((myVaultTvlMotes as number) / 1e9).toLocaleString(undefined, { maximumFractionDigits: 0 })} CSPR`
-            : hasContract ? `${totalCspr} CSPR` : "—"}
-          sub={showMyVault
-            ? `protocol AUM: ${aumLabel}`
-            : hasContract ? `AUM across ${aumInfo?.count ?? "…"} vaults · ${portfolio?.current_strategy ?? "HOLDING"}` : "Deploy contract first"}
+          label="Portfolio Value · Protocol AUM"
+          value={hasContract ? `${totalCspr} CSPR` : "—"}
+          sub={hasContract
+            ? (showMyVault
+                ? `your vault: ${((myVaultTvlMotes as number) / 1e9).toLocaleString(undefined, { maximumFractionDigits: 0 })} CSPR · AUM across ${aumInfo?.count ?? "…"} vaults`
+                : `AUM across ${aumInfo?.count ?? "…"} vaults · ${portfolio?.current_strategy ?? "HOLDING"}`)
+            : "Deploy contract first"}
           accent="#00F5FF" />
         <StatCard icon={RefreshCw} label="Rebalances"
           value={String(rebalances)} sub={`of ${cycles.length} cycles`} accent="#BF5AF2" />
