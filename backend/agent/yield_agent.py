@@ -821,4 +821,8 @@ class YieldAgent:
             "runway_actions": (int(max(0.0, (gas - self.gas_reserve_cspr)) / self.gas_per_action_cspr)
                                if gas is not None and self.gas_per_action_cspr > 0 else None),
             "staking_enabled": self.staking_enabled,
+            # The agent's own mainnet DeFi position (from CSPR.trade swaps of AGENT
+            # capital) — a yield token like sCSPR. Distinct from per-vault CSPR.
+            "defi_position": ({"token": self._yield_token, "amount_est": round(self._scspr_est, 3),
+                               "reason": self._yield_reason} if self._scspr_est > 0 else None),
         }

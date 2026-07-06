@@ -39,6 +39,7 @@ interface VaultState {
 interface AgentStatus {
   running?: boolean; staking_enabled?: boolean;
   agent_gas_cspr?: number | null; gas_reserve_cspr?: number; runway_actions?: number | null;
+  defi_position?: { token: string; amount_est: number; reason?: string } | null;
 }
 interface StakeEntry { action: string; amount_cspr?: number; tx_hash: string; validator?: string; ts?: string; package?: string }
 interface Swap { tx_hash: string; amount: string; token_in: string; token_out: string; explorer_url?: string; executed: boolean; settlement?: string; ts?: string; triggered_by?: string }
@@ -203,6 +204,26 @@ export default function VaultPage() {
           </div>
         );
       })()}
+
+      {/* Agent holdings strip — DeFi position (sCSPR from swaps) + honest RWA note */}
+      <div className="grid gap-3 sm:grid-cols-2 mb-6">
+        <div className="p-4" style={{ background: "linear-gradient(150deg,#FF4D6D0a,#0a0e14 60%)", border: "1px solid #FF4D6D26", clipPath: CLIP }}>
+          <div className="font-mono text-[8px] uppercase tracking-[0.2em] text-cyber-muted mb-2 flex items-center gap-1.5"><Repeat size={11} style={{ color: "#FF4D6D" }} /> Agent DeFi position</div>
+          {agent?.defi_position ? (
+            <div className="flex items-baseline gap-2">
+              <span className="font-mono font-bold text-lg text-white tabular-nums">{fmt(agent.defi_position.amount_est)}</span>
+              <span className="font-mono text-[12px]" style={{ color: "#8bd4ff" }}>{agent.defi_position.token}</span>
+              <span className="font-mono text-[8px] text-cyber-muted ml-1">{agent.defi_position.reason}</span>
+            </div>
+          ) : (
+            <p className="font-mono text-[10px] text-cyber-muted">none yet — the agent rotates CSPR into the best yield token on a de-risk rebalance (mainnet, its own capital).</p>
+          )}
+        </div>
+        <div className="p-4" style={{ background: "linear-gradient(150deg,#FFB34709,#0a0e14 60%)", border: "1px solid #FFB34722", clipPath: CLIP }}>
+          <div className="font-mono text-[8px] uppercase tracking-[0.2em] text-cyber-muted mb-2 flex items-center gap-1.5"><Coins size={11} style={{ color: "#FFB347" }} /> RWA assets</div>
+          <p className="font-mono text-[10px] text-cyber-muted leading-relaxed">Oracle signals only today (gold · Treasury · oil steer decisions). The vault is <span style={{ color: "#FFB347" }}>token-agnostic</span> — RWA-token holdings are Phase 2, not claimed as held.</p>
+        </div>
+      </div>
 
       {/* All vaults */}
       <div className="mb-6">

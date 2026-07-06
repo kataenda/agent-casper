@@ -8,7 +8,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { ArrowLeft, CheckCircle2, AlertTriangle, RefreshCw, Rocket, ExternalLink, Wallet, Zap } from "lucide-react";
+import { ArrowLeft, CheckCircle2, AlertTriangle, RefreshCw, Rocket, ExternalLink, Wallet } from "lucide-react";
 import { useWalletVault } from "@/lib/walletVault";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -57,42 +57,12 @@ interface Status {
   isPayable: boolean | null;
 }
 
-interface VaultState {
-  package_hash: string; explorer_url: string; tvl_cspr: number;
-  allocation: { conservative_pct: number; balanced_pct: number; aggressive_pct: number; strategy: string };
-  enrolled: boolean; is_primary: boolean;
-  last_agent_action?: { action?: string; tx_hash?: string; ts?: string; note?: string } | null;
-}
-
-interface StakeEvent {
-  action: string; amount_cspr?: number | null; validator?: string;
-  tx_hash: string; explorer_url: string; ts: string;
-}
-
 export default function DeployMenu() {
   const [s, setS] = useState<Status>({ backendUpdated: null, contractHash: null, deployed: false, isPayable: null });
   const [loading, setLoading] = useState(false);
-  // Per-tenant dashboard: the connected wallet's OWN vault state.
+  // The connected wallet's own vault — used only to show a "View your vault" link
+  // (the full My Vault dashboard lives on /vault).
   const { vaultHash: walletVault } = useWalletVault();
-  const [myVault, setMyVault] = useState<VaultState | null>(null);
-  const [staking, setStaking] = useState<StakeEvent[]>([]);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      if (!walletVault) { setMyVault(null); setStaking([]); return; }
-      try {
-        const pkg = walletVault.replace(/^hash-/, "");
-        const [sRes, hRes] = await Promise.all([
-          fetch(`${API}/vault/state?package=${pkg}`),
-          fetch(`${API}/vault/staking-history?package=${pkg}&limit=20`),
-        ]);
-        if (sRes.ok && !cancelled) setMyVault(await sRes.json());
-        if (hRes.ok && !cancelled) setStaking((await hRes.json()).history || []);
-      } catch { /* panel simply hides */ }
-    })();
-    return () => { cancelled = true; };
-  }, [walletVault]);
 
   const refresh = async () => {
     setLoading(true);
@@ -181,85 +151,12 @@ export default function DeployMenu() {
         )}
       </Panel>
 
-      {/* ── My Vault — per-tenant dashboard (connected wallet's own vault) ── */}
-      {myVault && (
-        <div className="mt-6">
-          <div className="flex items-center gap-2 mb-2">
-            <Wallet size={13} style={{ color: "#00D4FF" }} />
-            <span className="font-mono text-[12px] font-bold">My Vault</span>
-            {myVault.is_primary && (
-              <span className="font-mono text-[8px] font-bold px-1.5 py-0.5 rounded uppercase tracking-widest"
-                    style={{ background: "#00FF9414", border: "1px solid #00FF9444", color: "#00FF94" }}>
-                primary
-              </span>
-            )}
-          </div>
-          <Panel>
-            <div className="grid gap-3 sm:grid-cols-3">
-              <div>
-                <p className="font-mono text-[8px] uppercase tracking-widest text-white/40 mb-1">Custodied TVL</p>
-                <p className="font-mono font-black text-[18px] text-white">{myVault.tvl_cspr.toLocaleString()} <span className="text-[10px] text-white/50">CSPR</span></p>
-              </div>
-              <div>
-                <p className="font-mono text-[8px] uppercase tracking-widest text-white/40 mb-1">Allocation ({myVault.allocation.strategy})</p>
-                <p className="font-mono text-[12px] text-white/80">
-                  <span style={{ color: "#00FF94" }}>{myVault.allocation.conservative_pct}%</span> /{" "}
-                  <span style={{ color: "#00F5FF" }}>{myVault.allocation.balanced_pct}%</span> /{" "}
-                  <span style={{ color: "#BF5AF2" }}>{myVault.allocation.aggressive_pct}%</span>
-                </p>
-              </div>
-              <div>
-                <p className="font-mono text-[8px] uppercase tracking-widest text-white/40 mb-1">Last agent action</p>
-                {myVault.last_agent_action?.action ? (
-                  <p className="font-mono text-[10px] text-white/80 flex items-center gap-1.5">
-                    <Zap size={9} style={{ color: "#BF5AF2" }} /> {myVault.last_agent_action.action}
-                    {myVault.last_agent_action.tx_hash && (
-                      <a href={`https://testnet.cspr.live/deploy/${myVault.last_agent_action.tx_hash}`}
-                         target="_blank" rel="noreferrer" className="hover:opacity-75" style={{ color: "#00D4FF" }}>
-                        {myVault.last_agent_action.tx_hash.slice(0, 10)}… <ExternalLink size={8} className="inline" />
-                      </a>
-                    )}
-                  </p>
-                ) : (
-                  <p className="font-mono text-[10px] text-white/40">none yet — serviced next cycle</p>
-                )}
-              </div>
-            </div>
-            {/* Native-staking history for THIS vault */}
-            <div className="mt-4 pt-3" style={{ borderTop: `1px solid ${ACCENT}18` }}>
-              <p className="font-mono text-[8px] uppercase tracking-widest text-white/40 mb-2 flex items-center gap-1.5">
-                <Zap size={9} style={{ color: "#00FF94" }} /> Staking activity
-              </p>
-              {staking.length ? (
-                <div className="flex flex-col gap-1">
-                  {staking.map((e) => (
-                    <a key={e.tx_hash} href={e.explorer_url} target="_blank" rel="noreferrer"
-                       className="flex items-center gap-2 font-mono text-[10px] hover:opacity-80">
-                      <span className="font-bold uppercase w-[92px] shrink-0"
-                            style={{ color: e.action === "stake" ? "#00FF94" : e.action === "unstake" ? "#FFB347" : "#00D4FF" }}>
-                        {e.action}
-                      </span>
-                      <span className="text-white/70 w-16 shrink-0">
-                        {e.amount_cspr != null ? `${e.amount_cspr} CSPR` : ""}
-                      </span>
-                      <span className="text-white/40 truncate">{e.tx_hash.slice(0, 14)}…</span>
-                      <ExternalLink size={8} className="ml-auto shrink-0" style={{ color: "#00D4FF" }} />
-                    </a>
-                  ))}
-                </div>
-              ) : (
-                <p className="font-mono text-[9px] text-white/40">
-                  no staking yet — the agent delegates idle CSPR to the best validator once <code>STAKING_ENABLED</code> is on.
-                </p>
-              )}
-            </div>
-
-            <a href={myVault.explorer_url} target="_blank" rel="noreferrer"
-               className="mt-3 inline-flex items-center gap-1 font-mono text-[9px] hover:opacity-75" style={{ color: "#00D4FF" }}>
-              {myVault.package_hash.slice(0, 20)}… <ExternalLink size={9} />
-            </a>
-          </Panel>
-        </div>
+      {/* My Vault dashboard lives on its own page (/vault) — link there instead of duplicating it. */}
+      {walletVault && (
+        <Link href="/vault" className="mt-4 inline-flex items-center gap-1.5 font-mono text-[10px] hover:opacity-80"
+              style={{ color: "#00D4FF" }}>
+          <Wallet size={12} /> View your vault — assets, staking &amp; swap history →
+        </Link>
       )}
 
       {/* ── Step 1: deploy ─────────────────────────────────────── */}
