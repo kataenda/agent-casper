@@ -555,14 +555,28 @@ RWA_ONCHAIN_ENABLED=true         # Set false to disable on-chain RWA posting
 RWA_POST_INTERVAL_SECONDS=3600   # Rate-limit: post at most once per interval
 
 # ── x402 Micropayment (optional) ──────────────────────────────────────────
+# Official CSPR.cloud `exact` scheme — the facilitator settles a CEP-18
+# transfer_with_authorization. Amounts are in TOKEN BASE UNITS (see decimals),
+# NOT native CSPR — there is no 2.5 CSPR native-transfer floor here.
 X402_ENABLED=false
-X402_PAYMENT_AMOUNT=2500000000   # 2.5 CSPR — Casper native-transfer floor
 X402_FACILITATOR_URL=https://x402-facilitator.cspr.cloud
 # x402 payTo — a Casper account-hash address ('00' + account hash), NOT a public
 # key. A '01'+pubkey value makes the CEP-18 transfer_with_authorization revert
 # on-chain. Leave unset to default to the agent's own address.
 # X402_PAY_TO=00<recipient-account-hash>
 X402_SETTLE_INTERVAL_SECONDS=3600   # rate-limit on-chain settlement
+X402_SETTLE_ONCHAIN=true            # per-cycle facilitator settle; false = proof-only
+# CEP-18 settlement token: ASSET = 64-hex contract package hash exposing
+# transfer_with_authorization; NAME/VERSION form the EIP-712 domain.
+X402_ASSET=
+X402_TOKEN_NAME=
+X402_TOKEN_VERSION=1
+X402_TOKEN_DECIMALS=6
+X402_TOKEN_SYMBOL=
+X402_PAYMENT_AMOUNT=1000000         # consumer per-request amount (token base units)
+# Mainnet PROVIDER pricing — other agents pay THIS agent for premium data.
+X402_DECISION_PRICE=5000000         # /x402/decision — token base units
+X402_RWA_FEED_PRICE=2500000         # /x402/rwa-feed — token base units
 
 # ── Real DeFi — autonomous swap on rebalance (CSPR.trade, mainnet) ─────────
 # When the AI decides REBALANCE, optionally route a small, capped, non-custodial
@@ -590,6 +604,7 @@ STAKING_ENABLED=false
 VALIDATOR_PUBLIC_KEY=              # testnet validator to delegate to (cspr.live/validators)
 STAKE_AMOUNT_CSPR=500             # per stake action (must clear Casper min delegation ~500)
 STAKE_BUFFER_CSPR=200            # liquid CSPR always kept for instant withdrawals
+STAKE_MAX_PER_DAY=2             # cap on stake actions per day
 
 # ── Agent self-funding + gas-awareness ─────────────────────────────────────
 # The agent sweeps the vault's accrued fee reserve to its own gas account
@@ -597,7 +612,15 @@ STAKE_BUFFER_CSPR=200            # liquid CSPR always kept for instant withdrawa
 # against the agent's real balance so it never executes what it can't pay for.
 GAS_RESERVE_CSPR=20              # min agent runway kept before any action
 GAS_PER_ACTION_CSPR=6           # est. gas per on-chain action (for runway math)
-X402_SETTLE_ONCHAIN=true         # per-cycle facilitator settlement (rate-limited); false = proof-only
+
+# ── Multi-tenant servicing ─────────────────────────────────────────────────
+# Apply each cycle's AI target to every enrolled vault (drift-gated, capped/day).
+MULTI_TENANT_ENABLED=true
+TENANT_MIN_DRIFT_PCT=10
+TENANT_MAX_REBALANCES_PER_DAY=2
+
+# Mainnet node used to broadcast CSPR.trade swap deploys (bare domain = mainnet).
+CSPR_MAINNET_NODE_URL=https://node.cspr.cloud/rpc
 
 # ── App ───────────────────────────────────────────────────────────────────
 APP_HOST=0.0.0.0
