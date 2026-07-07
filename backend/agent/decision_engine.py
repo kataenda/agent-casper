@@ -167,10 +167,9 @@ class DecisionEngine:
         self._demo_mode   = api_key.strip() in _PLACEHOLDER_KEYS or not api_key.strip().startswith("sk-ant-")
         if self._demo_mode:
             logger.warning(
-                "ANTHROPIC_API_KEY is not configured (got %r) — Claude AI disabled. "
+                "ANTHROPIC_API_KEY is not configured — Claude AI disabled. "
                 "Set ANTHROPIC_API_KEY in .env or Vercel environment variables. "
-                "Falling back to rule-based decisions.",
-                api_key[:12] + "..." if len(api_key) > 12 else api_key,
+                "Falling back to rule-based decisions."
             )
         # Persistent MCP session — reused across cycles to avoid subprocess cold-start overhead
         self._mcp_session: "ClientSession | None" = None

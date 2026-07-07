@@ -232,10 +232,9 @@ os.environ.setdefault("ANTHROPIC_API_KEY", settings.anthropic_api_key)
 _key = settings.anthropic_api_key
 if not _key.startswith("sk-ant-") or _key in ("sk-ant-api03-...",):
     logger.warning(
-        "⚠  ANTHROPIC_API_KEY is not set or uses a placeholder value (%r). "
+        "⚠  ANTHROPIC_API_KEY is not set or uses a placeholder value. "
         "Claude AI will be disabled — agent runs on rule-based fallback only. "
-        "Fix: add ANTHROPIC_API_KEY=sk-ant-... to your .env file or Vercel environment variables.",
-        _key[:16] + "..." if len(_key) > 16 else _key,
+        "Fix: add ANTHROPIC_API_KEY=sk-ant-... to your .env file or Vercel environment variables."
     )
 
 # ── Startup connectivity check ────────────────────────────────────────────────
@@ -1394,7 +1393,8 @@ async def submit_deploy(request: Request):
         for attempt in attempts:
             try:
                 resp = await client.post(attempt["url"], json=body, headers=attempt["headers"])
-                logger.info("Deploy submit → %s ← %s", attempt["url"], resp.status_code)
+                # Log the plain node URL (never the attempt dict — it carries the API key header)
+                logger.info("Deploy submit → %s ← %s", node_url, resp.status_code)
                 if resp.status_code == 200:
                     return resp.json()
                 last_err = f"HTTP {resp.status_code}: {resp.text[:300]}"
