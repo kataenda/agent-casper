@@ -442,9 +442,10 @@ class CORSErrorMiddleware(BaseHTTPMiddleware):
         try:
             response = await call_next(request)
         except Exception as exc:
+            logger.exception("Unhandled error handling %s", request.url.path)
             return JSONResponse(
                 status_code=500,
-                content={"detail": str(exc)},
+                content={"detail": "Internal server error"},
                 headers={"Access-Control-Allow-Origin": origin},
             )
         response.headers.setdefault("Access-Control-Allow-Origin", origin)
@@ -456,9 +457,10 @@ app.add_middleware(CORSErrorMiddleware)
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     origin = request.headers.get("origin", "*")
+    logger.exception("Unhandled error handling %s", request.url.path)
     return JSONResponse(
         status_code=500,
-        content={"detail": str(exc)},
+        content={"detail": "Internal server error"},
         headers={"Access-Control-Allow-Origin": origin},
     )
 
@@ -520,7 +522,8 @@ async def agent_trust_anchor():
             chain_name="casper-test",
         )
     except Exception as exc:
-        raise HTTPException(400, f"anchor failed: {exc}")
+        logger.warning("anchor failed: %s", exc)
+        raise HTTPException(400, "anchor failed")
     return {"anchored": True, "score": trust["score"], **record}
 
 
@@ -847,7 +850,8 @@ async def defi_quote(token_in: str = "CSPR", token_out: str = "sCSPR", amount: s
     try:
         return await _cspr_trade().get_quote(token_in, token_out, amount)
     except CsprTradeError as exc:
-        raise HTTPException(502, str(exc))
+        logger.warning("defi_quote failed: %s", exc)
+        raise HTTPException(502, "Upstream DeFi quote service unavailable")
 
 
 @app.get("/defi/markets")
@@ -857,7 +861,8 @@ async def defi_markets():
         pairs = await _cspr_trade().get_pairs()
         return {"network": "casper:casper", "source": "CSPR.trade MCP", "pairs": pairs}
     except CsprTradeError as exc:
-        raise HTTPException(502, str(exc))
+        logger.warning("defi_markets failed: %s", exc)
+        raise HTTPException(502, "Upstream DeFi markets service unavailable")
 
 
 class SwapRequest(BaseModel):
@@ -885,7 +890,8 @@ async def defi_swap(req: SwapRequest):
         swap_log.record_swap(result, triggered_by="manual")
         return result
     except CsprTradeError as exc:
-        raise HTTPException(400, str(exc))
+        logger.warning("defi_swap failed: %s", exc)
+        raise HTTPException(400, "Swap rejected (guardrails or DEX error)")
 
 
 @app.get("/defi/history")
@@ -1163,7 +1169,8 @@ async def _vault_read_window(pkg_hex: str) -> dict:
                 "newest_ts": max(ts) if ts else None,
                 "oldest_ts": min(ts) if ts else None}
     except Exception as exc:
-        return {"deploys_seen": -1, "error": str(exc)[:120]}
+        logger.warning("vault read window failed for %s: %s", pkg_hex, exc)
+        return {"deploys_seen": -1, "error": "read failed"}
 
 
 @app.get("/vault/proxy-wasm")
