@@ -8,7 +8,7 @@ pydantic-settings==2.4.0
 websockets==13.0.1
 apscheduler==3.10.4
 sqlalchemy==2.0.35
-aiosqlite==0.20.0
+aiosqlite==0.22.1
 # pycspr 2.0.0 requires Python >=3.12; pin to latest 0.x compatible with Python 3.10
 pycspr==0.12.4
 # keccak256 for the x402 exact-scheme EIP-712 digest (also a pycspr dep; pinned explicit)
