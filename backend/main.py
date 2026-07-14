@@ -481,6 +481,91 @@ async def root():
     return {"name": "Agent Casper", "version": "1.0.0", "status": "running"}
 
 
+@app.get("/agent/performance")
+async def agent_performance():
+    """
+    Is the AI actually better than doing nothing?
+
+    Reports DECISION QUALITY (the APY the agent's allocation targets vs passively
+    holding Balanced, using the validator rates the model saw) separately from
+    REALIZED yield (zero until the vault's CSPR is actually delegated — a
+    rebalance moves no funds). The two are never mixed.
+    """
+    if not agent:
+        raise HTTPException(503, "Agent not initialized")
+    from agent import performance as perf
+
+    # AUM across every enrolled vault — same source as /vault/aum (cached per package).
+    aum_motes = 0
+    try:
+        vaults = vault_registry.list_vaults() or [
+            {"package_hash": (agent.vault_contract_hash or settings.vault_contract_hash or "")
+                .replace("hash-", "").lower()}
+        ]
+        for v in vaults:
+            pkg = v.get("package_hash", "")
+            if pkg:
+                aum_motes += await agent.casper._fetch_tvl_from_deploys(pkg)
+    except Exception as exc:
+        logger.warning("performance: AUM read failed: %s", exc)
+    aum_cspr = aum_motes / 1e9
+    stats = agent.get_stats()
+
+    return perf.summarize(
+        cycles=agent.get_history(100),
+        aum_cspr=aum_cspr,
+        staked_cspr=float(stats.get("staked_cspr") or 0.0),
+        staking_enabled=bool(stats.get("staking_enabled")),
+    )
+
+
+@app.get("/agent/decision-proof")
+async def decision_proof(tx: str = "", limit: int = 20):
+    """
+    Verifiable AI decisions — the audit trail behind the on-chain commitment.
+
+    Every rebalance deploy carries `sha256:<digest>` inside its `reasoning`
+    argument (permanently visible on cspr.live). This endpoint serves the
+    PRE-IMAGE — the exact inputs the model saw plus the decision it produced —
+    so anyone can recompute the digest and check it against the chain. If the
+    backend ever rewrote a decision, the hash would stop matching.
+
+    Verify it yourself:
+        sha256( json.dumps(preimage, sort_keys=True, separators=(",", ":")) )
+    """
+    from agent import decision_proof as dp
+
+    if tx:
+        entry = dp.find(tx)
+        if not entry:
+            raise HTTPException(404, "No decision proof recorded for that deploy")
+        return {
+            **entry,
+            "verified": dp.verify(entry),
+            "explorer_url": f"https://testnet.cspr.live/deploy/{entry['tx_hash']}",
+            "how_to_verify": (
+                "sha256 of the canonical JSON (sorted keys, no spaces) of `preimage` "
+                "must equal `commitment`, which is embedded in the deploy's `reasoning` argument."
+            ),
+        }
+
+    entries = dp.load_all()[-max(1, min(limit, 100)):]
+    return {
+        "count": len(entries),
+        "proofs": [
+            {
+                "tx_hash": e.get("tx_hash"),
+                "commitment": e.get("commitment"),
+                "verified": dp.verify(e),
+                "block_height": (e.get("preimage") or {}).get("block_height"),
+                "action": ((e.get("preimage") or {}).get("decision") or {}).get("action"),
+                "explorer_url": f"https://testnet.cspr.live/deploy/{e.get('tx_hash')}",
+            }
+            for e in reversed(entries)
+        ],
+    }
+
+
 @app.get("/agent/status")
 async def agent_status():
     if not agent:

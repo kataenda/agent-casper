@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 
 from casper.paths import data_file
+from agent import decision_proof
 from datetime import datetime, date, timezone
 from typing import Callable, Optional
 
@@ -261,7 +262,9 @@ class YieldAgent:
                                "— holding to preserve runway; fund the agent account")
                 logger.warning("skip rebalance — %s", cycle_error)
             else:
-                tx_hash = await self._execute_rebalance(decision, portfolio)
+                tx_hash = await self._execute_rebalance(
+                    decision, portfolio, yield_rates, rwa_prices, block_height,
+                )
                 if tx_hash:
                     self._rebalances_today += 1
                     # Close the loop: the AI's allocation decision is now also
@@ -466,10 +469,22 @@ class YieldAgent:
         return results
 
     async def _execute_rebalance(
-        self, decision: RebalanceDecision, current: PortfolioState
+        self,
+        decision: RebalanceDecision,
+        current: PortfolioState,
+        yield_rates: list | None = None,
+        rwa_prices: list | None = None,
+        block_height: int = 0,
     ) -> Optional[str]:
         """
         Signs and submits a rebalance() call to the YieldVault contract.
+
+        The `reasoning` argument carries a sha256 COMMITMENT over the exact inputs
+        the model saw plus the decision it produced, so the AI's reasoning is not a
+        black box: the digest lands on-chain with the deploy, and the pre-image is
+        served from /agent/decision-proof for anyone to recompute. Tampering with a
+        stored decision afterwards would break the match with the chain.
+
         Returns the deploy hash on success, None on failure.
         """
         try:
@@ -482,6 +497,29 @@ class YieldAgent:
             )
 
             strategy = decision.new_strategy or current.current_strategy
+
+            preimage = decision_proof.build_preimage(
+                block_height=block_height,
+                portfolio=current.model_dump() if hasattr(current, "model_dump") else dict(current or {}),
+                yield_rates=[
+                    r.model_dump() if hasattr(r, "model_dump") else r for r in (yield_rates or [])
+                ],
+                rwa_prices=[
+                    p.model_dump() if hasattr(p, "model_dump") else p for p in (rwa_prices or [])
+                ],
+                decision={
+                    "action": decision.action,
+                    "new_strategy": strategy,
+                    "conservative_pct": decision.conservative_pct,
+                    "balanced_pct": decision.balanced_pct,
+                    "aggressive_pct": decision.aggressive_pct,
+                    "confidence": decision.confidence,
+                    "risk_level": decision.risk_level,
+                    "reasoning": decision.reasoning,
+                },
+            )
+            commitment = decision_proof.digest(preimage)
+
             tx_hash = await self.deployer.submit_rebalance(
                 contract_hash=self.vault_contract_hash,
                 key_path=self.agent_key_path,
@@ -489,9 +527,11 @@ class YieldAgent:
                 conservative_pct=decision.conservative_pct,
                 balanced_pct=decision.balanced_pct,
                 aggressive_pct=decision.aggressive_pct,
-                reasoning=decision.reasoning,
+                reasoning=decision_proof.onchain_reasoning(decision.reasoning, commitment),
             )
-            logger.info("Rebalance deploy hash: %s", tx_hash)
+            logger.info("Rebalance deploy hash: %s (commitment %s…)", tx_hash, commitment[:16])
+            if tx_hash:
+                decision_proof.record(tx_hash, commitment, preimage)
             return tx_hash
 
         except Exception as exc:
@@ -815,6 +855,7 @@ class YieldAgent:
             "multi_tenant_enabled": self.multi_tenant_enabled,
             "tenant_rebalances_today": dict(self._tenant_rebalances_today),
             "total_cycles": len(self._cycle_history),
+            "staked_cspr": round(self._staked_cspr, 2),
             "poll_interval_seconds": self.poll_interval,
             # Agent gas tank (its own CSPR) + runway so the UI can show fuel level.
             "agent_gas_cspr": round(gas, 1) if gas is not None else None,
