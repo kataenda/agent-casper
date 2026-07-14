@@ -172,6 +172,20 @@ export default function DeployMenu() {
             Backend still serves the old wasm. Redeploy the backend on Coolify, hit refresh, then deploy.
           </div>
         )}
+        {/* Set expectations BEFORE the wallet pops up: Casper Wallet cannot read raw
+            WASM, so every contract deploy looks alarming. Explaining it up front is
+            the difference between a user signing and a user backing out. */}
+        <div className="mb-3 flex items-start gap-2 p-2.5 font-mono text-[10px] leading-relaxed"
+          style={{ background: "rgba(0,212,255,0.05)", border: "1px solid rgba(0,212,255,0.25)", color: "#9fdcff" }}>
+          <AlertTriangle size={12} className="mt-0.5 shrink-0" style={{ color: "#00D4FF" }} />
+          <span>
+            <b className="text-white">Your wallet will show a “WASM transaction” warning — that is normal.</b>{" "}
+            Deploying a contract means sending raw bytecode, which Casper Wallet cannot decode, so it always
+            asks you to acknowledge the risk. You are deploying <b className="text-white">your own YieldVault</b>{" "}
+            (Odra, named key <code>yield_vault_prod</code>, gas ~230 CSPR). Everything afterwards —
+            deposit, withdraw, register — is a normal contract call and displays the entry point in plain text.
+          </span>
+        </div>
         <Panel><DeployPanel /></Panel>
         <p className="mt-2 font-mono text-[9px] text-white/40">
           Connect your wallet (top-right) with testnet CSPR, then click <b>Deploy New (payable)</b>.

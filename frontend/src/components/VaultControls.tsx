@@ -84,11 +84,11 @@ async function buildStoredContractSession(
 
 async function signDeploy(deploy: unknown, publicKey: string, sdk: any): Promise<string> {
   const provider = (window as any).CasperWalletProvider?.();
-  if (!provider) throw new Error("Casper Wallet tidak ditemukan");
+  if (!provider) throw new Error("Casper Wallet not found — install the extension and reload");
 
   const { Deploy } = sdk;
   const signResult = await provider.sign(JSON.stringify(Deploy.toJSON(deploy)), publicKey);
-  if (signResult?.cancelled) throw new Error("Dibatalkan");
+  if (signResult?.cancelled) throw new Error("Cancelled in wallet");
 
   let signedJson: any;
   if (signResult?.deploy) {
@@ -162,7 +162,7 @@ export function RegisterAgentButton({ contractHash }: { contractHash: string }) 
       const agentRes  = await fetch(`${BACKEND}/admin/agent-address`);
       const agentData = await agentRes.json();
       const agentHash: string = agentData.agent_account_hash ?? "";
-      if (!agentHash) throw new Error("Agent address tidak ditemukan");
+      if (!agentHash) throw new Error("Agent address not found — is the backend reachable?");
 
       const sdk = await import("casper-js-sdk") as any;
       const { Deploy, DeployHeader, ExecutableDeployItem, PublicKey, Duration, Timestamp, CLValue, Key } = sdk;
@@ -203,7 +203,7 @@ export function RegisterAgentButton({ contractHash }: { contractHash: string }) 
         } catch { /* transient — keep polling */ }
       }
       if (chainErr) throw new Error(`On-chain failure: ${chainErr}`);
-      if (!confirmed) throw new Error("Belum terkonfirmasi dalam 2 menit — cek explorer");
+      if (!confirmed) throw new Error("Not confirmed within 2 minutes — check the explorer");
 
       // Bust the backend's cached view so a reload shows the truth immediately.
       try {
@@ -335,7 +335,7 @@ export function DepositButton({ contractHash }: { contractHash: string }) {
       if (balance !== null && balance < amountMotes + gasMotes) {
         const have = (Number(balance) / 1e9).toFixed(2);
         const need = (Number(amountMotes + gasMotes) / 1e9).toFixed(0);
-        throw new Error(`Saldo tidak cukup: ${have} CSPR tersedia — butuh ~${need} CSPR (deposit ${amount} + gas ${Number(gasMotes) / 1e9}). Kurangi jumlah atau isi saldo.`);
+        throw new Error(`Insufficient balance: ${have} CSPR available — you need ~${need} CSPR (deposit ${amount} + gas ${Number(gasMotes) / 1e9}). Lower the amount or top up your wallet.`);
       }
 
       let deploy: unknown;
@@ -352,7 +352,7 @@ export function DepositButton({ contractHash }: { contractHash: string }) {
         const agentRes  = await fetch(`${BACKEND}/admin/agent-address`);
         const agentData = await agentRes.json();
         const agentPubKey: string = agentData.agent_public_key ?? "";
-        if (!agentPubKey) throw new Error("Agent public key tidak ditemukan");
+        if (!agentPubKey) throw new Error("Agent public key not found — is the backend reachable?");
 
         sdk = await import("casper-js-sdk") as any;
         const { Deploy, DeployHeader, ExecutableDeployItem, PublicKey, Duration, Timestamp, TransferDeployItem } = sdk;
@@ -393,11 +393,11 @@ export function DepositButton({ contractHash }: { contractHash: string }) {
       }
       if (chainErr) {
         const friendly = chainErr.includes("Mint error: 0")
-          ? "Saldo tidak cukup di on-chain (Mint InsufficientFunds) — kurangi jumlah deposit."
+          ? "Insufficient funds on-chain (Mint InsufficientFunds) — lower the deposit amount."
           : chainErr;
         throw new Error(`On-chain failure: ${friendly}`);
       }
-      if (!confirmed) throw new Error("Belum terkonfirmasi dalam 2 menit — cek explorer");
+      if (!confirmed) throw new Error("Not confirmed within 2 minutes — check the explorer");
 
       addDeposit(Number(amountMotes));
       addVaultTx({ type: "deposit", amount, hash, ts: Date.now() });
@@ -414,15 +414,15 @@ export function DepositButton({ contractHash }: { contractHash: string }) {
 
     try {
       const want = parseFloat(amount);
-      if (!(want > 0)) throw new Error("Masukkan jumlah lebih dari 0");
+      if (!(want > 0)) throw new Error("Enter an amount greater than 0");
       if (liquid !== null && want > liquid)
-        throw new Error(`Vault hanya punya ${liquid} CSPR likuid — kurangi jumlahnya`);
+        throw new Error(`The vault only holds ${liquid} CSPR liquid — lower the amount`);
 
       // withdraw() is a NORMAL (non-payable) call: the CSPR comes out of the vault
       // purse, so the wallet only needs to cover gas.
       const balance = await getWalletBalanceMotes(account.publicKey);
       if (balance !== null && balance < BigInt(GAS))
-        throw new Error(`Saldo wallet kurang untuk gas (~${Number(GAS) / 1e9} CSPR)`);
+        throw new Error(`Wallet balance too low for gas (~${Number(GAS) / 1e9} CSPR)`);
 
       const { deploy, sdk } = await buildWithdrawDeploy(account.publicKey, amount, walletVault);
 
@@ -448,7 +448,7 @@ export function DepositButton({ contractHash }: { contractHash: string }) {
         } catch { /* transient — keep polling */ }
       }
       if (chainErr) throw new Error(`On-chain failure: ${chainErr}`);
-      if (!confirmed) throw new Error("Belum terkonfirmasi dalam 2 menit — cek explorer");
+      if (!confirmed) throw new Error("Not confirmed within 2 minutes — check the explorer");
 
       addVaultTx({ type: "withdraw", amount, hash, ts: Date.now() });
       setStep("done");
@@ -592,7 +592,7 @@ export function EmergencyPausePanel({ packageHash, ownerPublicKey }:
         } catch { /* transient — keep polling */ }
       }
       if (chainErr) throw new Error(`On-chain failure: ${chainErr}`);
-      if (!confirmed) throw new Error("Belum terkonfirmasi dalam 2 menit — cek explorer");
+      if (!confirmed) throw new Error("Not confirmed within 2 minutes — check the explorer");
 
       setStep("done");
       setConfirm("");

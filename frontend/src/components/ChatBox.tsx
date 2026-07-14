@@ -53,7 +53,7 @@ export function ChatBox() {
     } catch {
       setMessages(prev => [...prev, {
         role: "agent",
-        text: "Connection error — backend tidak merespons.",
+        text: "Connection error — the backend is not responding.",
         ts:   new Date().toLocaleTimeString(),
       }]);
     } finally {

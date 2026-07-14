@@ -81,7 +81,7 @@ export function DeployPanel() {
       const wasmRes = await fetch(`${BACKEND}/admin/setup/wasm`);
       if (!wasmRes.ok) {
         if (wasmRes.status === 404)
-          throw new Error("WASM belum tersedia — push ke GitHub, tunggu Actions build selesai, lalu coba lagi.");
+          throw new Error("Contract WASM not available yet — push to GitHub, wait for the Actions build, then retry.");
         throw new Error(`Fetch WASM gagal: ${wasmRes.statusText}`);
       }
       const wasmBytes = new Uint8Array(await wasmRes.arrayBuffer());
@@ -134,7 +134,7 @@ export function DeployPanel() {
       // ── 3. Sign with Casper Wallet extension ─────────────────────────
       setStep("signing");
       const provider = window.CasperWalletProvider?.();
-      if (!provider) throw new Error("Casper Wallet extension tidak ditemukan");
+      if (!provider) throw new Error("Casper Wallet extension not found — install it and reload");
 
       const deployJson    = Deploy.toJSON(deploy);
       const deployJsonStr = JSON.stringify(deployJson);
@@ -149,7 +149,7 @@ export function DeployPanel() {
           ? JSON.parse(signResult.deploy) : signResult.deploy;
       } else {
         let sigHex = (signResult?.signatureHex ?? signResult?.signature ?? "") as string;
-        if (!sigHex) throw new Error("Wallet tidak mengembalikan signature");
+        if (!sigHex) throw new Error("The wallet returned no signature");
         // Ensure 65-byte signature with algorithm prefix (01=ED25519, 02=SECP256K1)
         if (sigHex.length === 128) {
           sigHex = (account.publicKey.startsWith("02") ? "02" : "01") + sigHex;
@@ -337,11 +337,11 @@ async function pollForContractHash(deployHash: string, callerHash: string, pkgKe
           sv?.Entity?.named_keys ?? [];
         const vaultEntry = namedKeys.find((k: {name: string}) => k.name === pkgKey);
         if (vaultEntry?.key) return vaultEntry.key as string;
-        throw new Error(`Named key '${pkgKey}' tidak ditemukan. Keys: ${namedKeys.map((k: {name: string}) => k.name).join(", ")}`);
+        throw new Error(`Named key '${pkgKey}' not found. Keys: ${namedKeys.map((k: {name: string}) => k.name).join(", ")}`);
       }
     } catch (e) {
       if (e instanceof Error && (e.message.startsWith("On-chain") || e.message.startsWith("Deploy") || e.message.startsWith("Deploy berhasil"))) throw e;
     }
   }
-  throw new Error("Timeout: deploy tidak finalized dalam 5 menit");
+  throw new Error("Timed out: the deploy was not finalized within 5 minutes");
 }
