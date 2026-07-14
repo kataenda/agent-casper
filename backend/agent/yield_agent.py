@@ -791,16 +791,25 @@ class YieldAgent:
                 self._selected_validator_info = best
                 logger.info("agent picked validator %s (fee %d%%)", validator[:16], best["delegation_rate"])
 
-            # Register the chosen validator on-chain once (or when it changes).
-            if not self._validator_set or validator != self._active_validator:
-                vtx = await self.deployer.submit_set_validator(
-                    self.vault_contract_hash, self.agent_key_path, validator)
-                if vtx:
-                    self._validator_set = True
-                    self._active_validator = validator
-                    logger.info("validator set on-chain (%s) — %s", validator[:16], vtx[:16])
-                    staking_log.record(self.vault_contract_hash, "set_validator", vtx, validator=validator)
-                return  # let it finalize; delegate on a later cycle
+            # The agent may NOT install its own choice: set_validator is only_owner, so
+            # an agent-signed call reverts NotOwner (10) — and because submit_* returns
+            # the SUBMISSION hash rather than the execution result, the old code read
+            # that revert as success, marked the validator "set", and then every stake()
+            # reverted NoValidator (20). It also burned gas on a doomed deploy on every
+            # restart. So: read what the owner has actually authorised on-chain, and
+            # wait quietly if there is nothing yet.
+            on_chain = await self.casper.get_active_validator(self.vault_contract_hash)
+            if not on_chain:
+                logger.info(
+                    "skip stake — no validator authorised on-chain yet. The agent picked %s "
+                    "(fee %s%%), but set_validator is only_owner: the vault owner must authorise "
+                    "it once (/vault → Real yield · validator).",
+                    validator[:16],
+                    (self._selected_validator_info or {}).get("delegation_rate", "?"),
+                )
+                return
+            self._validator_set = True
+            self._active_validator = on_chain
 
             # (2) HOW MUCH — one delegation chunk toward the AI's target this cycle
             #     (the decision gate above already confirmed gap ≥ min chunk and that

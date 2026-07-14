@@ -435,6 +435,27 @@ class CasperClient:
                 total -= motes
         return max(0, total)
 
+    async def get_active_validator(self, package_hash: str) -> Optional[str]:
+        """
+        The validator currently authorised on a vault, read from the chain.
+
+        set_validator is only_owner, so the AGENT cannot install one: its attempts
+        revert NotOwner (10) and every stake() that follows reverts NoValidator (20).
+        The agent must therefore ASK the chain whether the owner has authorised a
+        validator, rather than submit a deploy that is guaranteed to fail and burn
+        the gas. Returns the validator of the newest successful set_validator deploy.
+        """
+        if self._is_placeholder(package_hash):
+            return None
+        pkg_hex = package_hash.replace("hash-", "").replace("package-", "")
+        for item in await self._fetch_package_deploys(pkg_hex):   # newest first, cached
+            if item.get("error_message"):
+                continue
+            v = ((item.get("args") or {}).get("validator") or {}).get("parsed")
+            if v:
+                return str(v)
+        return None
+
     async def get_depositor_balance(self, package_hash: str, caller_public_key: str,
                                     fee_bps: int = 100) -> int:
         """
