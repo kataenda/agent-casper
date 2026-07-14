@@ -386,11 +386,11 @@ export function DepositButton({ contractHash }: { contractHash: string }) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let sdk: any;
 
-      if (isRealVaultEnabled(walletVault)) {
+      if (isRealVaultEnabled(target)) {
         // Real custody: attach CSPR to the vault's payable deposit() via the Odra
-        // proxy caller — funds land in the TARGET vault's contract purse (the
-        // connected wallet's own vault when it has one).
-        ({ deploy, sdk } = await buildDepositDeploy(account.publicKey, amount, walletVault));
+        // proxy caller — funds land in the purse of the vault the user actually
+        // PICKED (`target`), not whichever one happens to be theirs.
+        ({ deploy, sdk } = await buildDepositDeploy(account.publicKey, amount, target));
       } else {
         // Fallback (pre-payable vault): native transfer to the agent account.
         const agentRes  = await fetch(`${BACKEND}/admin/agent-address`);
@@ -469,7 +469,11 @@ export function DepositButton({ contractHash }: { contractHash: string }) {
       if (balance !== null && balance < BigInt(GAS))
         throw new Error(`Wallet balance too low for gas (~${Number(GAS) / 1e9} CSPR)`);
 
-      const { deploy, sdk } = await buildWithdrawDeploy(account.publicKey, amount, walletVault);
+      // `target`, NOT walletVault. Passing walletVault here ignored the vault the
+      // user actually picked, so every "protocol vault" withdrawal was still built
+      // against their own vault and reverted InsufficientBalance — the selector was
+      // decorative.
+      const { deploy, sdk } = await buildWithdrawDeploy(account.publicKey, amount, target);
 
       setStep("signing");
       const deployBody = await signDeploy(deploy, account.publicKey, sdk);
