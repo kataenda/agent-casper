@@ -11,7 +11,8 @@ import { useState, useEffect } from "react";
 import { UserPlus, ArrowDownCircle, ArrowUpCircle, Loader, CheckCircle, AlertCircle, ExternalLink } from "lucide-react";
 import { useWalletStore } from "@/lib/walletStore";
 import { useAgentStore } from "@/lib/store";
-import { buildDepositDeploy, buildWithdrawDeploy, buildOwnerCallDeploy, isRealVaultEnabled, DEPOSIT_GAS_MOTES } from "@/lib/vaultDeposit";
+import { buildDepositDeploy, buildWithdrawDeploy, buildOwnerCallDeploy, isRealVaultEnabled,
+         DEPOSIT_GAS_MOTES, WITHDRAW_GAS_MOTES } from "@/lib/vaultDeposit";
 import { useWalletVault } from "@/lib/walletVault";
 
 const BACKEND = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -466,8 +467,8 @@ export function DepositButton({ contractHash }: { contractHash: string }) {
       // withdraw() is a NORMAL (non-payable) call: the CSPR comes out of the vault
       // purse, so the wallet only needs to cover gas.
       const balance = await getWalletBalanceMotes(account.publicKey);
-      if (balance !== null && balance < BigInt(GAS))
-        throw new Error(`Wallet balance too low for gas (~${Number(GAS) / 1e9} CSPR)`);
+      if (balance !== null && balance < WITHDRAW_GAS_MOTES)
+        throw new Error(`Wallet balance too low for gas (~${Number(WITHDRAW_GAS_MOTES) / 1e9} CSPR)`);
 
       // `target`, NOT walletVault. Passing walletVault here ignored the vault the
       // user actually picked, so every "protocol vault" withdrawal was still built
@@ -629,7 +630,7 @@ export function DepositButton({ contractHash }: { contractHash: string }) {
         <span className="text-[9px] font-mono text-cyber-muted">
           {liquid === null
             ? "reading your balance…"
-            : `your balance: ${liquid.toLocaleString()} CSPR · instant · gas ~${Number(GAS) / 1e9} CSPR`}
+            : `your balance: ${liquid.toLocaleString()} CSPR · instant · gas ~${Number(WITHDRAW_GAS_MOTES) / 1e9} CSPR`}
         </span>
       )}
     </div>

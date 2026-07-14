@@ -18,9 +18,19 @@ const BACKEND      = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const PACKAGE_HASH = process.env.NEXT_PUBLIC_VAULT_PACKAGE_HASH || "";
 const CHAIN        = "casper-test";
 const GAS_DEPOSIT  = "60000000000"; // 60 CSPR — executing the ~184KB Odra proxy wasm is gas-heavy (6 CSPR OOG'd)
-/** Gas the payable deposit needs — exported so the UI can pre-flight the balance. */
-export const DEPOSIT_GAS_MOTES = BigInt(GAS_DEPOSIT);
-const GAS_WITHDRAW = "3000000000"; // 3 CSPR
+// withdraw() pays CSPR out of the contract purse via transfer_tokens(), and a
+// mint transfer is the expensive part of a Casper call (~2.5 CSPR of gas) — on top
+// of the contract execution itself. 3 CSPR OOG'd every attempt. The agent's stake(),
+// which also calls into the auction to delegate, clears at 5 CSPR, so 10 leaves real
+// headroom. Casper charges the FULL payment (cost == payment, no refund), so this is
+// not free money — but a reverted withdrawal costs the gas AND returns nothing.
+const GAS_WITHDRAW = "10000000000"; // 10 CSPR
+// Owner calls carry no transfer and are proven at 3 CSPR (set_validator succeeded).
+const GAS_OWNER    = "3000000000";  // 3 CSPR
+
+/** Gas these calls need — exported so the UI can pre-flight the wallet balance. */
+export const DEPOSIT_GAS_MOTES  = BigInt(GAS_DEPOSIT);
+export const WITHDRAW_GAS_MOTES = BigInt(GAS_WITHDRAW);
 
 export function isRealVaultEnabled(packageOverride?: string | null): boolean {
   return !!(packageOverride && packageOverride.trim()) || PACKAGE_HASH.trim().length > 0;
@@ -175,6 +185,8 @@ export async function buildOwnerCallDeploy(
   header.timestamp = new Timestamp(new Date());
   header.dependencies = [];
 
-  const deploy = Deploy.makeDeploy(header, ExecutableDeployItem.standardPayment(GAS_WITHDRAW), session);
+  // Owner calls move no CSPR out of the purse, so they need none of the withdraw
+  // headroom — set_validator already succeeds at this payment.
+  const deploy = Deploy.makeDeploy(header, ExecutableDeployItem.standardPayment(GAS_OWNER), session);
   return { deploy, sdk };
 }
