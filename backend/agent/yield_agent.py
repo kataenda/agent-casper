@@ -70,8 +70,8 @@ class YieldAgent:
         defi_min_drift_pct: float = 10.0,
         defi_min_net_gain_bps: int = 50,
         x402_settle_onchain: bool = True,
-        staking_enabled: bool = False,
-        validator_public_key: str = "",
+        staking_enabled: bool = True,        # emergency kill-switch only — the AI decides
+        validator_public_key: str = "",      # empty = agent picks the validator itself
         stake_amount_cspr: float = 500.0,   # per stake action (must clear Casper min delegation)
         stake_buffer_cspr: float = 200.0,   # liquid CSPR kept for instant withdrawals
         stake_max_per_day: int = 2,
@@ -747,8 +747,17 @@ class YieldAgent:
         profitable validator live (lowest-fee active), and (3) delegates toward the
         target only when idle liquid clears the buffer + Casper minimum. This is
         exactly 'stake when the analysis says yield is worth it'. Best-effort; the
-        contract guards back-stop it. staking_enabled is a safety master-switch."""
+        contract guards back-stop it.
+
+        `staking_enabled` is an EMERGENCY KILL-SWITCH, not the decision gate — it
+        defaults to ON so the AI's own analysis decides whether to stake. An env
+        flag that has to be flipped before the agent may act on its conclusion is
+        not an autonomous agent; the real safety valve is the owner-only on-chain
+        emergency_pause(), plus the economic guards below (gas runway, daily cap,
+        liquidity buffer, Casper minimum delegation)."""
         if not self.staking_enabled:
+            logger.warning("staking kill-switch engaged (STAKING_ENABLED=false) — "
+                           "ignoring the AI's yield decision this cycle")
             return
         if not self._can_spend_gas():
             logger.info("skip stake — low gas (%.0f CSPR), preserving runway", self._agent_gas_cspr)

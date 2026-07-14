@@ -69,9 +69,15 @@ class Settings(BaseSettings):
     x402_pay_to: str = ""  # recipient account-hash address ('00'+hash); defaults to the agent
     x402_settle_interval_seconds: int = 3600  # rate-limit on-chain settlement
     x402_settle_onchain: bool = True  # per-cycle facilitator settlement (rate-limited); false = proof-only
-    # ── Native staking (testnet real yield) ──────────────────────────────────
-    staking_enabled: bool = False           # opt-in: agent delegates vault CSPR to a validator
-    validator_public_key: str = ""          # testnet validator to delegate to (from cspr.live/validators)
+    # ── Native staking (real yield) ──────────────────────────────────────────
+    # ON by default: whether to stake is the AGENT's call (its conservative/safe-yield
+    # allocation IS the staked target). This flag is only an emergency kill-switch —
+    # gating an autonomous agent's own conclusion behind an env var would make the
+    # "autonomous yield agent" a manual one. Real safety = owner-only on-chain
+    # emergency_pause() + the economic guards (buffer, min delegation, gas, daily cap).
+    staking_enabled: bool = True
+    # Leave EMPTY so the agent selects the most profitable validator itself.
+    validator_public_key: str = ""
     stake_amount_cspr: float = 500.0        # per stake action (must clear Casper min delegation)
     stake_buffer_cspr: float = 200.0        # liquid CSPR kept for instant withdrawals
     stake_max_per_day: int = 2

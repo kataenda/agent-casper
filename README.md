@@ -595,13 +595,16 @@ CSPR_TRADE_MAX_PRICE_IMPACT_PCT=2.0  # abort a swap whose price impact exceeds t
 # AGENT_POLL_INTERVAL_SECONDS=60 — and ensure the agent wallet holds mainnet CSPR
 # and ANTHROPIC_API_KEY is valid (a swap only fires when the AI decides REBALANCE).
 
-# ── Real yield — native staking (opt-in, agent-decided) ────────────────────
-# When enabled, on rebalance the agent delegates a portion of the vault's CSPR
-# to a Casper validator (native staking, env().delegate), sized by the AI's
-# conservative lean and capped so a liquidity buffer stays instant-withdrawable.
-# OFF by default — no forced toggle; the AGENT decides when/how much to stake.
-STAKING_ENABLED=false
-VALIDATOR_PUBLIC_KEY=              # testnet validator to delegate to (cspr.live/validators)
+# ── Real yield — native staking (AGENT-DECIDED) ────────────────────────────
+# The agent delegates the vault's CSPR to a Casper validator (native staking,
+# env().delegate), sized by ITS OWN allocation decision — the conservative /
+# safe-yield bucket IS the staked target — keeping a liquidity buffer so
+# ordinary withdrawals stay instant.
+# STAKING_ENABLED is an EMERGENCY KILL-SWITCH, not a feature toggle: it defaults
+# to TRUE so the AI decides. Setting it false vetoes the agent's own conclusion.
+STAKING_ENABLED=true
+# Leave EMPTY so the agent picks the most profitable validator itself.
+VALIDATOR_PUBLIC_KEY=
 STAKE_AMOUNT_CSPR=500             # per stake action (must clear Casper min delegation ~500)
 STAKE_BUFFER_CSPR=200            # liquid CSPR always kept for instant withdrawals
 STAKE_MAX_PER_DAY=2             # cap on stake actions per day
