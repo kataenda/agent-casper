@@ -76,7 +76,7 @@ export interface AgentStats {
 }
 
 export interface VaultTx {
-  type: "deposit";
+  type: "deposit" | "withdraw";
   amount: string;
   hash: string;
   ts: number;

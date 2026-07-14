@@ -19,9 +19,11 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .paths import data_file
+
 logger = logging.getLogger(__name__)
 
-_LOG_PATH = Path(__file__).resolve().parent.parent / "staking_history.json"
+_LOG_PATH = data_file("staking_history.json")
 _LOCK = threading.Lock()
 _MAX_ENTRIES = 300
 

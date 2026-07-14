@@ -25,6 +25,12 @@ const WalletWidget = dynamic(
   () => import("@/components/WalletWidget").then((m) => ({ default: m.WalletWidget })),
   { ssr: false, loading: () => <span className="font-mono text-[10px] text-white/40">wallet…</span> },
 );
+// Owner-only safety control. Renders nothing unless the connected wallet is the
+// vault's on-chain owner, so it stays hidden for visitors.
+const EmergencyPausePanel = dynamic(
+  () => import("@/components/VaultControls").then((m) => ({ default: m.EmergencyPausePanel })),
+  { ssr: false },
+);
 
 interface AumVault { package_hash: string; is_primary: boolean; tvl_cspr: number }
 interface Aum { total_cspr: number; vault_count: number; vaults: AumVault[] }
@@ -353,6 +359,15 @@ export default function VaultPage() {
           )}
         </div>
       </div>
+
+      {/* Safety control — only the vault's on-chain owner sees this. */}
+      {(() => {
+        const key = (myVault || "").replace(/^(hash-|package-)/, "");
+        const mine = key ? states[key] : undefined;
+        return mine?.owner_public_key
+          ? <EmergencyPausePanel packageHash={key} ownerPublicKey={mine.owner_public_key} />
+          : null;
+      })()}
 
       <p className="font-mono text-[8px] text-cyber-muted/55 mt-6 mb-10 leading-relaxed">
         AUM, per-vault assets, allocation, staking and swaps are all reconstructed from on-chain deploys — no self-reported numbers.

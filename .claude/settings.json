@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s -m 20 -o /dev/null -w '  -> HTTP %{http_code}\\\\n' -X POST https://agentcasper.soenic.com/agent/set-validator -H 'Content-Type: application/json' -d '{}')",
+      "Bash(curl -s -m 20 -o /dev/null -w '  -> HTTP %{http_code}\\\\n' -X POST https://agentcasper.soenic.com/rebalance/manual -H 'Content-Type: application/json' -d '{\"strategy\":\"\"}')",
+      "Bash(grep -n \"vaults.map\\\\|\\\\.map\\(\\\\|</div>\\\\s*$\\\\|return \\(\\\\|^}\" frontend/src/app/vault/page.tsx)",
+      "Bash(python -m py_compile main.py agent/yield_agent.py casper/paths.py casper/swap_log.py casper/staking_log.py casper/trust_state.py casper/vault_registry.py)",
+      "Bash(python -c ' *)"
+    ]
+  }
+}

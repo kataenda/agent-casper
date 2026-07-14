@@ -23,10 +23,12 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .paths import data_file
+
 logger = logging.getLogger(__name__)
 
 # backend/vault_registry.json (module lives in backend/casper/)
-_PATH = Path(__file__).resolve().parent.parent / "vault_registry.json"
+_PATH = data_file("vault_registry.json")
 _LOCK = threading.Lock()
 _MAX_ENTRIES = 200
 

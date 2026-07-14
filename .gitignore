@@ -30,3 +30,6 @@ contracts/target/
 
 # Local-only docs (not for GitHub)
 DEMO_SCRIPT.md
+
+# Runtime agent state (mounted volume in production)
+backend/data/

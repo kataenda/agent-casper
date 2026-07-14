@@ -125,3 +125,38 @@ export async function buildWithdrawDeploy(
   const deploy = Deploy.makeDeploy(header, ExecutableDeployItem.standardPayment(GAS_WITHDRAW), session);
   return { deploy, sdk };
 }
+
+/**
+ * Build an owner-only, no-argument vault call — `emergency_pause()` halts every
+ * agent action on the vault (deposits/withdrawals of principal stay possible),
+ * `resume()` lifts it. Both revert on-chain unless signed by the vault OWNER.
+ */
+export async function buildOwnerCallDeploy(
+  senderPubKeyHex: string,
+  entryPoint: "emergency_pause" | "resume",
+  packageOverride?: string | null,
+) {
+  const pkgHash = (packageOverride && packageOverride.trim()) || PACKAGE_HASH;
+  if (!pkgHash) throw new Error("No vault package — deploy the payable vault first");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sdk = await import("casper-js-sdk") as any;
+  const { Deploy, DeployHeader, ExecutableDeployItem, StoredVersionedContractByHash,
+          ContractHash, Args, Hash, PublicKey, Duration, Timestamp } = sdk;
+
+  const chash  = new ContractHash(Hash.fromHex(stripPrefix(pkgHash)), "hash-");
+  const stored = new StoredVersionedContractByHash(chash, entryPoint, Args.fromMap({}));
+
+  const session = new ExecutableDeployItem();
+  session.storedVersionedContractByHash = stored;
+
+  const header = new DeployHeader();
+  header.account   = PublicKey.fromHex(senderPubKeyHex);
+  header.chainName = CHAIN;
+  header.gasPrice  = 1;
+  header.ttl       = new Duration(1800000);
+  header.timestamp = new Timestamp(new Date());
+  header.dependencies = [];
+
+  const deploy = Deploy.makeDeploy(header, ExecutableDeployItem.standardPayment(GAS_WITHDRAW), session);
+  return { deploy, sdk };
+}

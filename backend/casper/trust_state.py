@@ -20,13 +20,15 @@ import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+
+from .paths import data_file
 from typing import Optional
 
 import httpx
 
 logger = logging.getLogger(__name__)
 
-_STATE_PATH = Path(__file__).resolve().parent.parent / "trust_state.json"
+_STATE_PATH = data_file("trust_state.json")
 _LOCK = threading.Lock()
 
 MIN_NATIVE_TRANSFER_MOTES = 2_500_000_000  # 2.5 CSPR — Casper native-transfer floor

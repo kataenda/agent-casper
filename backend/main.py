@@ -114,6 +114,9 @@ class Settings(BaseSettings):
     # Mainnet node used to broadcast swap deploys (they're too large for the MCP).
     # cspr.cloud convention: mainnet is the BARE domain (testnet has the .testnet. prefix).
     cspr_mainnet_node_url: str = "https://node.cspr.cloud/rpc"
+    # Browser origins allowed to call this API (comma-separated). Set "*" to allow
+    # any origin. Privileged routes are gated by require_admin regardless.
+    cors_origins: str = "https://casper.soenic.com,http://localhost:3000"
     app_host: str = "0.0.0.0"
     app_port: int = 8000
     debug: bool = True
@@ -424,9 +427,15 @@ app = FastAPI(
     swagger_favicon_url="https://agent-casper-git-master-soeclaw.vercel.app/agent_casper.png",
 )
 
+# Browsers may only call this API from the dashboard's own origin. Privileged
+# endpoints are already gated by require_admin, so this is defence in depth — it
+# stops a hostile page from driving the API with a victim's browser. Set
+# CORS_ORIGINS (comma-separated) to add origins; "*" restores the open policy.
+_cors_origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()] or ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],

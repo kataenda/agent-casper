@@ -18,10 +18,12 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .paths import data_file
+
 logger = logging.getLogger(__name__)
 
 # backend/swap_history.json (module lives in backend/casper/)
-_LOG_PATH = Path(__file__).resolve().parent.parent / "swap_history.json"
+_LOG_PATH = data_file("swap_history.json")
 _LOCK = threading.Lock()
 _MAX_ENTRIES = 100
 

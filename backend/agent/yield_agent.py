@@ -8,6 +8,8 @@ import json
 import logging
 import time
 from pathlib import Path
+
+from casper.paths import data_file
 from datetime import datetime, date, timezone
 from typing import Callable, Optional
 
@@ -148,7 +150,7 @@ class YieldAgent:
         self._last_rwa_tx_hashes: dict[str, str] = {}
         # Cycle history persists to disk (DB-lite) so decisions/TVL survive
         # backend restarts instead of resetting to an empty dashboard.
-        self._history_path = Path(__file__).resolve().parent.parent / "cycle_history.json"
+        self._history_path = data_file("cycle_history.json")
         self._cycle_history: list[AgentCycleResult] = self._load_history()
 
     def _load_history(self) -> list[AgentCycleResult]:
