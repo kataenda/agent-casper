@@ -755,3 +755,147 @@ export function EmergencyPausePanel({ packageHash, ownerPublicKey }:
     </div>
   );
 }
+
+// ── Validator authorisation — the agent picks, the owner authorises ────────────
+
+/**
+ * `set_validator` is only_owner in the contract, so the agent cannot install its
+ * own choice: its attempts revert NotOwner (10), and the stake() that follows
+ * reverts NoValidator (20) — which is exactly why the vault has been sitting on
+ * idle CSPR earning nothing. The agent still DECIDES (live auction: active,
+ * well-staked, lowest commission); the owner authorises that decision once, the
+ * same one-time grant as register_agent. Rendered only for the vault's owner.
+ */
+export function ValidatorPanel({ packageHash, ownerPublicKey }:
+  { packageHash: string; ownerPublicKey: string }) {
+  const { account } = useWalletStore();
+  const [best, setBest] = useState<{ public_key: string; delegation_rate: number; staked_cspr: number } | null>(null);
+  const [active, setActive] = useState<string | null>(null);
+  const [step, setStep]     = useState<Step>("idle");
+  const [error, setError]   = useState<string | null>(null);
+  const [txHash, setTxHash] = useState<string | null>(null);
+
+  const isOwner = !!account && !!ownerPublicKey &&
+    account.publicKey.toLowerCase() === ownerPublicKey.toLowerCase();
+
+  useEffect(() => {
+    if (!isOwner) return;
+    let alive = true;
+    fetch(`${BACKEND}/agent/best-validator`)
+      .then(r => r.json())
+      .then(d => { if (alive) { setBest(d?.selected ?? null); setActive(d?.active_on_chain ?? null); } })
+      .catch(() => { if (alive) setBest(null); });
+    return () => { alive = false; };
+  }, [isOwner, step]);
+
+  if (!isOwner) return null;
+
+  const busy = step !== "idle" && step !== "error";
+  const GREEN = "#00FF94";
+
+  const authorise = async () => {
+    if (!account || !best) return;
+    setStep("building"); setError(null); setTxHash(null);
+    try {
+      const { deploy, sdk } = await buildOwnerCallDeploy(
+        account.publicKey, "set_validator", packageHash, best.public_key,
+      );
+      setStep("signing");
+      const body = await signDeploy(deploy, account.publicKey, sdk);
+      setStep("submitting");
+      const hash = await submitDeploy(body);
+      setTxHash(hash);
+
+      setStep("waiting");
+      const deadline = Date.now() + 120_000;
+      let confirmed = false; let chainErr: string | null = null;
+      while (Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, 10_000));
+        try {
+          const res = await fetch(`${BACKEND}/deploys/${hash}`);
+          const raw = await res.json();
+          const o = raw.data ?? raw;
+          if (o.error_message) { chainErr = String(o.error_message); break; }
+          if (o.status && o.status !== "pending") { confirmed = true; break; }
+        } catch { /* transient */ }
+      }
+      if (chainErr) throw new Error(`On-chain failure: ${chainErr}`);
+      if (!confirmed) throw new Error("Not confirmed within 2 minutes — check the explorer");
+      setStep("done");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e));
+      setStep("error");
+    }
+  };
+
+  return (
+    <div className="p-4 mt-6" style={{ background: "#08130E", border: `1px solid ${GREEN}33` }}>
+      <div className="flex items-center gap-2 mb-1">
+        <UserPlus size={13} style={{ color: GREEN }} />
+        <span className="font-mono text-[11px] font-bold uppercase tracking-widest" style={{ color: GREEN }}>
+          Real yield · validator
+        </span>
+        <span className="font-mono text-[9px] text-white/35">owner-only · one-time grant</span>
+      </div>
+
+      <p className="font-mono text-[10px] text-white/50 leading-relaxed mb-3">
+        The agent selects the validator itself — live from the auction: active, well-staked,
+        lowest commission. <b className="text-white/75">set_validator is owner-only</b>, so it needs
+        your signature once (like registering the agent). After this the agent delegates the vault&apos;s
+        idle CSPR on its own, and the vault starts earning.
+      </p>
+
+      {best ? (
+        <div className="mb-3 p-2.5 font-mono text-[10px]" style={{ background: "rgba(255,255,255,0.02)" }}>
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <span className="text-white/45">agent&apos;s pick</span>
+            <a href={`https://testnet.cspr.live/validator/${best.public_key}`} target="_blank" rel="noreferrer"
+               className="inline-flex items-center gap-1" style={{ color: "#00D4FF" }}>
+              {best.public_key.slice(0, 20)}… <ExternalLink size={9} />
+            </a>
+          </div>
+          <div className="flex gap-4 text-[9px]">
+            <span className="text-white/45">commission{" "}
+              <b style={{ color: GREEN }}>{best.delegation_rate}%</b></span>
+            <span className="text-white/45">self-stake{" "}
+              <b className="text-white/75">{best.staked_cspr.toLocaleString()} CSPR</b></span>
+          </div>
+          {active && active.toLowerCase() === best.public_key.toLowerCase() && (
+            <div className="mt-1 text-[9px]" style={{ color: GREEN }}>already authorised on-chain</div>
+          )}
+        </div>
+      ) : (
+        <div className="mb-3 font-mono text-[9px] text-white/40">reading the auction…</div>
+      )}
+
+      {step === "done" && txHash ? (
+        <div className="flex items-center gap-2 font-mono text-[10px]" style={{ color: GREEN }}>
+          <CheckCircle size={11} /> validator authorised —
+          <a href={`https://testnet.cspr.live/deploy/${txHash}`} target="_blank" rel="noreferrer"
+             className="inline-flex items-center gap-1 underline" style={{ color: "#00D4FF" }}>
+            {txHash.slice(0, 16)}… <ExternalLink size={9} />
+          </a>
+          <span className="text-white/40">the agent can now stake</span>
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2">
+          <button onClick={authorise} disabled={busy || !best}
+            className="px-3 py-1.5 rounded border font-mono text-[10px] font-bold uppercase tracking-widest transition-all disabled:opacity-25"
+            style={{ background: `${GREEN}14`, borderColor: `${GREEN}59`, color: GREEN }}>
+            {step === "error" ? "Retry authorise" : "Authorise the agent's validator"}
+          </button>
+          {busy && (
+            <span className="flex items-center gap-1.5 font-mono text-[9px] text-white/45">
+              <Loader size={9} className="animate-spin" />{STEP_LABEL[step]}
+            </span>
+          )}
+        </div>
+      )}
+      {step === "error" && error && (
+        <div className="mt-2 flex items-start gap-1 font-mono text-[9px] text-red-400">
+          <AlertCircle size={10} className="mt-0.5 shrink-0" /> {error}
+        </div>
+      )}
+    </div>
+  );
+}

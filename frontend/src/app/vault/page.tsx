@@ -31,6 +31,12 @@ const EmergencyPausePanel = dynamic(
   () => import("@/components/VaultControls").then((m) => ({ default: m.EmergencyPausePanel })),
   { ssr: false },
 );
+// The agent picks the validator; set_validator is owner-only, so the owner grants
+// it once. Without this the agent's stake() reverts NoValidator and the vault earns nothing.
+const ValidatorPanel = dynamic(
+  () => import("@/components/VaultControls").then((m) => ({ default: m.ValidatorPanel })),
+  { ssr: false },
+);
 
 interface AumVault { package_hash: string; is_primary: boolean; tvl_cspr: number }
 interface Aum { total_cspr: number; vault_count: number; vaults: AumVault[] }
@@ -360,13 +366,18 @@ export default function VaultPage() {
         </div>
       </div>
 
-      {/* Safety control — only the vault's on-chain owner sees this. */}
+      {/* Owner-only controls: authorise the agent's validator (unlocks real yield),
+          and the emergency stop. Both render nothing for anyone else. */}
       {(() => {
         const key = (myVault || "").replace(/^(hash-|package-)/, "");
         const mine = key ? states[key] : undefined;
-        return mine?.owner_public_key
-          ? <EmergencyPausePanel packageHash={key} ownerPublicKey={mine.owner_public_key} />
-          : null;
+        if (!mine?.owner_public_key) return null;
+        return (
+          <>
+            <ValidatorPanel packageHash={key} ownerPublicKey={mine.owner_public_key} />
+            <EmergencyPausePanel packageHash={key} ownerPublicKey={mine.owner_public_key} />
+          </>
+        );
       })()}
 
       <p className="font-mono text-[8px] text-cyber-muted/55 mt-6 mb-10 leading-relaxed">

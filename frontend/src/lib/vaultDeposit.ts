@@ -127,24 +127,42 @@ export async function buildWithdrawDeploy(
 }
 
 /**
- * Build an owner-only, no-argument vault call — `emergency_pause()` halts every
- * agent action on the vault (deposits/withdrawals of principal stay possible),
- * `resume()` lifts it. Both revert on-chain unless signed by the vault OWNER.
+ * Build an owner-only vault call.
+ *
+ * `emergency_pause()` halts every agent action on the vault (principal stays
+ * withdrawable), `resume()` lifts it, and `set_validator(pk)` authorises which
+ * validator the vault delegates to.
+ *
+ * set_validator is `only_owner` in the contract, so the AGENT cannot call it — its
+ * own attempts revert with NotOwner (user error 10), and the stake() that follows
+ * then reverts with NoValidator (20). The agent still *chooses* the validator
+ * (lowest commission, active, well-staked); the owner authorises that choice once,
+ * exactly like register_agent. Letting the agent rotate validators by itself needs
+ * a contract upgrade.
  */
 export async function buildOwnerCallDeploy(
   senderPubKeyHex: string,
-  entryPoint: "emergency_pause" | "resume",
+  entryPoint: "emergency_pause" | "resume" | "set_validator",
   packageOverride?: string | null,
+  validatorPubKeyHex?: string,
 ) {
   const pkgHash = (packageOverride && packageOverride.trim()) || PACKAGE_HASH;
   if (!pkgHash) throw new Error("No vault package — deploy the payable vault first");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sdk = await import("casper-js-sdk") as any;
   const { Deploy, DeployHeader, ExecutableDeployItem, StoredVersionedContractByHash,
-          ContractHash, Args, Hash, PublicKey, Duration, Timestamp } = sdk;
+          ContractHash, Args, CLValue, Hash, PublicKey, Duration, Timestamp } = sdk;
+
+  let args = Args.fromMap({});
+  if (entryPoint === "set_validator") {
+    if (!validatorPubKeyHex) throw new Error("No validator selected");
+    args = Args.fromMap({
+      validator: CLValue.newCLPublicKey(PublicKey.fromHex(validatorPubKeyHex.trim())),
+    });
+  }
 
   const chash  = new ContractHash(Hash.fromHex(stripPrefix(pkgHash)), "hash-");
-  const stored = new StoredVersionedContractByHash(chash, entryPoint, Args.fromMap({}));
+  const stored = new StoredVersionedContractByHash(chash, entryPoint, args);
 
   const session = new ExecutableDeployItem();
   session.storedVersionedContractByHash = stored;
