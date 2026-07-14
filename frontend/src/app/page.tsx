@@ -27,6 +27,7 @@ const ChatBox = dynamic(
   { ssr: false }
 );
 import { useAgentStore } from "@/lib/store";
+import { useWalletStore } from "@/lib/walletStore";
 import { useWalletVault } from "@/lib/walletVault";
 import { useAgentWebSocket } from "@/lib/useWebSocket";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -222,7 +223,11 @@ const CONTRACT_HASH = RAW_CONTRACT_HASH.startsWith("hash-") ? RAW_CONTRACT_HASH 
 export default function DashboardPage() {
   useAgentWebSocket();
 
-  const { connected, latestCycle, cycles, depositedMotes, vaultTxs } = useAgentStore();
+  const { connected, latestCycle, cycles, txsFor, depositedFor } = useAgentStore();
+  const { account: walletAccount } = useWalletStore();
+  // Vault activity belongs to the CONNECTED wallet — never show another wallet's.
+  const vaultTxs       = txsFor(walletAccount?.publicKey);
+  const depositedMotes = depositedFor(walletAccount?.publicKey);
 
   // Gate the client-driven dashboard behind a mount flag so the server-rendered
   // HTML and the first client render match exactly. The store rehydrates persisted

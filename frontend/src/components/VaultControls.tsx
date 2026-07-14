@@ -122,11 +122,14 @@ async function signDeploy(deploy: unknown, publicKey: string, sdk: any): Promise
 
 export function RegisterAgentButton({ contractHash }: { contractHash: string }) {
   const { account, setAgentRegistered } = useWalletStore();
-  // Wallet-scoped target: register on the CONNECTED wallet's own vault when it
-  // has one (only its owner can call register_agent there); otherwise fall back
-  // to the globally configured vault.
-  const { vaultHash: walletVault } = useWalletVault();
-  const targetHash = walletVault ?? contractHash;
+  // Wallet-scoped target. A connected wallet NEVER falls back to the configured
+  // vault: that made a fresh wallet read the PRIMARY vault's registration, show
+  // "already registered", and hide its own Register button — so its vault stayed
+  // unregistered on-chain and the agent never serviced it.
+  const { vaultHash: walletVault, checked } = useWalletVault();
+  const targetHash = account ? (walletVault ?? "") : contractHash;
+  const resolving  = !!account && !checked;
+  const needsVault = !!account && checked && !walletVault;
   const [step, setStep]     = useState<Step>("idle");
   const [error, setError]   = useState<string | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
@@ -265,6 +268,24 @@ export function RegisterAgentButton({ contractHash }: { contractHash: string }) 
     );
   }
 
+  // Still reading the wallet's named keys — say so rather than silently pointing
+  // the button at somebody else's vault.
+  if (resolving) return (
+    <span className="flex items-center gap-1.5 px-3 py-1.5 font-mono text-[9px] text-cyber-muted">
+      <Loader size={9} className="animate-spin" /> resolving your vault…
+    </span>
+  );
+
+  // Connected, but this wallet owns no vault yet. register_agent is only_owner, so
+  // there is nothing to register — send them to /deploy instead of failing on-chain.
+  if (needsVault) return (
+    <a href="/deploy"
+       className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[10px] font-mono font-bold uppercase tracking-widest hover:opacity-80"
+       style={{ background: "rgba(255,179,71,0.06)", borderColor: "rgba(255,179,71,0.35)", color: "#FFB347" }}>
+      <UserPlus size={10} /> Deploy your vault first
+    </a>
+  );
+
   return (
     <div className="flex items-center gap-2">
       {step !== "idle" && step !== "error" && (
@@ -296,9 +317,12 @@ type Mode = "deposit" | "withdraw";
 export function DepositButton({ contractHash }: { contractHash: string }) {
   const { account }              = useWalletStore();
   const { addDeposit, addVaultTx } = useAgentStore();
-  // Wallet-scoped target: deposit lands in the CONNECTED wallet's own vault when
-  // it has one; otherwise the globally configured vault.
-  const { vaultHash: walletVault } = useWalletVault();
+  // Wallet-scoped target. A connected wallet NEVER falls back to the configured
+  // vault: while the wallet's own vault was still resolving, that fallback sent a
+  // real 500 CSPR deposit into the PRIMARY vault instead of the user's own
+  // (deploy 1d0f7e38 → package 486a161b). Deposits must be disabled until we know
+  // for certain which vault belongs to this wallet.
+  const { vaultHash: walletVault, checked } = useWalletVault();
   const [mode, setMode]          = useState<Mode>("deposit");
   const [step, setStep]          = useState<Step>("idle");
   const [error, setError]        = useState<string | null>(null);
@@ -307,8 +331,18 @@ export function DepositButton({ contractHash }: { contractHash: string }) {
   // Liquid (instantly withdrawable) CSPR in the target vault — powers MAX and
   // guards against asking for more than the purse actually holds.
   const [liquid, setLiquid]      = useState<number | null>(null);
+  // Withdrawals are balance-based on-chain (`balances[caller]`), so a wallet can
+  // reclaim funds from ANY vault it deposited into — including the protocol vault.
+  const [wdVault, setWdVault]    = useState<"mine" | "protocol">("mine");
 
-  const target = walletVault || contractHash;
+  const resolving   = !!account && !checked;
+  const needsVault  = !!account && checked && !walletVault;
+  const protocolPkg = contractHash;
+  // Deposits: strictly the wallet's own vault. Withdrawals: whichever vault the
+  // user is reclaiming from.
+  const target = mode === "withdraw" && wdVault === "protocol"
+    ? protocolPkg
+    : (account ? (walletVault ?? "") : contractHash);
 
   useEffect(() => {
     if (mode !== "withdraw" || !target) return;
@@ -399,8 +433,8 @@ export function DepositButton({ contractHash }: { contractHash: string }) {
       }
       if (!confirmed) throw new Error("Not confirmed within 2 minutes — check the explorer");
 
-      addDeposit(Number(amountMotes));
-      addVaultTx({ type: "deposit", amount, hash, ts: Date.now() });
+      addDeposit(Number(amountMotes), account.publicKey);
+      addVaultTx({ type: "deposit", amount, hash, ts: Date.now() }, account.publicKey);
       setStep("done");
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
@@ -450,7 +484,7 @@ export function DepositButton({ contractHash }: { contractHash: string }) {
       if (chainErr) throw new Error(`On-chain failure: ${chainErr}`);
       if (!confirmed) throw new Error("Not confirmed within 2 minutes — check the explorer");
 
-      addVaultTx({ type: "withdraw", amount, hash, ts: Date.now() });
+      addVaultTx({ type: "withdraw", amount, hash, ts: Date.now() }, account.publicKey);
       setStep("done");
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
@@ -496,6 +530,38 @@ export function DepositButton({ contractHash }: { contractHash: string }) {
           );
         })}
       </div>
+
+      {/* Withdrawals are balance-based on-chain, so a wallet can reclaim funds from
+          any vault it deposited into — including the protocol vault. */}
+      {isWd && account && walletVault && (
+        <div className="flex items-center gap-1">
+          <span className="font-mono text-[8px] uppercase tracking-widest text-white/35 mr-1">from</span>
+          {([["mine", "my vault"], ["protocol", "protocol vault"]] as const).map(([v, label]) => (
+            <button key={v} onClick={() => { if (!busy) { setWdVault(v); setLiquid(null); } }}
+              disabled={busy}
+              className="px-2 py-0.5 rounded border font-mono text-[8px] uppercase tracking-widest disabled:opacity-30"
+              style={{
+                background: wdVault === v ? "rgba(255,179,71,0.12)" : "transparent",
+                borderColor: wdVault === v ? "rgba(255,179,71,0.35)" : "rgba(255,255,255,0.12)",
+                color: wdVault === v ? "#FFB347" : "rgba(255,255,255,0.4)",
+              }}>
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Never let a deposit fly at a vault we haven't confirmed belongs to this wallet. */}
+      {mode === "deposit" && resolving && (
+        <span className="flex items-center gap-1.5 font-mono text-[9px] text-cyber-muted">
+          <Loader size={9} className="animate-spin" /> resolving your vault…
+        </span>
+      )}
+      {mode === "deposit" && needsVault && (
+        <a href="/deploy" className="font-mono text-[9px] hover:opacity-80" style={{ color: "#FFB347" }}>
+          You don&apos;t own a vault yet — deploy one first →
+        </a>
+      )}
 
       <div className="flex items-center gap-2">
         {busy && (

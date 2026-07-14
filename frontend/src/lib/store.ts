@@ -88,15 +88,23 @@ interface AgentStore {
   latestCycle: AgentCycle | null;
   cycles: AgentCycle[];
   portfolioHistory: { time: string; value: number }[];
-  depositedMotes: number;
-  vaultTxs: VaultTx[];
+  // Vault activity is WALLET-SCOPED. A single global list meant connecting a
+  // second wallet showed the first wallet's deposits as if they were its own.
+  depositedByWallet: Record<string, number>;
+  vaultTxsByWallet: Record<string, VaultTx[]>;
 
   setConnected: (v: boolean) => void;
   setStats: (s: AgentStats) => void;
   addCycle: (c: AgentCycle) => void;
-  addDeposit: (motes: number) => void;
-  addVaultTx: (tx: VaultTx) => void;
+  addDeposit: (motes: number, wallet: string) => void;
+  addVaultTx: (tx: VaultTx, wallet: string) => void;
+  /** This wallet's vault txs — empty for a wallet that has never transacted. */
+  txsFor: (wallet: string | null | undefined) => VaultTx[];
+  /** This wallet's optimistically-tracked deposits (motes). */
+  depositedFor: (wallet: string | null | undefined) => number;
 }
+
+const key = (w: string | null | undefined) => (w || "").toLowerCase();
 
 export const useAgentStore = create<AgentStore>()(
   persist(
@@ -106,19 +114,33 @@ export const useAgentStore = create<AgentStore>()(
       latestCycle: null,
       cycles: [],
       portfolioHistory: [],
-      depositedMotes: 0,
-      vaultTxs: [],
+      depositedByWallet: {},
+      vaultTxsByWallet: {},
 
       setConnected: (v) => set({ connected: v }),
       setStats: (s) => set({ stats: s }),
 
-      addVaultTx: (tx) =>
-        set((s) => ({ vaultTxs: [tx, ...s.vaultTxs].slice(0, 10) })),
+      txsFor: (wallet) => get().vaultTxsByWallet[key(wallet)] ?? [],
+      depositedFor: (wallet) => get().depositedByWallet[key(wallet)] ?? 0,
 
-      addDeposit: (motes) => {
-        const { depositedMotes, latestCycle, portfolioHistory } = get();
-        const newDeposited = depositedMotes + motes;
-        set({ depositedMotes: newDeposited });
+      addVaultTx: (tx, wallet) =>
+        set((s) => {
+          const k = key(wallet);
+          if (!k) return {};
+          return {
+            vaultTxsByWallet: {
+              ...s.vaultTxsByWallet,
+              [k]: [tx, ...(s.vaultTxsByWallet[k] ?? [])].slice(0, 10),
+            },
+          };
+        }),
+
+      addDeposit: (motes, wallet) => {
+        const { depositedByWallet, latestCycle, portfolioHistory } = get();
+        const k = key(wallet);
+        if (!k) return;
+        const newDeposited = (depositedByWallet[k] ?? 0) + motes;
+        set({ depositedByWallet: { ...depositedByWallet, [k]: newDeposited } });
         if (latestCycle) {
           // Optimistic point: bump from the SAME basis the trajectory plots (AUM
           // when available) so a deposit doesn't drop the line to a smaller base.
@@ -135,14 +157,17 @@ export const useAgentStore = create<AgentStore>()(
       },
 
       addCycle: (c) => {
-        const { cycles, portfolioHistory, depositedMotes } = get();
+        const { cycles, portfolioHistory, depositedByWallet } = get();
         if (cycles.some(e => e.timestamp === c.timestamp)) return;
         const newCycles = [c, ...cycles].slice(0, 50);
+        // The trajectory is a PROTOCOL-wide line, so the optimistic fallback adds
+        // every wallet's pending deposits — not just the connected one's.
+        const pending = Object.values(depositedByWallet).reduce((a, b) => a + b, 0);
         // Trajectory plots multi-tenant AUM when the cycle carries it (primary +
         // all tenant vaults); older cycles fall back to primary TVL + optimism.
         const displayValue = ((c.aum_motes && c.aum_motes > 0)
           ? c.aum_motes
-          : c.portfolio.total_value_motes + depositedMotes) / 1e9;
+          : c.portfolio.total_value_motes + pending) / 1e9;
         // Backend cycles may carry naive-UTC timestamps (no "Z"); parse as UTC the
         // way DecisionLog does — otherwise JS reads them as LOCAL time and the
         // chart axis lands hours off the decision-log times.
@@ -161,7 +186,13 @@ export const useAgentStore = create<AgentStore>()(
     }),
     {
       name: "agent-casper-vault",
-      partialize: (s) => ({ vaultTxs: s.vaultTxs }),
+      // v2 scopes vault activity per wallet. The v1 payload was a single global
+      // `vaultTxs` list with no owner attached, so it cannot be attributed to a
+      // wallet after the fact — showing it under whichever wallet connects next
+      // would be a lie. Drop it.
+      version: 2,
+      migrate: () => ({ vaultTxsByWallet: {} }),
+      partialize: (s) => ({ vaultTxsByWallet: s.vaultTxsByWallet }),
     }
   )
 );
