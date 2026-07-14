@@ -317,11 +317,16 @@ type Mode = "deposit" | "withdraw";
 export function DepositButton({ contractHash }: { contractHash: string }) {
   const { account }              = useWalletStore();
   const { addDeposit, addVaultTx } = useAgentStore();
-  // Wallet-scoped target. A connected wallet NEVER falls back to the configured
-  // vault: while the wallet's own vault was still resolving, that fallback sent a
-  // real 500 CSPR deposit into the PRIMARY vault instead of the user's own
-  // (deploy 1d0f7e38 → package 486a161b). Deposits must be disabled until we know
-  // for certain which vault belongs to this wallet.
+  // Which vault the money moves in/out of — ALWAYS explicit, never inferred.
+  //
+  // The old code silently fell back to the configured vault whenever the wallet's
+  // own vault had not finished resolving, and a real 500 CSPR deposit landed in
+  // the PRIMARY vault instead of the user's own (deploy 1d0f7e38 → package
+  // 486a161b). The bug was the SILENCE, not the shared vault: the contract credits
+  // balances[caller], so a deposit into the protocol vault is safe and only the
+  // depositor can withdraw it. Requiring everyone to first deploy their own vault
+  // (~230 CSPR of gas) would make a simple deposit→withdraw impossible on a faucet
+  // balance. So: offer both, label them, and refuse to act while still resolving.
   const { vaultHash: walletVault, checked } = useWalletVault();
   const [mode, setMode]          = useState<Mode>("deposit");
   const [step, setStep]          = useState<Step>("idle");
@@ -331,28 +336,33 @@ export function DepositButton({ contractHash }: { contractHash: string }) {
   // Liquid (instantly withdrawable) CSPR in the target vault — powers MAX and
   // guards against asking for more than the purse actually holds.
   const [liquid, setLiquid]      = useState<number | null>(null);
-  // Withdrawals are balance-based on-chain (`balances[caller]`), so a wallet can
-  // reclaim funds from ANY vault it deposited into — including the protocol vault.
-  const [wdVault, setWdVault]    = useState<"mine" | "protocol">("mine");
+  const [pick, setPick]          = useState<"mine" | "protocol">("mine");
 
   const resolving   = !!account && !checked;
-  const needsVault  = !!account && checked && !walletVault;
+  const ownsVault   = !!walletVault;
+  // A wallet with no vault can only mean the protocol vault — force it, and say so.
+  const vaultChoice: "mine" | "protocol" = ownsVault ? pick : "protocol";
   const protocolPkg = contractHash;
-  // Deposits: strictly the wallet's own vault. Withdrawals: whichever vault the
-  // user is reclaiming from.
-  const target = mode === "withdraw" && wdVault === "protocol"
-    ? protocolPkg
-    : (account ? (walletVault ?? "") : contractHash);
+  const target = resolving
+    ? ""                                                   // never act mid-resolution
+    : (vaultChoice === "mine" ? (walletVault ?? "") : protocolPkg);
 
+  // How much THIS wallet may actually withdraw = balances[caller], capped by what
+  // the purse still holds liquid. Sizing MAX off the vault's purse would offer to
+  // withdraw other depositors' CSPR — the contract reverts (InsufficientBalance),
+  // so the only thing lost is the user's gas. Ask for the real number instead.
   useEffect(() => {
-    if (mode !== "withdraw" || !target) return;
+    if (mode !== "withdraw" || !target || !account) return;
     let alive = true;
-    fetch(`${BACKEND}/vault/state?package=${encodeURIComponent(target)}`)
+    fetch(`${BACKEND}/vault/my-balance?package=${encodeURIComponent(target)}`
+          + `&public_key=${encodeURIComponent(account.publicKey)}`)
       .then(r => r.json())
-      .then(d => { if (alive) setLiquid(typeof d?.liquid_cspr === "number" ? d.liquid_cspr : null); })
+      .then(d => {
+        if (alive) setLiquid(typeof d?.withdrawable_cspr === "number" ? d.withdrawable_cspr : null);
+      })
       .catch(() => { if (alive) setLiquid(null); });
     return () => { alive = false; };
-  }, [mode, target, step]);
+  }, [mode, target, step, account?.publicKey]);
 
   const doDeposit = async () => {
     if (!account) return;
@@ -450,7 +460,8 @@ export function DepositButton({ contractHash }: { contractHash: string }) {
       const want = parseFloat(amount);
       if (!(want > 0)) throw new Error("Enter an amount greater than 0");
       if (liquid !== null && want > liquid)
-        throw new Error(`The vault only holds ${liquid} CSPR liquid — lower the amount`);
+        throw new Error(`You can withdraw at most ${liquid} CSPR from this vault — `
+          + `that is YOUR on-chain balance (the vault holds other depositors' CSPR too).`);
 
       // withdraw() is a NORMAL (non-payable) call: the CSPR comes out of the vault
       // purse, so the wallet only needs to cover gas.
@@ -531,19 +542,21 @@ export function DepositButton({ contractHash }: { contractHash: string }) {
         })}
       </div>
 
-      {/* Withdrawals are balance-based on-chain, so a wallet can reclaim funds from
-          any vault it deposited into — including the protocol vault. */}
-      {isWd && account && walletVault && (
+      {/* Which vault — shown for BOTH deposit and withdraw, because the user must
+          always know where their CSPR is going, or coming from. */}
+      {account && ownsVault && !resolving && (
         <div className="flex items-center gap-1">
-          <span className="font-mono text-[8px] uppercase tracking-widest text-white/35 mr-1">from</span>
+          <span className="font-mono text-[8px] uppercase tracking-widest text-white/35 mr-1">
+            {isWd ? "from" : "into"}
+          </span>
           {([["mine", "my vault"], ["protocol", "protocol vault"]] as const).map(([v, label]) => (
-            <button key={v} onClick={() => { if (!busy) { setWdVault(v); setLiquid(null); } }}
+            <button key={v} onClick={() => { if (!busy) { setPick(v); setLiquid(null); } }}
               disabled={busy}
               className="px-2 py-0.5 rounded border font-mono text-[8px] uppercase tracking-widest disabled:opacity-30"
               style={{
-                background: wdVault === v ? "rgba(255,179,71,0.12)" : "transparent",
-                borderColor: wdVault === v ? "rgba(255,179,71,0.35)" : "rgba(255,255,255,0.12)",
-                color: wdVault === v ? "#FFB347" : "rgba(255,255,255,0.4)",
+                background: vaultChoice === v ? `${tint}1F` : "transparent",
+                borderColor: vaultChoice === v ? `${tint}59` : "rgba(255,255,255,0.12)",
+                color: vaultChoice === v ? tint : "rgba(255,255,255,0.4)",
               }}>
               {label}
             </button>
@@ -551,16 +564,23 @@ export function DepositButton({ contractHash }: { contractHash: string }) {
         </div>
       )}
 
-      {/* Never let a deposit fly at a vault we haven't confirmed belongs to this wallet. */}
-      {mode === "deposit" && resolving && (
+      {/* Never sign anything while we still don't know which vault is this wallet's. */}
+      {resolving && (
         <span className="flex items-center gap-1.5 font-mono text-[9px] text-cyber-muted">
           <Loader size={9} className="animate-spin" /> resolving your vault…
         </span>
       )}
-      {mode === "deposit" && needsVault && (
-        <a href="/deploy" className="font-mono text-[9px] hover:opacity-80" style={{ color: "#FFB347" }}>
-          You don&apos;t own a vault yet — deploy one first →
-        </a>
+
+      {/* No vault of their own: depositing into the shared vault is fine — the
+          contract credits balances[caller] — but never let it happen unannounced. */}
+      {account && !ownsVault && !resolving && (
+        <span className="font-mono text-[8px] text-white/45 leading-relaxed">
+          Using the <b style={{ color: tint }}>shared protocol vault</b> — you don&apos;t own it, but your
+          balance is tracked on-chain and only you can withdraw it.{" "}
+          <a href="/deploy" className="underline hover:opacity-80" style={{ color: "#FFB347" }}>
+            Deploy your own vault →
+          </a>
+        </span>
       )}
 
       <div className="flex items-center gap-2">
@@ -604,8 +624,8 @@ export function DepositButton({ contractHash }: { contractHash: string }) {
       {isWd && (
         <span className="text-[9px] font-mono text-cyber-muted">
           {liquid === null
-            ? "reading vault balance…"
-            : `available: ${liquid.toLocaleString()} CSPR liquid · instant · gas ~${Number(GAS) / 1e9} CSPR`}
+            ? "reading your balance…"
+            : `your balance: ${liquid.toLocaleString()} CSPR · instant · gas ~${Number(GAS) / 1e9} CSPR`}
         </span>
       )}
     </div>

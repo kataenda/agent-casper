@@ -33,9 +33,16 @@ class CasperClient:
     Auth: Authorization header with CSPR.cloud API key.
     """
 
-    def __init__(self, node_url: str, cloud_api_key: str, cloud_base_url: str):
+    def __init__(self, node_url: str, cloud_api_key: str, cloud_base_url: str,
+                 agent_account_hash: str = "", agent_public_key: str = ""):
         self.node_url = node_url
         self.cloud_base_url = cloud_base_url.rstrip("/")
+        # Needed to tell the AGENT's stake/unstake(amount) apart from a depositor's
+        # withdraw(amount): CSPR.cloud exposes no entry-point names, so deploys are
+        # classified by shape + caller. Without this, a stake would be counted as a
+        # withdrawal and silently drain the reported TVL.
+        self.agent_account_hash = agent_account_hash
+        self.agent_public_key = agent_public_key
         self.headers = {
             "Authorization": cloud_api_key,   # CSPR.cloud uses bare token (no "Bearer" prefix)
             "Content-Type": "application/json",
@@ -373,31 +380,89 @@ class CasperClient:
         self._cache_put(f"pkgdeps:{pkg_hex}", out, 300)
         return out
 
+    # CSPR.cloud does NOT return entry-point NAMES on deploys (only entry_point_id),
+    # so a withdraw cannot be matched by name — the old `entry_point == "withdraw"`
+    # test never fired and withdrawals were silently never subtracted from TVL.
+    #
+    # Identify by shape instead. A payable deposit routes through the Odra proxy, so
+    # it carries an `entry_point` ARG of "deposit" plus an `attached_value`. The only
+    # other user-callable entry point taking a bare `amount` is withdraw(amount):
+    # stake/unstake are only_agent and set_fee_bps takes `bps`. So a successful
+    # deploy from a NON-AGENT caller with an `amount` arg and no `entry_point` arg is
+    # a withdrawal.
+    @staticmethod
+    def _classify_deploy(item: dict, agent_hashes: set[str]) -> tuple[str, int]:
+        """-> ("deposit"|"withdraw"|"other", motes)"""
+        args = item.get("args") or {}
+        ep_arg = (args.get("entry_point") or {}).get("parsed")
+        if ep_arg == "deposit":
+            av = (args.get("attached_value") or args.get("amount") or {}).get("parsed")
+            return ("deposit", int(av)) if av else ("other", 0)
+        if ep_arg:
+            return ("other", 0)                       # some other proxied call
+        amt = (args.get("amount") or {}).get("parsed")
+        if not amt:
+            return ("other", 0)
+        caller = (item.get("caller_public_key") or "").lower()
+        chash  = (item.get("caller_hash") or "").lower()
+        if caller in agent_hashes or chash in agent_hashes:
+            return ("other", 0)                       # agent's stake/unstake — not a withdrawal
+        return ("withdraw", int(amt))
+
+    def _agent_identities(self) -> set[str]:
+        out = set()
+        for v in (getattr(self, "agent_account_hash", ""), getattr(self, "agent_public_key", "")):
+            if v:
+                out.add(v.lower().replace("account-hash-", ""))
+        return out
+
     async def _fetch_tvl_from_deploys(self, package_hash: str) -> int:
-        """Real vault TVL (motes) = CSPR actually custodied by the contract, summed
-        from successful on-chain `deposit()` calls minus `withdraw()`s. The payable
-        deposit routes through the Odra proxy, so `deposit` shows up as the
-        `entry_point` arg with an `attached_value`; direct `withdraw(amount)` calls
-        subtract. This reflects the contract purse, not the agent's wallet."""
+        """Real vault TVL (motes) = CSPR actually custodied by the contract: successful
+        on-chain deposits minus withdrawals. Reflects the contract purse, not the
+        agent's wallet."""
         if self._is_placeholder(package_hash):
             return 0
         pkg_hex = package_hash.replace("hash-", "").replace("package-", "")
+        agents = self._agent_identities()
         total = 0
         for item in await self._fetch_package_deploys(pkg_hex):
             if item.get("error_message"):
                 continue
-            args = item.get("args", {})
-            ep_arg = (args.get("entry_point") or {}).get("parsed")
-            ep_top = item.get("entry_point") or item.get("name")
-            if ep_arg == "deposit":
-                av = (args.get("attached_value") or args.get("amount") or {}).get("parsed")
-                if av:
-                    total += int(av)
-            elif ep_top == "withdraw":
-                amt = (args.get("amount") or {}).get("parsed")
-                if amt:
-                    total -= int(amt)
+            kind, motes = self._classify_deploy(item, agents)
+            if kind == "deposit":
+                total += motes
+            elif kind == "withdraw":
+                total -= motes
         return max(0, total)
+
+    async def get_depositor_balance(self, package_hash: str, caller_public_key: str,
+                                    fee_bps: int = 100) -> int:
+        """
+        What THIS wallet may actually withdraw from a vault — the on-chain
+        `balances[caller]`, in motes.
+
+        This is NOT the vault's liquid purse. A shared vault can hold far more CSPR
+        than you put into it; withdrawing against the purse balance would revert with
+        InsufficientBalance and burn the gas. deposit() credits the depositor the NET
+        amount (fee_bps is taken off the top), withdraw() debits it in full.
+        """
+        pk = (caller_public_key or "").strip().lower()
+        if not pk or self._is_placeholder(package_hash):
+            return 0
+        pkg_hex = package_hash.replace("hash-", "").replace("package-", "")
+        agents = self._agent_identities()
+        balance = 0
+        for item in await self._fetch_package_deploys(pkg_hex):
+            if item.get("error_message"):
+                continue
+            if (item.get("caller_public_key") or "").lower() != pk:
+                continue
+            kind, motes = self._classify_deploy(item, agents)
+            if kind == "deposit":
+                balance += motes - (motes * fee_bps // 10000)   # net of the entry fee
+            elif kind == "withdraw":
+                balance -= motes
+        return max(0, balance)
 
     async def get_vault_portfolio(self, contract_hash: str, agent_account_hash: str = "") -> PortfolioState:
         """

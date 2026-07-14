@@ -320,6 +320,7 @@ async def lifespan(app: FastAPI):
         node_url=settings.casper_node_url,
         cloud_api_key=settings.cspr_cloud_api_key,
         cloud_base_url=settings.cspr_cloud_base_url,
+        agent_account_hash=settings.agent_account_hash,
     )
     deployer    = CasperDeployer(
         node_url=settings.casper_node_url,
@@ -1169,6 +1170,39 @@ async def get_vault_registry():
         } for v in vaults],
         "note": "enrollment is evidence-based: a vault appears here only after its "
                 "on-chain register_agent deploy is verified",
+    }
+
+
+@app.get("/vault/my-balance")
+async def vault_my_balance(package: str = "", public_key: str = ""):
+    """
+    What THIS wallet may withdraw from a vault — the on-chain `balances[caller]`.
+
+    Deliberately separate from the vault's liquid purse. A shared vault holds every
+    depositor's CSPR, so sizing a withdrawal against the purse (or a naive "MAX")
+    asks for more than you own and reverts with InsufficientBalance, burning the
+    gas. The contract only ever pays out balances[caller] — nobody can touch anyone
+    else's funds — but the UI must not tempt you into a doomed transaction.
+    """
+    if not agent:
+        raise HTTPException(503, "Agent not initialized")
+    pkg = (package or agent.vault_contract_hash or settings.vault_contract_hash or "")
+    pkg = pkg.replace("hash-", "").lower()
+    if not pkg or not public_key:
+        raise HTTPException(400, "package and public_key are required")
+
+    motes = await agent.casper.get_depositor_balance(pkg, public_key)
+    liquid = await agent.casper._fetch_tvl_from_deploys(pkg)
+    return {
+        "package_hash": pkg,
+        "public_key": public_key,
+        "balance_motes": motes,
+        "balance_cspr": motes / 1e9,
+        # You can never pull out more than the purse currently holds, even if your
+        # ledger balance is larger (the rest may be delegated — see FundsStaked).
+        "vault_liquid_cspr": liquid / 1e9,
+        "withdrawable_cspr": min(motes, liquid) / 1e9,
+        "note": "balances[caller] reconstructed from on-chain deposits (net of fee) minus withdrawals",
     }
 
 
