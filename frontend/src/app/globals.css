@@ -110,6 +110,12 @@ body::before {
   50%       { opacity: 0.4; transform: scale(0.75); }
 }
 
+/* Console caret — hard on/off blink (not a fade) for the typewriter hero. */
+@keyframes caret-blink {
+  0%, 50%       { opacity: 1; }
+  50.01%, 100%  { opacity: 0; }
+}
+
 /* ── Hover shimmer ─────────────────────────────────────────────── */
 @keyframes shimmer {
   0%   { transform: translateX(-100%); }

@@ -24,6 +24,58 @@ const OCT = "polygon(14px 0,100% 0,100% calc(100% - 14px),calc(100% - 14px) 100%
 const fmt = (n: number) =>
   n >= 1000 ? `${(n / 1000).toLocaleString(undefined, { maximumFractionDigits: 1 })}K` : `${Math.round(n)}`;
 
+const HERO_COPY =
+  "Agent Casper turns a passive smart-contract vault into a self-driving portfolio manager. " +
+  "Powered by Claude, it custodies real CSPR, delegates it to Casper validators for real native yield, " +
+  "services many wallets’ vaults at once, and monetizes its own intelligence to other agents over " +
+  "x402 — running its decision loop with no human in between.";
+
+/**
+ * Reveals text one character at a time, like someone typing at a console, with a
+ * blinking caret. Height is reserved up front (an invisible copy of the full text)
+ * so the buttons below never jump as lines fill in. Honours prefers-reduced-motion:
+ * users who ask for less motion get the full text immediately.
+ */
+function TypedText({ text, speed = 18, startDelay = 350 }: { text: string; speed?: number; startDelay?: number }) {
+  const [n, setN] = useState(0);
+
+  useEffect(() => {
+    const reduce = typeof window !== "undefined"
+      && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    if (reduce) { setN(text.length); return; }
+    let i = 0, id: ReturnType<typeof setInterval>;
+    const start = setTimeout(() => {
+      id = setInterval(() => {
+        i += 1;
+        setN(i);
+        if (i >= text.length) clearInterval(id);
+      }, speed);
+    }, startDelay);
+    return () => { clearTimeout(start); clearInterval(id); };
+  }, [text, speed, startDelay]);
+
+  const done = n >= text.length;
+  return (
+    <span className="relative block">
+      {/* invisible sizer reserves the final height so nothing below reflows */}
+      <span aria-hidden className="invisible">{text}</span>
+      <span className="absolute inset-0">
+        {text.slice(0, n)}
+        <span
+          className="inline-block align-middle"
+          aria-hidden
+          style={{
+            width: "0.55em", height: "1.05em", marginLeft: 1,
+            transform: "translateY(-1px)",
+            background: CYAN, boxShadow: `0 0 8px ${CYAN}`,
+            animation: done ? "caret-blink 1.1s step-end infinite" : "none",
+          }}
+        />
+      </span>
+    </span>
+  );
+}
+
 interface Aum { total_cspr: number; total_staked_cspr?: number; vault_count: number }
 
 export default function Landing() {
@@ -97,11 +149,8 @@ export default function Landing() {
           on its own.
         </h1>
 
-        <p className="mt-6 max-w-[660px] mx-auto font-mono text-[13px] md:text-[14px] leading-relaxed text-cyber-muted/70">
-          Agent Casper turns a passive smart-contract vault into a self-driving portfolio manager.
-          Powered by Claude, it custodies real CSPR, delegates it to Casper validators for real native yield,
-          services many wallets&apos; vaults at once, and monetizes its own intelligence to other agents over
-          x402 — running its decision loop with no human in between.
+        <p className="mt-6 max-w-[660px] mx-auto font-mono text-[13px] md:text-[14px] leading-relaxed text-cyber-muted/70 text-left sm:text-center">
+          <TypedText text={HERO_COPY} />
         </p>
 
         <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
