@@ -39,8 +39,8 @@ const ValidatorPanel = dynamic(
   { ssr: false },
 );
 
-interface AumVault { package_hash: string; is_primary: boolean; tvl_cspr: number }
-interface Aum { total_cspr: number; vault_count: number; vaults: AumVault[] }
+interface AumVault { package_hash: string; is_primary: boolean; tvl_cspr: number; staked_cspr?: number; liquid_cspr?: number }
+interface Aum { total_cspr: number; total_staked_cspr?: number; vault_count: number; vaults: AumVault[] }
 interface Alloc { conservative_pct: number; balanced_pct: number; aggressive_pct: number; strategy: string }
 interface Asset { symbol: string; kind: string; amount_cspr: number; detail?: string }
 interface VaultState {
@@ -271,11 +271,59 @@ export default function VaultPage() {
         {/* Protocol-wide summary — one aggregate line, not 1,000 cards. */}
         <div className="mb-3 flex flex-wrap items-center gap-x-5 gap-y-1 px-1 font-mono text-[9px] text-cyber-muted">
           <span>protocol AUM <b className="text-white">{fmt(aum?.total_cspr ?? 0)} CSPR</b></span>
+          <span>staked <b style={{ color: C.cons }}>{fmt(aum?.total_staked_cspr ?? 0)} CSPR</b></span>
           <span>across <b className="text-white">{aum?.vault_count ?? 0}</b> vaults</span>
           {hiddenCount > 0 && (
             <span>· {hiddenCount} other tenant vault{hiddenCount > 1 ? "s" : ""} holding {fmt(hiddenCspr)} CSPR (not shown)</span>
           )}
         </div>
+
+        {/* Per-tenant staked breakdown — one compact row per enrolled vault, showing
+            how much of ITS OWN balance the agent has delegated. Built from /vault/aum
+            (staked read from each vault's on-chain log) — no per-vault REST call, so
+            it scales to any number of tenants. */}
+        {(aum?.vaults?.length ?? 0) > 0 && (
+          <div className="mb-4 overflow-x-auto" style={{ border: `1px solid ${ACCENT}1f`, clipPath: CLIP }}>
+            <table className="w-full font-mono text-[9px]" style={{ borderCollapse: "collapse" }}>
+              <thead>
+                <tr className="text-cyber-muted uppercase tracking-widest" style={{ background: "rgba(255,255,255,0.02)" }}>
+                  <th className="text-left px-3 py-2 font-normal">vault</th>
+                  <th className="text-right px-3 py-2 font-normal">balance</th>
+                  <th className="text-right px-3 py-2 font-normal">staked</th>
+                  <th className="text-right px-3 py-2 font-normal">liquid</th>
+                  <th className="text-right px-3 py-2 font-normal hidden sm:table-cell">% deployed</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...(aum?.vaults ?? [])]
+                  .sort((a, b) => (b.tvl_cspr || 0) - (a.tvl_cspr || 0))
+                  .map((v) => {
+                    const mine = v.package_hash.toLowerCase() === myPkg;
+                    const staked = v.staked_cspr ?? 0;
+                    const liquid = v.liquid_cspr ?? Math.max(0, (v.tvl_cspr || 0) - staked);
+                    const pct = v.tvl_cspr ? Math.round((staked / v.tvl_cspr) * 100) : 0;
+                    return (
+                      <tr key={v.package_hash} style={{ borderTop: "1px solid rgba(255,255,255,0.05)",
+                            background: mine ? "rgba(255,179,71,0.06)" : undefined }}>
+                        <td className="px-3 py-1.5">
+                          <a href={`${TESTNET}/contract-package/${v.package_hash}`} target="_blank" rel="noreferrer"
+                             className="inline-flex items-center gap-1 hover:opacity-75" style={{ color: mine ? "#FFB347" : ACCENT }}>
+                            {short(v.package_hash, 12)}… <ExternalLink size={7} />
+                          </a>
+                          {v.is_primary && <span className="ml-1.5 text-cyber-muted">primary</span>}
+                          {mine && <span className="ml-1.5" style={{ color: "#FFB347" }}>you</span>}
+                        </td>
+                        <td className="px-3 py-1.5 text-right text-white tabular-nums">{fmt(v.tvl_cspr || 0)}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums" style={{ color: staked > 0 ? C.cons : "rgba(255,255,255,0.3)" }}>{fmt(staked)}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums text-cyber-muted">{fmt(liquid)}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums hidden sm:table-cell" style={{ color: C.cons }}>{pct}%</td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            </table>
+          </div>
+        )}
         <div className="grid gap-3 lg:grid-cols-2">
           {shown.length ? shown.map((v) => {
             const s = states[v.package_hash];

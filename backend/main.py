@@ -1250,15 +1250,31 @@ async def vault_aum():
         vaults = [{"package_hash": pkg.replace("hash-", "").lower(), "is_primary": True}]
     out = []
     total = 0
+    total_staked = 0.0
     for v in vaults:
         pkg = v.get("package_hash", "")
         if not pkg:
             continue
         tvl = await agent.casper._fetch_tvl_from_deploys(pkg)   # cached per package
         total += tvl
+        tvl_cspr = tvl / 1e9
+        # Staked per vault, reconstructed from ITS OWN stake/unstake log (a local
+        # file read — no REST, so this stays O(1) per vault even with many tenants).
+        staked = 0.0
+        for e in staking_log.load(pkg, limit=500):
+            amt = float(e.get("amount_cspr") or 0)
+            if e.get("action") == "stake":
+                staked += amt
+            elif e.get("action") == "unstake":
+                staked -= amt
+        staked = max(0.0, min(staked, tvl_cspr))
+        total_staked += staked
         out.append({"package_hash": pkg, "is_primary": v.get("is_primary", False),
-                    "tvl_cspr": tvl / 1e9})
+                    "tvl_cspr": tvl_cspr,
+                    "staked_cspr": round(staked, 2),
+                    "liquid_cspr": round(max(0.0, tvl_cspr - staked), 2)})
     return {"total_motes": total, "total_cspr": total / 1e9,
+            "total_staked_cspr": round(total_staked, 2),
             "vault_count": len(out), "vaults": out}
 
 
