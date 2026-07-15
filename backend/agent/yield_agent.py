@@ -772,10 +772,33 @@ class YieldAgent:
         target_pct = float(getattr(decision, "conservative_pct", 0) or 0) if decision else 0.0
         target_staked = min(tvl_cspr * target_pct / 100.0,
                             max(0.0, tvl_cspr - self.stake_buffer_cspr))
-        gap = target_staked - self._staked_cspr
-        if target_pct <= 0 or gap < self.stake_amount_cspr:
-            logger.info("skip stake — AI target staked ~%.0f CSPR (%.0f%%), already ~%.0f (gap %.0f < min %.0f)",
-                        target_staked, target_pct, self._staked_cspr, gap, self.stake_amount_cspr)
+
+        # How much is ALREADY delegated, reconstructed from this vault's on-chain
+        # stake/unstake log — NOT a session counter. self._staked_cspr reset to 0 on
+        # every restart, so the agent thought a fully-staked vault was empty, tried to
+        # stake another 500, and the contract reverted FundsStaked (user error 21)
+        # because the liquid purse no longer held 500. Read the real number instead.
+        staked_now = 0.0
+        for e in staking_log.load(self.vault_contract_hash, limit=500):
+            amt = float(e.get("amount_cspr") or 0)
+            if e.get("action") == "stake":
+                staked_now += amt
+            elif e.get("action") == "unstake":
+                staked_now -= amt
+        staked_now = max(0.0, min(staked_now, tvl_cspr))
+        self._staked_cspr = staked_now
+        liquid_now = max(0.0, tvl_cspr - staked_now)
+
+        # You can only delegate what's liquid beyond the buffer, and Casper needs at
+        # least ~500 CSPR per delegation. Cap the chunk so a stake can never exceed the
+        # purse (self_balance) and revert.
+        gap        = target_staked - staked_now
+        stakeable  = min(gap, max(0.0, liquid_now - self.stake_buffer_cspr))
+        if target_pct <= 0 or stakeable < self.stake_amount_cspr:
+            logger.info("skip stake — target ~%.0f CSPR (%.0f%%), staked ~%.0f, liquid ~%.0f, "
+                        "stakeable ~%.0f < chunk %.0f (buffer %.0f)",
+                        target_staked, target_pct, staked_now, liquid_now,
+                        stakeable, self.stake_amount_cspr, self.stake_buffer_cspr)
             return
 
         try:
@@ -817,15 +840,42 @@ class YieldAgent:
             stake_amt = self.stake_amount_cspr
             tx = await self.deployer.submit_stake(
                 self.vault_contract_hash, self.agent_key_path, stake_amt)
-            if tx:
-                self._staked_cspr += stake_amt
+            if not tx:
+                return
+            # submit_stake returns the SUBMISSION hash — confirm the deploy actually
+            # executed before counting it. Recording on submission logged reverted
+            # stakes (e.g. FundsStaked/21) as real delegation, inflating staked_cspr.
+            ok, err = await self._confirm_deploy(tx)
+            if ok:
                 self._stakes_today += 1
-                logger.info("staked %.0f CSPR toward AI target (real yield) — validator %s — %s",
-                            stake_amt, (self._active_validator or "")[:16], tx[:16])
                 staking_log.record(self.vault_contract_hash, "stake", tx,
                                    amount_cspr=stake_amt, validator=self._active_validator)
+                logger.info("staked %.0f CSPR toward AI target (real yield) — validator %s — %s",
+                            stake_amt, (self._active_validator or "")[:16], tx[:16])
+            else:
+                self._stakes_today += 1  # still spent the gas — respect the daily cap
+                logger.warning("stake %.0f CSPR reverted (%s) — not recorded — %s",
+                               stake_amt, err or "unknown", tx[:16])
         except Exception as exc:
             logger.warning("staking error: %s", exc)
+
+    async def _confirm_deploy(self, deploy_hash: str, tries: int = 9, delay: float = 8.0):
+        """Poll the deploy until it finalises. Returns (success, error_message).
+        Distinguishes a real revert (error_message set) from 'still pending'."""
+        import asyncio as _asyncio
+        for _ in range(tries):
+            await _asyncio.sleep(delay)
+            try:
+                st = await self.casper.get_deploy_status(deploy_hash)
+            except Exception:
+                continue
+            err = st.get("error_message")
+            if err:
+                return False, str(err)
+            status = st.get("status")
+            if status and status != "pending":
+                return True, None
+        return False, "not finalized in time"
 
     async def force_rebalance(self, strategy: str = "balanced") -> Optional[str]:
         """

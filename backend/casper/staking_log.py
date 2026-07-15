@@ -80,3 +80,17 @@ def load(package: str | None = None, limit: int = 50) -> list[dict]:
         pkg = _norm(package)
         items = [i for i in items if i.get("package") == pkg]
     return items[:limit]
+
+
+def drop(tx_hashes: set[str]) -> int:
+    """Remove entries whose tx reverted on-chain (used by reconciliation). Returns
+    the number dropped."""
+    if not tx_hashes:
+        return 0
+    with _LOCK:
+        items = _read()
+        kept = [i for i in items if i.get("tx_hash") not in tx_hashes]
+        removed = len(items) - len(kept)
+        if removed:
+            _write(kept)
+    return removed

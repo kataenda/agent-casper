@@ -1206,6 +1206,38 @@ async def vault_my_balance(package: str = "", public_key: str = ""):
     }
 
 
+@app.post("/agent/reconcile-staking", dependencies=[Depends(require_admin)])
+async def reconcile_staking():
+    """
+    Drop staking-log entries whose deploy reverted on-chain.
+
+    Stakes used to be logged on submission, so a reverted stake (e.g. FundsStaked/21
+    when the liquid purse could not cover the chunk) was recorded as real delegation
+    and inflated the reported staked balance. New stakes are confirmed before
+    logging; this repairs history written before that fix. Bounded by the log size,
+    not the number of vaults — safe to run any time.
+    """
+    if not agent:
+        raise HTTPException(503, "Agent not initialized")
+    entries = staking_log.load(limit=500)
+    reverted: set[str] = set()
+    checked = 0
+    for e in entries:
+        tx = e.get("tx_hash")
+        if not tx:
+            continue
+        checked += 1
+        try:
+            st = await agent.casper.get_deploy_status(tx)
+            if st.get("error_message"):
+                reverted.add(tx)
+        except Exception:
+            pass  # unreachable/pending — leave it, don't drop on a transient error
+    removed = staking_log.drop(reverted)
+    return {"checked": checked, "reverted": len(reverted), "removed": removed,
+            "reverted_tx": list(reverted)}
+
+
 @app.get("/vault/aum")
 async def vault_aum():
     """Assets under management: real custodied CSPR summed across EVERY enrolled
