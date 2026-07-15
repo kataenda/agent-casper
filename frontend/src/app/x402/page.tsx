@@ -149,7 +149,7 @@ export default function X402Page() {
       {/* ── Top bar ─────────────────────────────────────────────── */}
       <header className="flex items-center justify-between mb-5">
         <div className="flex items-center gap-3">
-          <Link href="/"
+          <Link href="/dashboard"
                 className="flex items-center gap-1.5 px-2.5 py-1.5 rounded border font-mono text-[10px] uppercase tracking-widest transition-opacity hover:opacity-70"
                 style={{ borderColor: "rgba(0,245,255,0.35)", color: "#00F5FF", background: "rgba(0,245,255,0.06)" }}>
             <ArrowLeft size={12} /> Dashboard
