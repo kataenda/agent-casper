@@ -97,10 +97,11 @@ export default function Landing() {
           on its own.
         </h1>
 
-        <p className="mt-6 max-w-[640px] mx-auto font-mono text-[13px] md:text-[14px] leading-relaxed text-cyber-muted/70">
+        <p className="mt-6 max-w-[660px] mx-auto font-mono text-[13px] md:text-[14px] leading-relaxed text-cyber-muted/70">
           Agent Casper turns a passive smart-contract vault into a self-driving portfolio manager.
-          Powered by Claude, it custodies real CSPR, delegates it to validators for real yield,
-          services many wallets&apos; vaults at once, and earns from other agents over x402 — with no human in the loop.
+          Powered by Claude, it custodies real CSPR, delegates it to Casper validators for real native yield,
+          services many wallets&apos; vaults at once, and monetizes its own intelligence to other agents over
+          x402 — running its decision loop with no human in between.
         </p>
 
         <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
@@ -189,15 +190,8 @@ export default function Landing() {
           </Link>
         </div>
 
-        <footer className="mt-12 flex flex-col items-center gap-2 font-mono text-[9px] text-cyber-muted/40">
-          <div className="flex items-center gap-4 flex-wrap justify-center uppercase tracking-widest">
-            <Link href="/dashboard" className="hover:text-white transition-colors">Dashboard</Link>
-            <Link href="/vault" className="hover:text-white transition-colors">My Vaults</Link>
-            <Link href="/deploy" className="hover:text-white transition-colors">Deploy</Link>
-            <a href="https://github.com/kataenda/agent-casper" target="_blank" rel="noreferrer" className="hover:text-white transition-colors">GitHub</a>
-            <a href="https://www.youtube.com/watch?v=4XiVtV4MWno" target="_blank" rel="noreferrer" className="hover:text-white transition-colors">Demo</a>
-          </div>
-          <div className="mt-1">AGENT-CASPER — Casper Agentic Buildathon 2026</div>
+        <footer className="mt-12 flex justify-center font-mono text-[9px] text-cyber-muted/40">
+          AGENT-CASPER — Casper Agentic Buildathon 2026
         </footer>
       </section>
     </main>
