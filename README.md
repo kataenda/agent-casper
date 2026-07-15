@@ -68,13 +68,14 @@
 1. Fetches real-world asset prices (PAXG/gold, UST10Y/T-bonds, WTI/oil)
 2. Fetches yield rates from Casper validators via CSPR.cloud
 3. Lets **Claude AI autonomously query** on-chain + RWA data via MCP tools and decide
-4. Autonomously executes on-chain rebalancing transactions when needed
-5. Posts verified RWA prices on-chain (auditable oracle trail), and both **pays for** and **sells** premium data via **x402** micropayments — a service provider on Casper mainnet, not just a consumer
+4. Autonomously executes on-chain rebalancing transactions when needed — and the RWA-driven allocation isn't cosmetic: it **sets the staking target and swap direction** (gold ↑ → de-risk + stake more; rates ↓ → risk-on)
+5. **Delegates each vault's idle CSPR to a validator it selects itself** (lowest-fee, active) for **real native yield** — per vault, sized to that vault's own balance, keeping a liquidity buffer (proven on-chain: [`21354398…`](https://testnet.cspr.live/deploy/21354398e163fa82daedb9f3e8e16c9b9fe3782658cebb427ea6cc8565531226))
+6. Posts verified RWA prices on-chain (auditable oracle trail), and both **pays for** and **sells** premium data via **x402** micropayments — a service provider on Casper mainnet, not just a consumer
 6. Executes **real, non-custodial DeFi swaps on Casper mainnet** via the **CSPR.trade MCP**, and the swap now **mirrors the AI's decision**: de-risking stakes **CSPR → sCSPR**, risk-on unwinds **sCSPR → CSPR**, sized by how far the allocation drifts — the agent fetches live quotes, builds the transaction, signs it with its own key, and broadcasts it (verified live: [`f28a4051…`](https://cspr.live/transaction/f28a4051e17a67f4a6bd9951802cfb64a062b1daa01b59945b444fb25a052eb5))
 
 The system transforms a passive smart contract vault into a **self-driving portfolio manager**, uniting the three pillars of the Casper Innovation Track — **Agentic AI · DeFi · RWA** — and closes the loop with **agent-to-agent commerce**: an independent buyer agent (its own ed25519 identity) pays Agent Casper over x402 and settles **on-chain** — a real CEP-18 `transfer_with_authorization` between two distinct agents ([`eb0e914c…`](https://testnet.cspr.live/transaction/eb0e914cdd902b177d95cd92a345cff3d7cdfbc33bffe8927d456d8c8a1f469e), Casper testnet) — putting the **machine economy** to work, not just describing it.
 
-> **What's live vs. roadmap (honest scope).** The Testnet **YieldVault is the agent's *decision + on-chain proof layer*** — it records AI-driven allocation changes and verified RWA prices on-chain, and now **custodies real depositor CSPR on-chain** — a payable `deposit()` lands CSPR in the contract purse (verified [`86fd83a6…`](https://testnet.cspr.live/deploy/86fd83a683dccb7484c063accb0e90e0e3ae859daddf270573453bce365bbaee), 700 CSPR). The agent also **actively manages its own on-chain capital**, executing every allocation decision as a **real, directional mainnet swap** (de-risk vs risk-on, sized by drift), signed with its own key. **Real yield routing is now implemented**: on rebalance the agent can **delegate the vault's CSPR to a Casper validator** via native staking (`stake`/`unstake`, Odra `env().delegate`), keeping a liquidity buffer so ordinary withdrawals stay instant — **opt-in (`STAKING_ENABLED`) and being validated on-chain** (Casper minimum-delegation + multi-era timing). We say "implemented + validating", not "proven", until a delegation tx is confirmed — no overclaim.
+> **What's live vs. roadmap (honest scope).** The Testnet **YieldVault custodies real depositor CSPR on-chain** — a payable `deposit()` lands CSPR in the contract purse (verified [`86fd83a6…`](https://testnet.cspr.live/deploy/86fd83a683dccb7484c063accb0e90e0e3ae859daddf270573453bce365bbaee), 700 CSPR) — records AI-driven allocation changes and verified RWA prices on-chain, and **routes that deposited CSPR into real yield**. **Native staking is now proven on-chain**: the agent **autonomously delegates the vault's CSPR to a Casper validator it picks itself** (lowest-fee, active) via `stake`/`unstake` (Odra `env().delegate`), keeping a liquidity buffer so ordinary withdrawals stay instant — three confirmed delegations of 500 CSPR ([`21354398…`](https://testnet.cspr.live/deploy/21354398e163fa82daedb9f3e8e16c9b9fe3782658cebb427ea6cc8565531226), [`5cd6bf7b…`](https://testnet.cspr.live/deploy/5cd6bf7be808b3fd0afb46d20cac5d63b0a1944c9cd47ad8aedbfbc139a02aec), [`aab61086…`](https://testnet.cspr.live/deploy/aab61086fc4f3063f3718952317464487e11a4e6bec77d5a2a27891f95d512f8)), **~2,200 CSPR delegated across the serviced vaults**. Staking is **agent-decided, per vault** (each vault delegates its *own* balance — a 200 CSPR vault can't clear Casper's 500 minimum, a 2,000 CSPR vault delegates far more); `STAKING_ENABLED` is an emergency kill-switch, not a feature toggle. The agent also executes allocation decisions as **real, directional mainnet swaps** (de-risk vs risk-on, sized by drift), signed with its own key. Still roadmap: routing capital into **LP / multi-asset** positions and **tokenized-RWA** custody (the vault is CSPR-native today).
 
 > Built using the [Casper AI Toolkit](https://www.casper.network/ai) — MCP Servers (Casper MCP + **CSPR.trade MCP**), CSPR.cloud, Odra Framework, x402, casper-js-sdk v5
 
@@ -113,8 +114,11 @@ Most people who want yield on CSPR lose part of it to the same things: they reba
 | Directional mainnet execution | ✅ Real | CSPR ⟷ sCSPR swaps on CSPR.trade ([`f28a4051…`](https://cspr.live/transaction/f28a4051e17a67f4a6bd9951802cfb64a062b1daa01b59945b444fb25a052eb5)) |
 | Agent-to-agent x402 settlement | ✅ Real | CEP-18 `transfer_with_authorization` ([`eb0e914c…`](https://testnet.cspr.live/transaction/eb0e914cdd902b177d95cd92a345cff3d7cdfbc33bffe8927d456d8c8a1f469e)) |
 | **Custody of depositor CSPR** (contract purse) | ✅ **Real** | Payable `deposit()` lands CSPR in the contract purse — verified [`86fd83a6…`](https://testnet.cspr.live/deploy/86fd83a683dccb7484c063accb0e90e0e3ae859daddf270573453bce365bbaee) (700 CSPR, `attached_value`, no revert) |
-| **Multi-tenant vault servicing** | ✅ **Real** | Any wallet deploys/owns its own vault, registers the agent on it ([`1dc138a9…`](https://testnet.cspr.live/deploy/1dc138a911b8b62b4269d5e966a9f6b2e5e2a13651590751682ee2021c58c6ba)), deposits real CSPR into it — and the agent **autonomously rebalances the tenant vault** each cycle ([`d7551fcb…`](https://testnet.cspr.live/deploy/d7551fcb6187175e19ca66d77219fc2c5431a317cb3d50d6faecf5c45bb072ff), drift-gated). Live AUM: ~1,900 CSPR across 2 independently-owned vaults |
-| Routing custodied capital into yield positions | 🟡 **Implemented, validating** | Native staking — agent delegates vault CSPR to a validator on rebalance (`stake`/`unstake`, liquidity buffer). Opt-in; on-chain delegation being validated (min-delegation + era timing) |
+| **Multi-tenant vault servicing** | ✅ **Real** | Any wallet deploys/owns its own vault, registers the agent on it ([`1dc138a9…`](https://testnet.cspr.live/deploy/1dc138a911b8b62b4269d5e966a9f6b2e5e2a13651590751682ee2021c58c6ba)), deposits real CSPR into it — and the agent **autonomously rebalances the tenant vault** each cycle ([`d7551fcb…`](https://testnet.cspr.live/deploy/d7551fcb6187175e19ca66d77219fc2c5431a317cb3d50d6faecf5c45bb072ff), drift-gated). Live AUM: ~2,400 CSPR across 3 independently-owned vaults |
+| **Routing custodied capital into real yield** | ✅ **Real** | Native staking — the agent autonomously delegates each vault's CSPR to a validator it picks itself. **3 confirmed delegations of 500 CSPR** ([`21354398…`](https://testnet.cspr.live/deploy/21354398e163fa82daedb9f3e8e16c9b9fe3782658cebb427ea6cc8565531226), [`5cd6bf7b…`](https://testnet.cspr.live/deploy/5cd6bf7be808b3fd0afb46d20cac5d63b0a1944c9cd47ad8aedbfbc139a02aec), [`aab61086…`](https://testnet.cspr.live/deploy/aab61086fc4f3063f3718952317464487e11a4e6bec77d5a2a27891f95d512f8)); ~2,200 CSPR delegated. Per vault, sized to each vault's own balance, liquidity buffer kept |
+| **RWA signals drive execution** | ✅ **Real** | Verified gold/treasury/oil prices change the agent's allocation → which sets the staking target and swap direction (gold ↑ → de-risk + stake more; rates ↓ → risk-on). Deterministic in code, not just displayed |
+| **Verifiable AI decisions** | ✅ **Real** | Each rebalance commits a `sha256` of (inputs + decision) on-chain in its `reasoning` arg; the pre-image is served from `/agent/decision-proof` so anyone can recompute and check it |
+| Tokenized-RWA custody (vault holds RWA tokens) | 🟡 **Roadmap** | The vault is CSPR-native today; the agent's logic is token-agnostic, ready to manage RWA-token yield as those assets arrive on Casper |
 | Agent self-funding from revenue | 🟡 **Implemented** | Management fee accrues to a reserve the agent sweeps to its own gas account (`collect_fees`); vault fee = CSPR (primary gas), x402 sales = stablecoin (secondary, needs swap) |
 
 ---
@@ -125,9 +129,9 @@ Most people who want yield on CSPR lose part of it to the same things: they reba
 
 | Phase | Timeline | Milestones |
 |---|---|---|
-| **1 — Autonomous agent + real custody + multi-tenant servicing (now)** | ✅ Shipped | AI decision + on-chain proof layer, real mainnet execution of agent capital, x402 provider economy, **upgradable payable vault that custodies real depositor CSPR** ([`86fd83a6…`](https://testnet.cspr.live/deploy/86fd83a683dccb7484c063accb0e90e0e3ae859daddf270573453bce365bbaee)), **multi-wallet vaults serviced autonomously by the agent** (tenant rebalance [`d7551fcb…`](https://testnet.cspr.live/deploy/d7551fcb6187175e19ca66d77219fc2c5431a317cb3d50d6faecf5c45bb072ff)), live dashboard |
-| **2 — Yield-bearing vault** | Q3 2026 | Route the already-custodied CSPR into on-chain staking (sCSPR)/LP so it earns, allocation backed by real positions, withdrawal accounting |
-| **3 — Multi-asset + mainnet launch** | Q4 2026 | Multi-token strategies (LP pools, stables), mainnet contract deploy, third-party **security audit**, risk caps & circuit breakers |
+| **1 — Autonomous agent + real custody + multi-tenant + real yield (now)** | ✅ Shipped | AI decision + on-chain proof layer, **real native staking of vault CSPR** (agent-decided, per vault — [`21354398…`](https://testnet.cspr.live/deploy/21354398e163fa82daedb9f3e8e16c9b9fe3782658cebb427ea6cc8565531226) + 2 more, ~2,200 CSPR delegated), real mainnet swap execution, x402 provider economy, **upgradable payable vault that custodies real depositor CSPR** ([`86fd83a6…`](https://testnet.cspr.live/deploy/86fd83a683dccb7484c063accb0e90e0e3ae859daddf270573453bce365bbaee)), **multi-wallet vaults serviced autonomously** (tenant rebalance [`d7551fcb…`](https://testnet.cspr.live/deploy/d7551fcb6187175e19ca66d77219fc2c5431a317cb3d50d6faecf5c45bb072ff)), verifiable on-chain decision commitments, landing page + live dashboard (deposit/withdraw, owner emergency-pause) |
+| **2 — Multi-asset yield + withdrawal accounting** | Q3 2026 | Beyond native staking: route capital into LP pools / stables, per-position accounting, auto-compounding, performance fee on generated yield |
+| **3 — Tokenized RWA + mainnet launch** | Q4 2026 | Manage **RWA-token** yield (the agent logic is already token-agnostic), mainnet contract deploy, third-party **security audit**, risk caps & circuit breakers |
 | **4 — Ecosystem & governance** | 2027 | DAO governance over agent policy, an **x402 agent marketplace** (agents buy/sell each other's signals), SDK for others to deploy their own Casper agents |
 
 **Deployment plan.** Frontend + backend already run 24/7 on a VPS ([casper.soenic.com](https://casper.soenic.com) · [agentcasper.soenic.com](https://agentcasper.soenic.com)); Testnet contract is live. Phase 2 adds a mainnet contract behind the same operational stack, containerized (Coolify/Docker) with a backup CSPR.cloud key for quota resilience.
@@ -231,7 +235,7 @@ Framework:     Odra 2.7.2 (Rust → WASM), upgradable + payable (real CSPR custo
 | `register_agent(agent)` | Owner registers the AI agent address |
 | `rebalance(strategy, pcts, reason)` | Agent executes a portfolio rebalance |
 | `update_rwa_price(asset, price, yield)` | Agent posts verified RWA data on-chain |
-| `set_validator(validator)` | Agent/owner sets the validator to delegate to (native staking) |
+| `set_validator(validator)` | **Owner-only** — authorises the validator the *agent* selects (lowest-fee, active). One-time grant, like `register_agent`; the agent then stakes to it autonomously |
 | `stake(amount)` / `unstake(amount)` | **Real yield** — agent delegates/undelegates vault CSPR to the validator (`env().delegate`), keeping a liquidity buffer |
 | `collect_fees()` | **Agent self-funding** — agent-only; sweeps the accrued fee reserve to the agent's own gas account |
 | `set_fee_bps(bps)` | Owner sets the management fee (basis points, capped at 10%) |
@@ -388,8 +392,9 @@ execution (shown in the dashboard's decision log as a `DeFi⚡MAINNET` tx badge)
 is **off by default** (`DEFI_EXECUTE_ON_REBALANCE=false`) and spends the **agent's own**
 mainnet CSPR, bounded by a base amount scaled by allocation drift (`DEFI_SWAP_AMOUNT_CSPR`
 base, hard-capped by `CSPR_TRADE_MAX_AMOUNT_CSPR`), a per-day cap
-(`DEFI_MAX_SWAPS_PER_DAY`), plus the amount + price-impact caps above. (Routing the
-*vault's deposited* capital this way is Phase 2 — see Honest scope.)
+(`DEFI_MAX_SWAPS_PER_DAY`), plus the amount + price-impact caps above. (The vault's
+*deposited* capital already earns real yield via **native staking** — see below;
+routing it into **mainnet swaps / LP** specifically is Phase 2.)
 
 **When does the agent actually swap? (economic discipline).** A REBALANCE decision is
 *necessary but not sufficient* — a swap costs gas + price impact, so the agent only fires
@@ -480,6 +485,8 @@ All activity is verifiable on the [Casper Testnet explorer](https://testnet.cspr
 | **Agent-to-agent x402 settle** (independent buyer → provider) | CEP-18 X402 | [`eb0e914c…`](https://testnet.cspr.live/transaction/eb0e914cdd902b177d95cd92a345cff3d7cdfbc33bffe8927d456d8c8a1f469e) |
 | **Tenant vault register** (2nd wallet registers the agent on ITS own vault) | `register_agent` | [`1dc138a9…`](https://testnet.cspr.live/deploy/1dc138a911b8b62b4269d5e966a9f6b2e5e2a13651590751682ee2021c58c6ba) |
 | **Autonomous TENANT rebalance** (multi-tenant servicing, drift-gated) | `rebalance` | [`d7551fcb…`](https://testnet.cspr.live/deploy/d7551fcb6187175e19ca66d77219fc2c5431a317cb3d50d6faecf5c45bb072ff) |
+| **Validator authorised** (owner grants the agent's own pick — 0% fee, active) | `set_validator` | [`03b3b07f…`](https://testnet.cspr.live/deploy/03b3b07fb29abf5abca04804fbc3bffa9f7d4cef563a70f5456b10255d48e6c0) |
+| **Native staking — real yield** (agent delegates vault CSPR autonomously) | `stake` | [`21354398…`](https://testnet.cspr.live/deploy/21354398e163fa82daedb9f3e8e16c9b9fe3782658cebb427ea6cc8565531226) · [`5cd6bf7b…`](https://testnet.cspr.live/deploy/5cd6bf7be808b3fd0afb46d20cac5d63b0a1944c9cd47ad8aedbfbc139a02aec) · [`aab61086…`](https://testnet.cspr.live/deploy/aab61086fc4f3063f3718952317464487e11a4e6bec77d5a2a27891f95d512f8) |
 
 Plus **real DeFi on Casper mainnet** via CSPR.trade MCP (verifiable on [cspr.live](https://cspr.live)):
 
@@ -602,9 +609,7 @@ CSPR_TRADE_MAX_PRICE_IMPACT_PCT=2.0  # abort a swap whose price impact exceeds t
 # ordinary withdrawals stay instant.
 # STAKING_ENABLED is an EMERGENCY KILL-SWITCH, not a feature toggle: it defaults
 # to TRUE so the AI decides. Setting it false vetoes the agent's own conclusion.
-STAKING_ENABLED=true
 # Leave EMPTY so the agent picks the most profitable validator itself.
-VALIDATOR_PUBLIC_KEY=
 STAKE_AMOUNT_CSPR=500             # per stake action (must clear Casper min delegation ~500)
 STAKE_BUFFER_CSPR=200            # liquid CSPR always kept for instant withdrawals
 STAKE_MAX_PER_DAY=2             # cap on stake actions per day
@@ -848,9 +853,9 @@ INFO  agent.yield_agent — [Block 8,xxx,xxx] Decision: REBALANCE | Confidence: 
 
 #### Step 2 — Open the Dashboard
 
-Go to: `https://casper.soenic.com`
+Go to the landing page: `https://casper.soenic.com` → click **Launch app** to open the dashboard at `/dashboard`.
 
-Click the **wallet button** in the top right → **Connect Casper Wallet**
+Click the **wallet button** in the top right → **Connect Casper Wallet**. Once connected you can **deposit** (into your own vault or the shared protocol vault) and **withdraw** from the Vault Actions panel; the vault owner also gets an **emergency-pause** control and the one-time **validator authorisation** on `/vault`.
 
 #### Step 3 — Deploy the Smart Contract
 
@@ -1108,7 +1113,11 @@ margin grows with usage rather than requiring continuous external funding.
 
 ### Phase 1 — Buildathon MVP ✅
 - **YieldVault with REAL custody** on Casper Testnet — payable `deposit()` lands CSPR in the contract purse ([`86fd83a6…`](https://testnet.cspr.live/deploy/86fd83a683dccb7484c063accb0e90e0e3ae859daddf270573453bce365bbaee)); **upgradable in place** with state preserved (proven v1→v2 on-chain)
-- **Multi-tenant vault servicing** — any wallet self-service deploys/owns its vault, registers the agent on it ([`1dc138a9…`](https://testnet.cspr.live/deploy/1dc138a911b8b62b4269d5e966a9f6b2e5e2a13651590751682ee2021c58c6ba)), and the agent **autonomously services every enrolled vault** (tenant rebalance [`d7551fcb…`](https://testnet.cspr.live/deploy/d7551fcb6187175e19ca66d77219fc2c5431a317cb3d50d6faecf5c45bb072ff)) — live AUM across 2 independently-owned vaults
+- **Multi-tenant vault servicing** — any wallet self-service deploys/owns its vault, registers the agent on it ([`1dc138a9…`](https://testnet.cspr.live/deploy/1dc138a911b8b62b4269d5e966a9f6b2e5e2a13651590751682ee2021c58c6ba)), and the agent **autonomously services every enrolled vault** (tenant rebalance [`d7551fcb…`](https://testnet.cspr.live/deploy/d7551fcb6187175e19ca66d77219fc2c5431a317cb3d50d6faecf5c45bb072ff)) — live AUM ~2,400 CSPR across 3 independently-owned vaults
+- **Real native staking — the vault's CSPR earns** — the agent selects a validator itself (lowest-fee, active) and **autonomously delegates each vault's CSPR**, sized to that vault's own balance (3 confirmed delegations of 500 CSPR: [`21354398…`](https://testnet.cspr.live/deploy/21354398e163fa82daedb9f3e8e16c9b9fe3782658cebb427ea6cc8565531226), [`5cd6bf7b…`](https://testnet.cspr.live/deploy/5cd6bf7be808b3fd0afb46d20cac5d63b0a1944c9cd47ad8aedbfbc139a02aec), [`aab61086…`](https://testnet.cspr.live/deploy/aab61086fc4f3063f3718952317464487e11a4e6bec77d5a2a27891f95d512f8))
+- **RWA-driven execution** — verified gold/treasury/oil signals change the allocation, which sets the staking target and swap direction (not just displayed)
+- **Verifiable AI decisions** — each rebalance commits `sha256(inputs + decision)` on-chain; pre-image served from `/agent/decision-proof` to recompute
+- **Landing page + full dashboard** — deposit / withdraw, owner emergency-pause, per-tenant staked breakdown; runtime state persisted (survives redeploys)
 - Autonomous AI agent (Claude) with a configurable decision loop (60s demo / 300–900s prod) via MCP tools
 - RWA oracle on-chain posting (PAXG, UST10Y)
 - x402 micropayments — two-sided (consumer **and** provider, mainnet)
@@ -1116,10 +1125,11 @@ margin grows with usage rather than requiring continuous external funding.
 - **Sign-In with Wallet** admin auth (owner verified on-chain) + AI Trust Engine with on-chain score anchoring
 - Official **CSPR.click AI Agent Skill** installed in-repo; real-time cyber dashboard with WebSocket
 
-### Phase 2 — DeFi Integration (Q3 2026)
-- Route custodied vault capital into real Casper DeFi positions (CSPR.trade LP, validator staking) so it **earns**
+### Phase 2 — Multi-asset yield (Q3 2026)
+- Beyond native staking (shipped): route capital into **LP pools / stables** and other Casper DeFi positions, with per-position accounting
+- Auto-compounding of staking rewards + a **performance fee** on generated yield
 - Live yield rate feeds from on-chain sources
-- Per-vault strategy profiles — each tenant sets its own risk mandate (multi-vault *servicing* already shipped in Phase 1)
+- Per-vault strategy profiles — each tenant sets its own risk mandate (multi-vault *servicing* + per-vault staking already shipped in Phase 1)
 - Mobile notifications (Telegram bot)
 
 ### Phase 3 — Production Launch & Multi-Tenant SaaS (Q4 2026)
