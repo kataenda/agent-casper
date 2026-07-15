@@ -114,8 +114,12 @@ class YieldAgent:
         self._validator_set = False
         self._active_validator = ""            # validator currently set on-chain
         self._selected_validator_info = None   # {public_key, delegation_rate, staked_cspr}
-        self._staked_cspr = 0.0     # session estimate of delegated CSPR
+        self._staked_cspr = 0.0     # primary's delegated CSPR (for get_stats)
         self._stakes_today = 0
+        # Staking is per-vault: each enrolled vault delegates its OWN idle CSPR,
+        # sized against ITS OWN balance (a 200 CSPR vault can't clear the 500 min;
+        # a 5,000 CSPR vault stakes far more than a 600 one). Daily cap is per vault.
+        self._stakes_today_by_vault: dict[str, int] = {}
         self.on_cycle_complete = on_cycle_complete
 
         # Multi-tenant servicing: apply the cycle's AI market target to every
@@ -201,6 +205,7 @@ class YieldAgent:
             self._rebalances_today = 0
             self._defi_swaps_today = 0
             self._stakes_today = 0
+            self._stakes_today_by_vault = {}
             self._tenant_rebalances_today = {}
             self._last_rebalance_date = today
 
@@ -391,6 +396,17 @@ class YieldAgent:
                     continue
 
                 port = await self.casper.get_vault_portfolio(pkg, agent_account_hash=self.agent_account)
+
+                # Real yield for THIS tenant, sized against ITS OWN balance — a vault
+                # at its target allocation can still hold idle CSPR to delegate, so we
+                # stake regardless of whether it also needs a rebalance below. The
+                # per-vault economics (buffer, min delegation, gas) live in the helper.
+                tenant_tvl = (port.total_value_motes or 0) / 1e9
+                if self.staking_enabled:
+                    staked_after = await self._stake_one_vault(pkg, tenant_tvl, target[0])
+                    if staked_after > 0:
+                        entry["staked_cspr"] = round(staked_after, 2)
+
                 drift = max(
                     abs(target[0] - port.conservative_pct),
                     abs(target[1] - port.balanced_pct),
@@ -740,124 +756,101 @@ class YieldAgent:
             logger.info("gas refuel (collect_fees) skipped: %s", exc)
 
     async def _maybe_stake(self, portfolio, decision=None) -> None:
-        """Decision-driven real-yield routing. Staking follows the agent's OWN
-        allocation decision — the AI's conservative ('safe-yield') bucket maps to
-        delegated CSPR — rather than blindly staking every cycle. The agent (1)
-        computes a staked TARGET from the decision's allocation, (2) picks the most
-        profitable validator live (lowest-fee active), and (3) delegates toward the
-        target only when idle liquid clears the buffer + Casper minimum. This is
-        exactly 'stake when the analysis says yield is worth it'. Best-effort; the
-        contract guards back-stop it.
+        """Real-yield gate for the PRIMARY vault. The kill-switch lives here; the
+        per-vault economics live in _stake_one_vault, which is also called for every
+        tenant so real yield scales with EACH vault's own balance.
 
         `staking_enabled` is an EMERGENCY KILL-SWITCH, not the decision gate — it
-        defaults to ON so the AI's own analysis decides whether to stake. An env
-        flag that has to be flipped before the agent may act on its conclusion is
-        not an autonomous agent; the real safety valve is the owner-only on-chain
-        emergency_pause(), plus the economic guards below (gas runway, daily cap,
-        liquidity buffer, Casper minimum delegation)."""
+        defaults to ON so the AI's own analysis decides whether to stake. The real
+        safety valve is the owner-only on-chain emergency_pause(); the economic
+        guards (gas runway, per-vault daily cap, liquidity buffer, Casper minimum
+        delegation) live in _stake_one_vault."""
         if not self.staking_enabled:
             logger.warning("staking kill-switch engaged (STAKING_ENABLED=false) — "
                            "ignoring the AI's yield decision this cycle")
             return
-        if not self._can_spend_gas():
-            logger.info("skip stake — low gas (%.0f CSPR), preserving runway", self._agent_gas_cspr)
-            return
-        if self._stakes_today >= self.stake_max_per_day:
-            return
-
-        # ── The AI's DECISION sets the yield target ──────────────────────────
-        # The conservative bucket is the vault's safe, yield-bearing allocation →
-        # that is the fraction the agent stakes. No decision / 0% target = no stake.
         tvl_cspr   = (getattr(portfolio, "total_value_motes", 0) or 0) / 1e9
         target_pct = float(getattr(decision, "conservative_pct", 0) or 0) if decision else 0.0
-        target_staked = min(tvl_cspr * target_pct / 100.0,
-                            max(0.0, tvl_cspr - self.stake_buffer_cspr))
+        # Keep the primary's staked figure fresh for get_stats/dashboards.
+        self._staked_cspr = await self._stake_one_vault(self.vault_contract_hash, tvl_cspr, target_pct)
 
-        # How much is ALREADY delegated, reconstructed from this vault's on-chain
-        # stake/unstake log — NOT a session counter. self._staked_cspr reset to 0 on
-        # every restart, so the agent thought a fully-staked vault was empty, tried to
-        # stake another 500, and the contract reverted FundsStaked (user error 21)
-        # because the liquid purse no longer held 500. Read the real number instead.
+    async def _stake_one_vault(self, vault_pkg: str, tvl_cspr: float, target_pct: float) -> float:
+        """Delegate ONE vault's idle CSPR toward the AI's conservative (safe-yield)
+        target, sized entirely against THAT vault's own balance. Returns the vault's
+        staked total after this pass. Every guard is per-vault — daily cap, gas
+        runway, liquidity buffer, Casper minimum delegation — because vaults do not
+        hold the same amount: a 200 CSPR vault can never clear the 500 minimum, while
+        a 5,000 CSPR vault delegates far more than a 700 one. Best-effort; never
+        raises into the cycle."""
+        pkg = (vault_pkg or "").replace("hash-", "").replace("package-", "").lower()
+        if not pkg:
+            return 0.0
+
+        # Already delegated for THIS vault, reconstructed from its own on-chain
+        # stake/unstake log (keyed by package) — not a shared session counter.
         staked_now = 0.0
-        for e in staking_log.load(self.vault_contract_hash, limit=500):
+        for e in staking_log.load(pkg, limit=500):
             amt = float(e.get("amount_cspr") or 0)
             if e.get("action") == "stake":
                 staked_now += amt
             elif e.get("action") == "unstake":
                 staked_now -= amt
         staked_now = max(0.0, min(staked_now, tvl_cspr))
-        self._staked_cspr = staked_now
-        liquid_now = max(0.0, tvl_cspr - staked_now)
 
-        # You can only delegate what's liquid beyond the buffer, and Casper needs at
-        # least ~500 CSPR per delegation. Cap the chunk so a stake can never exceed the
-        # purse (self_balance) and revert.
+        if not self._can_spend_gas():
+            logger.info("skip stake [%s] — low agent gas (%.0f CSPR), preserving runway",
+                        pkg[:10], self._agent_gas_cspr)
+            return staked_now
+        if self._stakes_today_by_vault.get(pkg, 0) >= self.stake_max_per_day:
+            return staked_now
+
+        # Target staked = the AI's conservative % of THIS vault's TVL, capped so the
+        # liquidity buffer is always left withdrawable. How much we can delegate now
+        # is bounded by both the gap to target AND the idle liquid beyond the buffer,
+        # and Casper needs ≥ ~500 CSPR per delegation.
+        target_staked = min(tvl_cspr * target_pct / 100.0,
+                            max(0.0, tvl_cspr - self.stake_buffer_cspr))
+        liquid_now = max(0.0, tvl_cspr - staked_now)
         gap        = target_staked - staked_now
         stakeable  = min(gap, max(0.0, liquid_now - self.stake_buffer_cspr))
         if target_pct <= 0 or stakeable < self.stake_amount_cspr:
-            logger.info("skip stake — target ~%.0f CSPR (%.0f%%), staked ~%.0f, liquid ~%.0f, "
-                        "stakeable ~%.0f < chunk %.0f (buffer %.0f)",
-                        target_staked, target_pct, staked_now, liquid_now,
-                        stakeable, self.stake_amount_cspr, self.stake_buffer_cspr)
-            return
+            logger.info("skip stake [%s] — tvl ~%.0f, target ~%.0f (%.0f%%), staked ~%.0f, "
+                        "liquid ~%.0f, stakeable ~%.0f < chunk %.0f",
+                        pkg[:10], tvl_cspr, target_staked, target_pct, staked_now,
+                        liquid_now, stakeable, self.stake_amount_cspr)
+            return staked_now
 
         try:
-            # (1) WHICH validator — explicit env override, else the agent selects
-            #     the most profitable validator autonomously from on-chain data.
-            validator = self.validator_public_key
-            if not validator:
-                best = await self.casper.select_best_validator()
-                if not best:
-                    logger.info("skip stake — no validator selectable yet")
-                    return
-                validator = best["public_key"]
-                self._selected_validator_info = best
-                logger.info("agent picked validator %s (fee %d%%)", validator[:16], best["delegation_rate"])
-
-            # The agent may NOT install its own choice: set_validator is only_owner, so
-            # an agent-signed call reverts NotOwner (10) — and because submit_* returns
-            # the SUBMISSION hash rather than the execution result, the old code read
-            # that revert as success, marked the validator "set", and then every stake()
-            # reverted NoValidator (20). It also burned gas on a doomed deploy on every
-            # restart. So: read what the owner has actually authorised on-chain, and
-            # wait quietly if there is nothing yet.
-            on_chain = await self.casper.get_active_validator(self.vault_contract_hash)
+            # set_validator is only_owner, so the agent reads what the owner has
+            # authorised on-chain for THIS vault rather than submitting a doomed call.
+            on_chain = await self.casper.get_active_validator(pkg)
             if not on_chain:
-                logger.info(
-                    "skip stake — no validator authorised on-chain yet. The agent picked %s "
-                    "(fee %s%%), but set_validator is only_owner: the vault owner must authorise "
-                    "it once (/vault → Real yield · validator).",
-                    validator[:16],
-                    (self._selected_validator_info or {}).get("delegation_rate", "?"),
-                )
-                return
-            self._validator_set = True
-            self._active_validator = on_chain
+                logger.info("skip stake [%s] — no validator authorised on-chain yet "
+                            "(owner must set_validator once via /vault → Real yield · validator)",
+                            pkg[:10])
+                return staked_now
+            if pkg == (self.vault_contract_hash or "").replace("hash-", "").lower():
+                self._validator_set = True
+                self._active_validator = on_chain
 
-            # (2) HOW MUCH — one delegation chunk toward the AI's target this cycle
-            #     (the decision gate above already confirmed gap ≥ min chunk and that
-            #     idle liquid clears the buffer). Incremental across cycles/days cap.
             stake_amt = self.stake_amount_cspr
-            tx = await self.deployer.submit_stake(
-                self.vault_contract_hash, self.agent_key_path, stake_amt)
+            tx = await self.deployer.submit_stake(pkg, self.agent_key_path, stake_amt)
             if not tx:
-                return
-            # submit_stake returns the SUBMISSION hash — confirm the deploy actually
-            # executed before counting it. Recording on submission logged reverted
-            # stakes (e.g. FundsStaked/21) as real delegation, inflating staked_cspr.
+                return staked_now
+            # submit_stake returns the SUBMISSION hash — confirm execution before
+            # counting it, so a reverted stake never inflates the staked figure.
             ok, err = await self._confirm_deploy(tx)
+            self._stakes_today_by_vault[pkg] = self._stakes_today_by_vault.get(pkg, 0) + 1
             if ok:
-                self._stakes_today += 1
-                staking_log.record(self.vault_contract_hash, "stake", tx,
-                                   amount_cspr=stake_amt, validator=self._active_validator)
-                logger.info("staked %.0f CSPR toward AI target (real yield) — validator %s — %s",
-                            stake_amt, (self._active_validator or "")[:16], tx[:16])
-            else:
-                self._stakes_today += 1  # still spent the gas — respect the daily cap
-                logger.warning("stake %.0f CSPR reverted (%s) — not recorded — %s",
-                               stake_amt, err or "unknown", tx[:16])
+                staking_log.record(pkg, "stake", tx, amount_cspr=stake_amt, validator=on_chain)
+                logger.info("staked %.0f CSPR [%s] toward AI target (real yield) — validator %s — %s",
+                            stake_amt, pkg[:10], on_chain[:16], tx[:16])
+                return staked_now + stake_amt
+            logger.warning("stake %.0f CSPR [%s] reverted (%s) — not recorded — %s",
+                           stake_amt, pkg[:10], err or "unknown", tx[:16])
         except Exception as exc:
-            logger.warning("staking error: %s", exc)
+            logger.warning("staking error [%s]: %s", pkg[:10], exc)
+        return staked_now
 
     async def _confirm_deploy(self, deploy_hash: str, tries: int = 9, delay: float = 8.0):
         """Poll the deploy until it finalises. Returns (success, error_message).
