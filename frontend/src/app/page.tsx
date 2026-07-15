@@ -208,13 +208,20 @@ export default function Landing() {
             { icon: Coins, c: CYAN, t: "RWA-aware decisions", d: "Verified gold, treasury and oil signals feed every allocation call and are posted on-chain as an auditable oracle trail." },
             { icon: Cpu, c: MATRIX, t: "Verifiable, not a black box", d: "Every decision commits a sha256 of its inputs + outcome on-chain each cycle — anyone can recompute and check it." },
           ].map((f) => (
-            <div key={f.t} className="relative p-5 overflow-hidden transition-transform hover:-translate-y-0.5"
-              style={{ background: "linear-gradient(160deg, rgba(5,5,16,0.9), rgba(2,2,10,0.6))",
-                       border: `1px solid ${f.c}26`, clipPath: OCT }}>
-              <div className="absolute right-0 top-0 w-8 h-8" style={{ background: `linear-gradient(225deg, ${f.c}30, transparent 65%)` }} />
-              <f.icon size={18} style={{ color: f.c, filter: `drop-shadow(0 0 6px ${f.c}88)` }} />
-              <h3 className="mt-3 font-bold text-[15px] tracking-tight text-white">{f.t}</h3>
-              <p className="mt-1.5 font-mono text-[10px] leading-relaxed text-cyber-muted/60">{f.d}</p>
+            <div key={f.t} className="beam-card group p-6"
+              style={{
+                ["--beam" as string]: f.c,
+                background: "linear-gradient(160deg, rgba(255,255,255,0.045), rgba(3,3,12,0.55))",
+                border: "1px solid rgba(255,255,255,0.07)",
+              } as React.CSSProperties}>
+              {/* icon tile */}
+              <div className="flex items-center justify-center w-11 h-11 rounded-xl mb-4 transition-all duration-300 group-hover:scale-105"
+                style={{ background: `${f.c}14`, border: `1px solid ${f.c}33`,
+                         boxShadow: `inset 0 0 16px ${f.c}1f` }}>
+                <f.icon size={19} style={{ color: f.c, filter: `drop-shadow(0 0 6px ${f.c}88)` }} />
+              </div>
+              <h3 className="font-bold text-[15px] tracking-tight text-white">{f.t}</h3>
+              <p className="mt-2 font-mono text-[10.5px] leading-relaxed text-cyber-muted/55">{f.d}</p>
             </div>
           ))}
         </div>
