@@ -136,8 +136,16 @@ export default function VaultPage() {
     try {
       const a: Aum = await fetch(`${API}/vault/aum`).then((r) => r.json()).catch(() => null);
       setAum(a);
+      // Only fetch full per-vault state for the vaults we actually render in detail:
+      // the connected wallet's own vault plus the primary (AI-managed) showcase.
+      // Fetching state for EVERY enrolled vault meant N REST calls every refresh —
+      // at 1,000 tenants that is 1,000 calls per cycle and instant quota death. The
+      // rest are represented by the aggregate AUM totals, which are a single call.
       if (a?.vaults?.length) {
-        const entries = await Promise.all(a.vaults.map(async (v) => {
+        const wanted = a.vaults.filter(
+          (v) => v.is_primary || v.package_hash.toLowerCase() === myPkg,
+        );
+        const entries = await Promise.all(wanted.map(async (v) => {
           try { return [v.package_hash, await fetch(`${API}/vault/state?package=${v.package_hash}`).then((r) => r.json())] as const; }
           catch { return [v.package_hash, null] as const; }
         }));
@@ -149,7 +157,10 @@ export default function VaultPage() {
     } finally { setLoading(false); }
   };
 
-  useEffect(() => { load(); const t = setInterval(load, 30000); return () => clearInterval(t); }, []);
+  // Re-run when the wallet's vault resolves (myPkg) so we fetch its state and pull
+  // it into the shown set — not just the primary captured on first render.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); const t = setInterval(load, 30000); return () => clearInterval(t); }, [myPkg]);
 
   const myState = myPkg ? states[myPkg] : undefined;
 
@@ -237,11 +248,35 @@ export default function VaultPage() {
         </div>
       </div>
 
-      {/* All vaults */}
+      {/* Vaults — the connected wallet's own vault(s) plus the AI-managed primary as
+          a public showcase. We deliberately do NOT render one card per enrolled vault:
+          with many tenants that is unreadable AND an O(N) REST storm. Everyone else is
+          summarised by the protocol totals below. */}
       <div className="mb-6">
-        <SectionTitle icon={Layers} title="All Vaults" right={<span className="font-mono text-[8px] text-cyber-muted uppercase tracking-widest">assets per wallet</span>} />
+        {(() => {
+          const shown = (aum?.vaults ?? []).filter(
+            (v) => v.is_primary || v.package_hash.toLowerCase() === myPkg,
+          );
+          const hiddenCount = Math.max(0, (aum?.vault_count ?? 0) - shown.length);
+          const shownCspr   = shown.reduce((t, v) => t + (v.tvl_cspr || 0), 0);
+          const hiddenCspr  = Math.max(0, (aum?.total_cspr ?? 0) - shownCspr);
+          return (
+        <>
+        <SectionTitle icon={Layers}
+          title={myPkg ? "Your Vault" : "Vaults"}
+          right={<span className="font-mono text-[8px] text-cyber-muted uppercase tracking-widest">
+            {myPkg ? "your vault + AI-managed primary" : "connect a wallet to see yours"}
+          </span>} />
+        {/* Protocol-wide summary — one aggregate line, not 1,000 cards. */}
+        <div className="mb-3 flex flex-wrap items-center gap-x-5 gap-y-1 px-1 font-mono text-[9px] text-cyber-muted">
+          <span>protocol AUM <b className="text-white">{fmt(aum?.total_cspr ?? 0)} CSPR</b></span>
+          <span>across <b className="text-white">{aum?.vault_count ?? 0}</b> vaults</span>
+          {hiddenCount > 0 && (
+            <span>· {hiddenCount} other tenant vault{hiddenCount > 1 ? "s" : ""} holding {fmt(hiddenCspr)} CSPR (not shown)</span>
+          )}
+        </div>
         <div className="grid gap-3 lg:grid-cols-2">
-          {aum?.vaults?.length ? aum.vaults.map((v) => {
+          {shown.length ? shown.map((v) => {
             const s = states[v.package_hash];
             const mine = v.package_hash.toLowerCase() === myPkg;
             const ac = mine ? "#00E28A" : ACCENT;
@@ -307,9 +342,14 @@ export default function VaultPage() {
               </div>
             );
           }) : (
-            <div className="p-6 font-mono text-[10px] text-cyber-muted" style={{ border: "1px solid #ffffff12", clipPath: CLIP }}>loading vaults…</div>
+            <div className="p-6 font-mono text-[10px] text-cyber-muted" style={{ border: "1px solid #ffffff12", clipPath: CLIP }}>
+              {aum ? "No vault to show yet — connect your wallet, or deploy a vault from /deploy." : "loading vaults…"}
+            </div>
           )}
         </div>
+        </>
+        );
+        })()}
       </div>
 
       {/* Staking + Swap history */}
