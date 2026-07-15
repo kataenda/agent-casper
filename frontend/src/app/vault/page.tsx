@@ -57,6 +57,18 @@ interface StakeEntry { action: string; amount_cspr?: number; tx_hash: string; va
 interface Swap { tx_hash: string; amount: string; token_in: string; token_out: string; explorer_url?: string; executed: boolean; settlement?: string; ts?: string; triggered_by?: string }
 
 const fmt = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 0 });
+
+// Human-readable timestamp. The old code sliced the raw ISO string ("07-14T15:39"),
+// which is ambiguous and hard to read. Backend timestamps may be naive UTC (no "Z"),
+// so we tag them as UTC before parsing, then render in the viewer's local time.
+const fmtTs = (iso?: string) => {
+  if (!iso) return "";
+  const s = /[Zz]|[+-]\d\d:?\d\d$/.test(iso) ? iso : `${iso}Z`;
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return iso.slice(5, 16);
+  return d.toLocaleString(undefined,
+    { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: true });
+};
 const short = (h: string, n = 10) => (h || "").replace(/^(hash-|account-hash-)/, "").slice(0, n);
 
 // ── Allocation donut (SVG) ─────────────────────────────────────────────────
@@ -369,7 +381,7 @@ export default function VaultPage() {
                     {e.amount_cspr != null && <span className="text-white tabular-nums">{fmt(e.amount_cspr)} CSPR</span>}
                     {mine && <span className="text-[7px] px-1 rounded" style={{ background: "#FFB34714", color: "#FFB347" }}>yours</span>}
                     <a href={`${TESTNET}/deploy/${e.tx_hash}`} target="_blank" rel="noreferrer" className="ml-auto shrink-0 hover:opacity-75 flex items-center gap-1" style={{ color: "#8bd4ff" }}>{short(e.tx_hash, 10)}… <ExternalLink size={8} /></a>
-                    {e.ts && <span className="text-cyber-muted text-[8px] tabular-nums">{e.ts.slice(5, 16)}</span>}
+                    {e.ts && <span className="text-cyber-muted text-[8px] tabular-nums">{fmtTs(e.ts)}</span>}
                   </div>
                 );
               })}
@@ -393,7 +405,7 @@ export default function VaultPage() {
                   <span className="text-white shrink-0 tabular-nums">{s.amount} {s.token_in}<span className="text-cyber-muted"> → </span><span style={{ color: "#8bd4ff" }}>{s.token_out}</span></span>
                   {s.executed ? <span className="text-[7px] px-1.5 py-0.5 rounded uppercase" style={{ background: `${C.cons}18`, color: C.cons }}>executed</span> : <span className="text-[7px] px-1.5 py-0.5 rounded uppercase" style={{ background: "#FFB34718", color: "#FFB347" }}>{s.settlement || "built"}</span>}
                   <a href={s.explorer_url || `https://cspr.live/transaction/${s.tx_hash}`} target="_blank" rel="noreferrer" className="ml-auto shrink-0 hover:opacity-75 flex items-center gap-1" style={{ color: "#8bd4ff" }}>{short(s.tx_hash, 10)}… <ExternalLink size={8} /></a>
-                  {s.ts && <span className="text-cyber-muted text-[8px] tabular-nums">{s.ts.slice(5, 16)}</span>}
+                  {s.ts && <span className="text-cyber-muted text-[8px] tabular-nums">{fmtTs(s.ts)}</span>}
                 </div>
               ))}
             </div>
