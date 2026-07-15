@@ -1,5 +1,6 @@
 "use client";
 
+import { fmtTs as fmtTime } from "@/lib/time";
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import {
@@ -76,13 +77,7 @@ function TriggerBadge({ by }: { by?: string }) {
   );
 }
 
-function fmtTime(ts?: string) {
-  if (!ts) return "—";
-  try {
-    const d = new Date(ts);
-    return d.toLocaleString(undefined, { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" });
-  } catch { return ts; }
-}
+// shared formatter — 12-hour AM/PM, UTC-tagged (see @/lib/time)
 
 export default function SwapPage() {
   // ── Swap form state ──

@@ -61,11 +61,12 @@ export function DefiProofCard() {
   // verified proofs have none, so we label them "verified" rather than fake a date.
   const fmtTs = (ts: string | null): string => {
     if (!ts) return "verified";
-    const d = new Date(ts);
+    const iso = /[Zz]|[+-]\d\d:?\d\d$/.test(ts) ? ts : `${ts}Z`;
+    const d = new Date(iso);
     if (isNaN(d.getTime())) return "verified";
     return d.toLocaleString(undefined, {
       month: "short", day: "numeric",
-      hour: "2-digit", minute: "2-digit", hour12: false,
+      hour: "2-digit", minute: "2-digit", hour12: true,
     });
   };
 

@@ -1,5 +1,6 @@
 "use client";
 
+import { fmtTs } from "@/lib/time";
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import {
@@ -378,7 +379,7 @@ export default function X402Page() {
                             <span style={{ color: ACCENT }}>{s.to}</span>
                           </span>
                         ) : <span />}
-                        {s.ts && <span className="text-cyber-muted/60">{new Date(s.ts).toLocaleString()}</span>}
+                        {s.ts && <span className="text-cyber-muted/60">{fmtTs(s.ts)}</span>}
                       </div>
                     </a>
                   ))}

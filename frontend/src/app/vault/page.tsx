@@ -14,6 +14,7 @@ import {
   TrendingUp, Repeat, ShieldCheck, Cpu, Fuel,
 } from "lucide-react";
 import { useWalletVault } from "@/lib/walletVault";
+import { fmtTs } from "@/lib/time";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const ACCENT = "#00D4FF";
@@ -57,18 +58,6 @@ interface StakeEntry { action: string; amount_cspr?: number; tx_hash: string; va
 interface Swap { tx_hash: string; amount: string; token_in: string; token_out: string; explorer_url?: string; executed: boolean; settlement?: string; ts?: string; triggered_by?: string }
 
 const fmt = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 0 });
-
-// Human-readable timestamp. The old code sliced the raw ISO string ("07-14T15:39"),
-// which is ambiguous and hard to read. Backend timestamps may be naive UTC (no "Z"),
-// so we tag them as UTC before parsing, then render in the viewer's local time.
-const fmtTs = (iso?: string) => {
-  if (!iso) return "";
-  const s = /[Zz]|[+-]\d\d:?\d\d$/.test(iso) ? iso : `${iso}Z`;
-  const d = new Date(s);
-  if (isNaN(d.getTime())) return iso.slice(5, 16);
-  return d.toLocaleString(undefined,
-    { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: true });
-};
 const short = (h: string, n = 10) => (h || "").replace(/^(hash-|account-hash-)/, "").slice(0, n);
 
 // ── Allocation donut (SVG) ─────────────────────────────────────────────────

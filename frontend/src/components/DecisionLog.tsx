@@ -78,7 +78,7 @@ function DefiBadge({ defi }: { defi: NonNullable<AgentCycle["defi_execution"]> }
 function CycleRow({ cycle, index }: { cycle: AgentCycle; index: number }) {
   const { decision, timestamp, block_height, tx_hash, rwa_tx_hashes, defi_execution, error } = cycle;
   const ts      = timestamp && !timestamp.endsWith("Z") && !timestamp.includes("+") ? timestamp + "Z" : timestamp;
-  const time    = ts ? format(new Date(ts), "HH:mm:ss") : "--:--:--";
+  const time    = ts ? format(new Date(ts), "hh:mm:ss a") : "--:--:--";
   const action  = ACTION_CFG[decision.action] ?? ACTION_CFG.HOLD;
   const risk    = RISK_CFG[decision.risk_level] ?? RISK_CFG.LOW;
   const confPct = (decision.confidence * 100).toFixed(0);

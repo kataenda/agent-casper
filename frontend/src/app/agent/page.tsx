@@ -1,5 +1,6 @@
 "use client";
 
+import { fmtTs } from "@/lib/time";
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import {
@@ -267,7 +268,7 @@ export default function AgentPage() {
                             {v.last_action_tx.slice(0, 12)}… <ExternalLink size={7} className="inline" />
                           </a>
                         )}
-                        {v.last_action_ts && <span className="opacity-60">{v.last_action_ts.slice(5, 16)}</span>}
+                        {v.last_action_ts && <span className="opacity-60">{fmtTs(v.last_action_ts)}</span>}
                       </span>
                     )}
                   </div>
