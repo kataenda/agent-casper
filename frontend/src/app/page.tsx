@@ -107,7 +107,7 @@ export default function Landing() {
           <Link href="/dashboard"
             className="group flex items-center gap-2 px-6 py-3 font-mono text-[12px] font-bold uppercase tracking-widest transition-all hover:brightness-110"
             style={{ background: CYAN, color: "#00131a", clipPath: OCT, boxShadow: `0 0 30px ${CYAN}55` }}>
-            Enter dashboard
+            Launch app
             <ArrowRight size={15} className="transition-transform group-hover:translate-x-0.5" />
           </Link>
           <a href="https://www.youtube.com/watch?v=4XiVtV4MWno" target="_blank" rel="noreferrer"
@@ -184,7 +184,7 @@ export default function Landing() {
           <Link href="/dashboard"
             className="group inline-flex items-center gap-2 mt-7 px-7 py-3 font-mono text-[12px] font-bold uppercase tracking-widest transition-all hover:brightness-110"
             style={{ background: CYAN, color: "#00131a", clipPath: OCT, boxShadow: `0 0 30px ${CYAN}55` }}>
-            Open the dashboard
+            Launch app
             <ArrowRight size={15} className="transition-transform group-hover:translate-x-0.5" />
           </Link>
         </div>
