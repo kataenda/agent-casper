@@ -36,7 +36,7 @@ const HERO_COPY =
  * so the buttons below never jump as lines fill in. Honours prefers-reduced-motion:
  * users who ask for less motion get the full text immediately.
  */
-function TypedText({ text, speed = 18, startDelay = 350 }: { text: string; speed?: number; startDelay?: number }) {
+function TypedText({ text, speed = 42, startDelay = 350 }: { text: string; speed?: number; startDelay?: number }) {
   const [n, setN] = useState(0);
 
   useEffect(() => {
