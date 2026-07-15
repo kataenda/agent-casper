@@ -185,15 +185,29 @@ export default function Landing() {
       </section>
 
       {/* ── Pillars ─────────────────────────────────────────────── */}
-      <section className="max-w-[1000px] mx-auto px-5 md:px-10 py-4">
-        <div className="flex items-center justify-center gap-2 sm:gap-6 flex-wrap font-mono text-[10px] sm:text-[12px] uppercase tracking-[0.18em]">
-          <span style={{ color: CYAN }}>Agentic AI</span>
-          <span className="text-cyber-muted/30">·</span>
-          <span style={{ color: MATRIX }}>DeFi</span>
-          <span className="text-cyber-muted/30">·</span>
-          <span style={{ color: PLASMA }}>RWA</span>
-          <span className="text-cyber-muted/30 hidden sm:inline">—</span>
-          <span className="text-cyber-muted/50 normal-case tracking-normal hidden sm:inline">the three pillars of the Casper Innovation Track</span>
+      <section className="max-w-[1000px] mx-auto px-5 md:px-10 py-8">
+        <div className="flex items-center gap-3 mb-5">
+          <div className="flex-1 h-px" style={{ background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.12))" }} />
+          <p className="font-mono text-[8px] uppercase tracking-[0.28em] text-cyber-muted/45 whitespace-nowrap">
+            The three pillars of the Casper Innovation Track
+          </p>
+          <div className="flex-1 h-px" style={{ background: "linear-gradient(90deg, rgba(255,255,255,0.12), transparent)" }} />
+        </div>
+        <div className="flex items-center justify-center gap-2.5 sm:gap-4 flex-wrap">
+          {[
+            { label: "Agentic AI", c: CYAN },
+            { label: "DeFi", c: MATRIX },
+            { label: "RWA", c: PLASMA },
+          ].map((p, i) => (
+            <span key={p.label} className="flex items-center gap-2.5 sm:gap-4">
+              <span className="px-4 py-1.5 rounded-full font-mono text-[11px] sm:text-[12px] font-bold uppercase tracking-[0.16em]"
+                style={{ color: p.c, border: `1px solid ${p.c}55`, background: `${p.c}12`,
+                         boxShadow: `0 0 18px ${p.c}22, inset 0 0 12px ${p.c}0f` }}>
+                {p.label}
+              </span>
+              {i < 2 && <span className="w-1 h-1 rounded-full" style={{ background: "rgba(255,255,255,0.2)" }} />}
+            </span>
+          ))}
         </div>
       </section>
 
